@@ -1,28 +1,28 @@
-import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
-
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
-  alias(libs.plugins.secrets)
-  alias(libs.plugins.google.services)
 }
 
+val configuredReleaseApiUrl = providers.gradleProperty("API_BASE_URL")
+  .orElse(providers.environmentVariable("API_BASE_URL"))
+  .getOrElse("")
+
 android {
-  namespace = "com.example"
+  namespace = "com.smartprocurement.internal"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.institutionsupply.nrvqw"
+    applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    buildConfigField("String", "INTERNAL_INVITE_CODE", "\"LOGI-2026\"")
     manifestPlaceholders["usesCleartextTraffic"] = "false"
+    buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
   }
 
   signingConfigs {
@@ -47,14 +47,21 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
-      val releaseApiUrl = providers.gradleProperty("API_BASE_URL")
-        .orElse(providers.environmentVariable("API_BASE_URL"))
-        .getOrElse("https://example.invalid/api/v1/")
-      buildConfigField("String", "API_BASE_URL", "\"$releaseApiUrl\"")
+      buildConfigField("String", "API_BASE_URL", "\"$configuredReleaseApiUrl\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
+    }
+    create("staging") {
+      initWith(getByName("debug"))
+      matchingFallbacks += listOf("debug")
+      applicationIdSuffix = ".staging"
+      manifestPlaceholders["usesCleartextTraffic"] = "true"
+      buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"测试版\"")
     }
     debug {
       manifestPlaceholders["usesCleartextTraffic"] = "true"
       buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"开发版\"")
     }
   }
   compileOptions {
@@ -68,31 +75,10 @@ android {
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
-secrets {
-  propertiesFileName = ".env"
-  defaultPropertiesFileName = ".env.example"
-}
-
-googleServices {
-  missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN
-}
-
-
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
-  implementation(platform(libs.firebase.bom))
-  // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
   implementation(libs.androidx.compose.material.icons.core)
-  // implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
   implementation(libs.androidx.compose.ui)
   implementation(libs.androidx.compose.ui.graphics)
@@ -102,19 +88,15 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
-  // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
-  implementation(libs.firebase.appcheck.recaptcha)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
-  // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
@@ -134,4 +116,12 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+gradle.taskGraph.whenReady {
+  if (allTasks.any { it.name.contains("Release") }) {
+    if (!configuredReleaseApiUrl.startsWith("https://")) {
+      throw GradleException("Release build requires API_BASE_URL starting with https://")
+    }
+  }
 }

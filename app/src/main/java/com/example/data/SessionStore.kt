@@ -1,14 +1,23 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
 import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
 private val Context.sessionDataStore by preferencesDataStore(name = "login_session")
+private const val SESSION_KEY_ALIAS = "smart_procurement_session_key"
 
 data class LoginSession(
     val userId: String,
@@ -30,13 +39,14 @@ class SessionStore(private val context: Context) {
     private val displayNameKey = stringPreferencesKey("display_name")
     private val roleKey = stringPreferencesKey("role")
     private val unitIdKey = stringPreferencesKey("unit_id")
+    private val tokenIvKey = stringPreferencesKey("token_iv")
 
     val sessionFlow: Flow<LoginSession?> = context.sessionDataStore.data.map { preferences ->
         val userId = preferences[userIdKey].orEmpty()
         if (userId.isBlank()) null else LoginSession(
             userId = userId,
             rememberLogin = preferences[rememberKey] ?: true,
-            token = preferences[tokenKey].orEmpty(),
+            token = decryptToken(preferences[tokenKey].orEmpty(), preferences[tokenIvKey].orEmpty()).orEmpty(),
             expiresAt = preferences[expiresAtKey]?.toLongOrNull() ?: 0,
             username = preferences[usernameKey].orEmpty(),
             displayName = preferences[displayNameKey].orEmpty(),
@@ -53,10 +63,12 @@ class SessionStore(private val context: Context) {
     }
 
     suspend fun saveSession(session: LoginSession) {
+        val encryptedToken = encryptToken(session.token)
         context.sessionDataStore.edit { preferences ->
             preferences[userIdKey] = session.userId
             preferences[rememberKey] = session.rememberLogin
-            preferences[tokenKey] = session.token
+            preferences[tokenKey] = encryptedToken.cipherText
+            preferences[tokenIvKey] = encryptedToken.iv
             preferences[expiresAtKey] = session.expiresAt.toString()
             preferences[usernameKey] = session.username
             preferences[displayNameKey] = session.displayName
@@ -70,11 +82,56 @@ class SessionStore(private val context: Context) {
             preferences.remove(userIdKey)
             preferences.remove(rememberKey)
             preferences.remove(tokenKey)
+            preferences.remove(tokenIvKey)
             preferences.remove(expiresAtKey)
             preferences.remove(usernameKey)
             preferences.remove(displayNameKey)
             preferences.remove(roleKey)
             preferences.remove(unitIdKey)
         }
+    }
+
+    private data class EncryptedToken(val cipherText: String, val iv: String)
+
+    private fun encryptToken(token: String): EncryptedToken {
+        if (token.isBlank()) return EncryptedToken("", "")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, sessionKey())
+        return EncryptedToken(
+            cipherText = Base64.encodeToString(cipher.doFinal(token.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP),
+            iv = Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
+        )
+    }
+
+    private fun decryptToken(cipherText: String, iv: String): String? {
+        if (cipherText.isBlank() || iv.isBlank()) return ""
+        return runCatching {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                sessionKey(),
+                GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))
+            )
+            String(cipher.doFinal(Base64.decode(cipherText, Base64.NO_WRAP)), Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    private fun sessionKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getEntry(SESSION_KEY_ALIAS, null) as? KeyStore.SecretKeyEntry)?.let {
+            return it.secretKey
+        }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                SESSION_KEY_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
     }
 }

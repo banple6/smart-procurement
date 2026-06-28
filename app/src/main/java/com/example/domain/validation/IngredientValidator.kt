@@ -1,4 +1,4 @@
-package com.example.domain.validation
+package com.smartprocurement.internal.domain.validation
 
 import java.math.BigDecimal
 

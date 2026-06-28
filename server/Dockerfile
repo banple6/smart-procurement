@@ -5,10 +5,19 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
+RUN set -eux; \
+    . /etc/os-release; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf 'deb https://mirrors.aliyun.com/debian/ %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list; \
+    printf 'deb https://mirrors.aliyun.com/debian/ %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    printf 'deb https://mirrors.aliyun.com/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list
 RUN apt-get update \
     && apt-get install -y --no-install-recommends sqlite3 \
     && rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir \
+    --index-url https://mirrors.aliyun.com/pypi/simple/ \
+    --trusted-host mirrors.aliyun.com \
+    -r /app/requirements.txt
 
 COPY app /app/app
 COPY backup.sh /app/backup.sh

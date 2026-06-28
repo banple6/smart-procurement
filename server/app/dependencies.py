@@ -1,21 +1,32 @@
+import time
+
 from fastapi import Depends, Header, HTTPException
 
 from .database import connect, one
-from .security import decode_token
+from .security import hash_token
 
 
 def current_user(authorization: str | None = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing token")
-    payload = decode_token(authorization.removeprefix("Bearer ").strip())
-    if not payload:
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
         raise HTTPException(status_code=401, detail="Invalid token")
     with connect() as conn:
-        user = one(conn, "SELECT * FROM users WHERE id = ?", (payload.get("sub"),))
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    if not user["active"]:
-        raise HTTPException(status_code=403, detail="User disabled")
+        session = one(conn, "SELECT * FROM sessions WHERE token_hash = ?", (hash_token(token),))
+        if not session or session["revoked_at"] or int(session["expires_at"]) < int(time.time()):
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user = one(conn, "SELECT * FROM users WHERE id = ?", (session["user_id"],))
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        if not user["active"]:
+            raise HTTPException(status_code=403, detail="User disabled")
+        if user["role"] == "unit_user":
+            unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
+            if not unit or not unit["active"]:
+                raise HTTPException(status_code=403, detail="Unit disabled")
+        conn.execute("UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", (session["id"],))
+        conn.commit()
     return user
 
 

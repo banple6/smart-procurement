@@ -1,4 +1,4 @@
-package com.example.ui
+package com.smartprocurement.internal.ui
 
 import android.app.Application
 import android.net.Uri
@@ -9,13 +9,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.BuildConfig
-import com.example.data.*
-import com.example.domain.validation.ActivationInput
-import com.example.domain.validation.AuthValidator
-import com.example.domain.validation.IngredientFormInput
-import com.example.domain.validation.IngredientValidator
-import com.example.domain.validation.LoginInput
+import com.smartprocurement.internal.BuildConfig
+import com.smartprocurement.internal.data.*
+import com.smartprocurement.internal.domain.validation.AuthValidator
+import com.smartprocurement.internal.domain.validation.IngredientFormInput
+import com.smartprocurement.internal.domain.validation.IngredientValidator
+import com.smartprocurement.internal.domain.validation.LoginInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,7 +28,6 @@ import java.util.*
 sealed interface Screen {
     object Splash : Screen
     object Login : Screen
-    object AccountActivation : Screen
     object DeviceAuth : Screen
     object Home : Screen
     object AddProduct : Screen
@@ -50,7 +48,6 @@ sealed interface Screen {
     data class SubmitSuccess(val orderId: String) : Screen
     object OrderList : Screen
     data class OrderDetails(val orderId: String) : Screen
-    data class ReplacementConfirm(val orderId: String) : Screen
 }
 
 data class IngredientFormState(
@@ -92,7 +89,6 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         repository = SupplyRepository(dao)
 
         viewModelScope.launch {
-            repository.populateInitialDataIfNeeded()
             sessionStore.sessionFlow.first()?.let { session ->
                 if (session.token.isNotBlank()) {
                     runCatching {
@@ -134,13 +130,12 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var userId by mutableStateOf("")
     var userDept by mutableStateOf("")
     val institution = "智慧后勤采购"
-    var userRole by mutableStateOf("staff")
+    var userRole by mutableStateOf("")
     var unitId by mutableStateOf("")
     var isDeviceAuthorized by mutableStateOf(false)
     var lastSyncText by mutableStateOf("")
 
     val loginErrors = mutableStateMapOf<String, String>()
-    val activationErrors = mutableStateMapOf<String, String>()
     val ingredientErrors = mutableStateMapOf<String, String>()
     var isAuthLoading by mutableStateOf(false)
     var isSavingIngredient by mutableStateOf(false)
@@ -209,47 +204,25 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun activateAccount(input: ActivationInput, role: String) {
-        val validation = AuthValidator.validateActivation(input, BuildConfig.INTERNAL_INVITE_CODE)
-        activationErrors.clear()
-        activationErrors.putAll(validation.errors)
-        if (!validation.isValid) return
-        isAuthLoading = true
-        viewModelScope.launch {
-            val result = repository.activateUser(input, role)
-            isAuthLoading = false
-            result.onSuccess { user ->
-                applyCurrentUser(user)
-                sessionStore.saveSession(user.id, true)
-                popToRootAndNavigate(Screen.Home)
-            }.onFailure {
-                activationErrors["username"] = it.message ?: "账号已存在"
-            }
-        }
-    }
-
     fun logout() {
         viewModelScope.launch {
+            val tokenToRevoke = authToken
+            if (tokenToRevoke.isNotBlank()) {
+                runCatching { withContext(Dispatchers.IO) { apiClient.logout(tokenToRevoke) } }
+            }
             sessionStore.clearSession()
+            repository.clearCart()
+            repository.clearOrderCache()
             currentUser = null
             userName = "未登录"
             userId = ""
             userDept = ""
-            userRole = "staff"
+            userRole = ""
             unitId = ""
             authToken = ""
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
         }
-    }
-
-    private fun applyCurrentUser(user: UserEntity) {
-        currentUser = user
-        userName = user.realName
-        userId = user.username
-        userDept = user.department
-        userRole = user.role
-        isDeviceAuthorized = true
     }
 
     private fun applyRemoteUser(user: RemoteUser) {
@@ -489,69 +462,26 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val cartList = repository.getCartItemsDirect()
             if (cartList.isEmpty()) return@launch
-
-            if (authToken.isNotBlank()) {
-                val remoteResult = runCatching {
-                    withContext(Dispatchers.IO) {
-                        apiClient.createOrder(authToken, remarks, cartList.map { it.productId to it.quantity })
-                    }
-                }
-                if (remoteResult.isFailure) {
-                    alertMessage = remoteResult.exceptionOrNull()?.message ?: "订单提交失败"
-                    return@launch
-                }
-                val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())
-                repository.upsertOrder(remoteOrder)
-                repository.clearCart()
-                refreshProducts()
-                popToRootAndNavigate(Screen.SubmitSuccess(remoteOrder.order.orderId))
+            if (authToken.isBlank()) {
+                alertMessage = "请先登录后再提交订单"
+                popToRootAndNavigate(Screen.Login)
                 return@launch
             }
 
-            val orderId = "SX" + SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date()) + String.format("%04d", (1000..9999).random())
-            val submitTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-
-            val newOrder = OrderEntity(
-                orderId = orderId,
-                submitTime = submitTime,
-                deliveryPoint = location,
-                status = "待确认",
-                requesterName = userName,
-                department = "综合管理处 - 后勤保障科",
-                phone = "138-xxxx-8888",
-                remarks = remarks,
-                urgent = urgent,
-                allowSubstitute = allowSubstitute,
-                estimatedDelivery = "$date $timeRange"
-            )
-
-            // Save order
-            repository.insertOrder(newOrder)
-
-            // Save items
-            val orderItems = cartList.map { cart ->
-                val prod = repository.getProductById(cart.productId)
-                OrderItemEntity(
-                    orderId = orderId,
-                    productId = cart.productId,
-                    productName = prod?.name ?: "未知食材",
-                    productSpec = prod?.spec ?: "规格: 默认",
-                    productUnit = prod?.unit ?: "kg",
-                    productImageUrl = prod?.imageUrl ?: "",
-                    requestedQty = cart.quantity,
-                    confirmedQty = cart.quantity, // Initially same
-                    deliveredQty = 0.0,
-                    price = prod?.price ?: 0.0,
-                    isSubstitute = false
-                )
+            val remoteResult = runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.createOrder(authToken, remarks, cartList.map { it.productId to it.quantity })
+                }
             }
-            repository.insertOrderItems(orderItems)
-
-            // Clear Cart
+            if (remoteResult.isFailure) {
+                alertMessage = remoteResult.exceptionOrNull()?.message ?: "订单提交失败"
+                return@launch
+            }
+            val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())
+            repository.upsertOrder(remoteOrder)
             repository.clearCart()
-
-            // Navigate to Success
-            popToRootAndNavigate(Screen.SubmitSuccess(orderId))
+            refreshProducts()
+            popToRootAndNavigate(Screen.SubmitSuccess(remoteOrder.order.orderId))
         }
     }
 
@@ -562,16 +492,16 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     fun nextOrderActionLabel(order: OrderEntity): String? {
         if (currentUser?.role == "admin") {
             return when (order.status) {
-                "待确认" -> "确认订单"
-                "已确认" -> "开始分拣"
-                "分拣中" -> "发出配送"
-                "配送中" -> "完成订单"
+                "待接单" -> "接单"
+                "已接单" -> "开始备货"
+                "备货中" -> "确认发货"
+                "已发货" -> "完成订单"
                 else -> null
             }
         }
         return when (order.status) {
-            "待确认" -> "取消订单"
-            "配送中" -> "确认收货"
+            "待接单" -> "取消订单"
+            "已发货" -> "确认收货"
             else -> null
         }
     }
@@ -590,8 +520,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                         apiClient.setAdminOrderStatus(authToken, order.orderId, nextStatus)
                     } else {
                         when (order.status) {
-                            "待确认" -> apiClient.cancelOrder(authToken, order.orderId)
-                            "配送中" -> apiClient.confirmReceipt(authToken, order.orderId)
+                            "待接单" -> apiClient.cancelOrder(authToken, order.orderId)
+                            "已发货" -> apiClient.confirmReceipt(authToken, order.orderId)
                             else -> throw IllegalStateException("当前状态不可操作")
                         }
                     }
@@ -611,8 +541,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     // --- Replacement Confirm ---
     fun acceptReplacement(orderId: String) {
         viewModelScope.launch {
-            repository.updateOrderStatus(orderId, "已确认")
-            alertMessage = "已确认替换方案。订单已更新，正在通知配送中心。"
+            repository.updateOrderStatus(orderId, "已接单")
+            alertMessage = "已接单替换方案。订单已更新，正在通知已发货心。"
         }
     }
 

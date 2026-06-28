@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..database import all_rows, connect, one
+from ..database import all_rows, connect, one, revoke_unit_sessions, revoke_user_sessions
 from ..dependencies import require_admin_user
 from ..schemas import ResetPasswordRequest, StatusPatch, UnitCreate, UnitUpdate, UserCreate, UserUpdate
 from ..security import hash_password
@@ -13,7 +13,17 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/units")
 def list_units(admin=Depends(require_admin_user)):
     with connect() as conn:
-        return all_rows(conn, "SELECT * FROM units ORDER BY created_at DESC")
+        return all_rows(
+            conn,
+            """
+            SELECT u.*,
+              (SELECT COUNT(*) FROM users WHERE unit_id = u.id) AS account_count,
+              (SELECT COUNT(*) FROM orders WHERE unit_id = u.id) AS order_count,
+              (SELECT MAX(created_at) FROM orders WHERE unit_id = u.id) AS last_order_at
+            FROM units u
+            ORDER BY u.created_at DESC
+            """,
+        )
 
 
 @router.post("/units")
@@ -21,8 +31,8 @@ def create_unit(body: UnitCreate, admin=Depends(require_admin_user)):
     unit_id = str(uuid4())
     with connect() as conn:
         conn.execute(
-            "INSERT INTO units(id, unit_code, unit_name, default_delivery_point) VALUES (?, ?, ?, ?)",
-            (unit_id, body.unit_code, body.unit_name, body.default_delivery_point),
+            "INSERT INTO units(id, unit_code, unit_name, default_delivery_point, address_note) VALUES (?, ?, ?, ?, ?)",
+            (unit_id, body.unit_code, body.unit_name, body.default_delivery_point, body.address_note),
         )
         conn.commit()
         return one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
@@ -45,6 +55,8 @@ def update_unit(unit_id: str, body: UnitUpdate, admin=Depends(require_admin_user
 def update_unit_status(unit_id: str, body: StatusPatch, admin=Depends(require_admin_user)):
     with connect() as conn:
         conn.execute("UPDATE units SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (int(body.active), unit_id))
+        if not body.active:
+            revoke_unit_sessions(conn, unit_id)
         conn.commit()
         return one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
 
@@ -52,7 +64,16 @@ def update_unit_status(unit_id: str, body: StatusPatch, admin=Depends(require_ad
 @router.get("/users")
 def list_users(admin=Depends(require_admin_user)):
     with connect() as conn:
-        return all_rows(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password, created_at, updated_at FROM users ORDER BY created_at DESC")
+        return all_rows(
+            conn,
+            """
+            SELECT u.id, u.username, u.display_name, u.role, u.unit_id, units.unit_name,
+              u.active, u.must_change_password, u.last_login_at, u.created_at, u.updated_at
+            FROM users u
+            LEFT JOIN units ON units.id = u.unit_id
+            ORDER BY u.created_at DESC
+            """,
+        )
 
 
 @router.post("/users")
@@ -94,6 +115,7 @@ def reset_password(user_id: str, body: ResetPasswordRequest, admin=Depends(requi
             "UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (hash_password(body.new_password), int(body.must_change_password), user_id),
         )
+        revoke_user_sessions(conn, user_id)
         conn.commit()
         return {"ok": True}
 
@@ -102,6 +124,7 @@ def reset_password(user_id: str, body: ResetPasswordRequest, admin=Depends(requi
 def update_user_status(user_id: str, body: StatusPatch, admin=Depends(require_admin_user)):
     with connect() as conn:
         conn.execute("UPDATE users SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (int(body.active), user_id))
+        if not body.active:
+            revoke_user_sessions(conn, user_id)
         conn.commit()
         return one(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password FROM users WHERE id = ?", (user_id,))
-

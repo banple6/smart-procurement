@@ -1,4 +1,4 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
 import android.content.Context
 import android.graphics.Bitmap

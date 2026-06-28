@@ -1,4 +1,4 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
 import org.json.JSONObject
 
@@ -52,21 +52,21 @@ object RemoteOrderMapper {
     fun apiStatusForNextUiAction(currentStatus: String, isAdmin: Boolean): String? {
         if (!isAdmin) return null
         return when (currentStatus) {
-            "待确认" -> "accepted"
-            "已确认" -> "preparing"
-            "分拣中" -> "shipped"
-            "配送中" -> "completed"
+            "待接单" -> "accepted"
+            "已接单" -> "preparing"
+            "备货中" -> "shipped"
+            "已发货" -> "completed"
             else -> null
         }
     }
 
     private fun String.toUiOrderStatus(): String = when (this) {
-        "accepted" -> "已确认"
-        "preparing" -> "分拣中"
-        "shipped" -> "配送中"
+        "accepted" -> "已接单"
+        "preparing" -> "备货中"
+        "shipped" -> "已发货"
         "completed" -> "已完成"
         "cancelled" -> "已取消"
-        else -> "待确认"
+        else -> "待接单"
     }
 
     private fun String.toUiTime(): String {
@@ -75,19 +75,19 @@ object RemoteOrderMapper {
     }
 
     private fun String.toProgressPercent(): Float = when (this) {
-        "待确认" -> 0.2f
-        "已确认" -> 0.35f
-        "分拣中" -> 0.65f
-        "配送中" -> 0.85f
+        "待接单" -> 0.2f
+        "已接单" -> 0.35f
+        "备货中" -> 0.65f
+        "已发货" -> 0.85f
         "已完成" -> 1f
         else -> 0f
     }
 
     private fun String.toProgressText(): String = when (this) {
-        "待确认" -> "等待管理员确认"
-        "已确认" -> "管理员已确认"
-        "分拣中" -> "仓储正在分拣"
-        "配送中" -> "配送途中"
+        "待接单" -> "等待管理员接单"
+        "已接单" -> "管理员已接单"
+        "备货中" -> "仓储正在备货"
+        "已发货" -> "配送途中"
         "已完成" -> "已完成签收"
         "已取消" -> "订单已取消"
         else -> ""

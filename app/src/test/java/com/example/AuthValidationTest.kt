@@ -1,8 +1,9 @@
-package com.example
+package com.smartprocurement.internal
 
-import com.example.data.PasswordHasher
-import com.example.domain.validation.ActivationInput
-import com.example.domain.validation.AuthValidator
+import com.smartprocurement.internal.data.PasswordHasher
+import com.smartprocurement.internal.domain.validation.AuthValidator
+import com.smartprocurement.internal.domain.validation.LoginInput
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -10,41 +11,12 @@ import org.junit.Test
 
 class AuthValidationTest {
     @Test
-    fun activation_rejects_invalid_phone_and_mismatched_passwords() {
-        val result = AuthValidator.validateActivation(
-            ActivationInput(
-                inviteCode = "LOGI-2026",
-                realName = "张伟",
-                phone = "12345",
-                department = "后勤管理处",
-                username = "zhangwei",
-                password = "abc12345",
-                confirmPassword = "abc123456"
-            ),
-            expectedInviteCode = "LOGI-2026"
-        )
+    fun login_requires_username_and_password() {
+        val result = AuthValidator.validateLogin(LoginInput("", ""))
 
         assertFalse(result.isValid)
-        assertTrue(result.errors["phone"] == "手机号格式不正确")
-        assertTrue(result.errors["confirmPassword"] == "两次密码必须一致")
-    }
-
-    @Test
-    fun activation_accepts_complete_internal_account() {
-        val result = AuthValidator.validateActivation(
-            ActivationInput(
-                inviteCode = "LOGI-2026",
-                realName = "李华",
-                phone = "13812345678",
-                department = "仓储配送部",
-                username = "lihua",
-                password = "secure123",
-                confirmPassword = "secure123"
-            ),
-            expectedInviteCode = "LOGI-2026"
-        )
-
-        assertTrue(result.errors.toString(), result.isValid)
+        assertEquals("账号不能为空", result.errors["username"])
+        assertEquals("密码不能为空", result.errors["password"])
     }
 
     @Test

@@ -1,4 +1,4 @@
-package com.example.ui
+package com.smartprocurement.internal.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -63,9 +63,6 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             is Screen.Login -> {
                 LoginScreen(viewModel)
             }
-            is Screen.AccountActivation -> {
-                AccountActivationScreen(viewModel)
-            }
             is Screen.DeviceAuth -> {
                 DeviceAuthScreen(viewModel)
             }
@@ -95,9 +92,6 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             }
             is Screen.OrderDetails -> {
                 OrderDetailsScreen(orderId = currentScreen.orderId, viewModel = viewModel)
-            }
-            is Screen.ReplacementConfirm -> {
-                ReplacementConfirmScreen(orderId = currentScreen.orderId, viewModel = viewModel)
             }
             else -> {
                 MainTabFrame(viewModel)

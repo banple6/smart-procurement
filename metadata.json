@@ -1,6 +1,0 @@
-{
-  "name": "智慧后勤采购",
-  "description": "智慧后勤采购系统 - 内部生鲜食材申领与配送平台，支持商品申领、需求清单、提交配送、订单状态查询及异常替换确认等功能。",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

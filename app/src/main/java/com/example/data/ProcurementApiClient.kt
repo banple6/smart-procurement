@@ -1,6 +1,6 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
-import com.example.BuildConfig
+import com.smartprocurement.internal.BuildConfig
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.math.BigDecimal
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 data class RemoteUser(
@@ -18,7 +19,8 @@ data class RemoteUser(
     val username: String,
     val displayName: String,
     val role: String,
-    val unitId: String
+    val unitId: String,
+    val mustChangePassword: Boolean = false
 )
 
 data class RemoteLogin(
@@ -49,6 +51,10 @@ class ProcurementApiClient(
     }
 
     fun me(token: String): RemoteUser = parseUser(request("auth/me", token = token))
+
+    fun logout(token: String) {
+        request("auth/logout", token = token, method = "POST")
+    }
 
     fun products(token: String): List<ProductEntity> {
         val array = requestArray("products", token = token)
@@ -111,6 +117,7 @@ class ProcurementApiClient(
             array.put(JSONObject().put("product_id", productId).put("quantity", quantity.toCleanString()))
         }
         val body = JSONObject()
+            .put("client_request_id", UUID.randomUUID().toString())
             .put("note", note)
             .put("items", array)
             .toString()
@@ -119,11 +126,11 @@ class ProcurementApiClient(
     }
 
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> {
-        val path = if (isAdmin) "admin/orders" else "orders"
-        val array = requestArray(path, token = token)
+        val path = if (isAdmin) "admin/orders?include_items=true" else "orders?include_items=true"
+        val json = request(path, token = token)
+        val array = json.getJSONArray("items")
         return List(array.length()) { index ->
-            val summary = array.getJSONObject(index)
-            orderDetail(token, summary.getString("id"), isAdmin)
+            RemoteOrderMapper.mapOrder(array.getJSONObject(index))
         }
     }
 
@@ -188,7 +195,8 @@ class ProcurementApiClient(
         username = json.getString("username"),
         displayName = json.getString("display_name"),
         role = json.getString("role"),
-        unitId = json.optString("unit_id")
+        unitId = json.optString("unit_id"),
+        mustChangePassword = json.optBoolean("must_change_password", false)
     )
 
     private fun parseProduct(json: JSONObject): ProductEntity {

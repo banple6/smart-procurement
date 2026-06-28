@@ -1,7 +1,8 @@
 from decimal import Decimal
+from datetime import datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..database import all_rows, one, transaction, connect
 from ..dependencies import current_user, require_admin_user, require_unit_user
@@ -13,8 +14,12 @@ router = APIRouter(tags=["orders"])
 
 
 def order_no(conn) -> str:
-    row = one(conn, "SELECT COUNT(*) AS c FROM orders")
-    return f"SP{int(row['c']) + 1:08d}"
+    prefix = "SP" + datetime.now().strftime("%Y%m%d")
+    name = f"order-{prefix}"
+    conn.execute("INSERT OR IGNORE INTO app_sequences(name, value) VALUES (?, 0)", (name,))
+    conn.execute("UPDATE app_sequences SET value = value + 1 WHERE name = ?", (name,))
+    row = one(conn, "SELECT value FROM app_sequences WHERE name = ?", (name,))
+    return f"{prefix}-{int(row['value']):06d}"
 
 
 def get_unit(conn, unit_id: str):
@@ -32,6 +37,15 @@ def order_out(conn, order: dict) -> dict:
     return {**order, "items": order_items(conn, order["id"])}
 
 
+def order_list(conn, sql: str, params: list, include_items: bool, page: int, page_size: int) -> dict:
+    count_sql = f"SELECT COUNT(*) AS c FROM ({sql}) AS filtered_orders"
+    total = one(conn, count_sql, params)["c"]
+    rows = all_rows(conn, sql + " ORDER BY created_at DESC LIMIT ? OFFSET ?", (*params, page_size, (page - 1) * page_size))
+    if include_items:
+        rows = [order_out(conn, row) for row in rows]
+    return {"items": rows, "total": total, "page": page, "page_size": page_size}
+
+
 def fetch_order_for_user(conn, order_id: str, user: dict):
     order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
     if not order:
@@ -45,6 +59,14 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
     if not body.items:
         raise HTTPException(status_code=400, detail="Order requires items")
     unit = get_unit(conn, user["unit_id"])
+    if body.client_request_id and not existing_order_id:
+        existing = one(
+            conn,
+            "SELECT * FROM orders WHERE client_request_id = ? AND created_by = ?",
+            (body.client_request_id, user["id"]),
+        )
+        if existing:
+            return existing
     order_id = existing_order_id or str(uuid4())
     total = 0
     items_payload = []
@@ -64,10 +86,10 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
     else:
         conn.execute(
             """
-            INSERT INTO orders(id, order_no, unit_id, unit_name_snapshot, delivery_point_snapshot, note, status, total_cents, created_by)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            INSERT INTO orders(id, order_no, unit_id, unit_name_snapshot, delivery_point_snapshot, note, status, total_cents, created_by, client_request_id)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
             """,
-            (order_id, order_no(conn), unit["id"], unit["unit_name"], unit["default_delivery_point"], body.note, total, user["id"]),
+            (order_id, order_no(conn), unit["id"], unit["unit_name"], unit["default_delivery_point"], body.note, total, user["id"], body.client_request_id),
         )
     for product, quantity, subtotal in items_payload:
         conn.execute(
@@ -96,9 +118,20 @@ def create_order(body: OrderCreate, user=Depends(require_unit_user)):
 
 
 @router.get("/orders")
-def list_orders(user=Depends(require_unit_user)):
+def list_orders(
+    include_items: bool = False,
+    status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    user=Depends(require_unit_user),
+):
     with connect() as conn:
-        return all_rows(conn, "SELECT * FROM orders WHERE unit_id = ? ORDER BY created_at DESC", (user["unit_id"],))
+        sql = "SELECT * FROM orders WHERE unit_id = ?"
+        params = [user["unit_id"]]
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        return order_list(conn, sql, params, include_items, page, page_size)
 
 
 @router.get("/orders/{order_id}")
@@ -153,9 +186,24 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
 
 
 @router.get("/admin/orders")
-def admin_orders(admin=Depends(require_admin_user)):
+def admin_orders(
+    include_items: bool = False,
+    status: str | None = None,
+    unit_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    admin=Depends(require_admin_user),
+):
     with connect() as conn:
-        return all_rows(conn, "SELECT * FROM orders ORDER BY created_at DESC")
+        sql = "SELECT * FROM orders WHERE 1 = 1"
+        params: list = []
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if unit_id:
+            sql += " AND unit_id = ?"
+            params.append(unit_id)
+        return order_list(conn, sql, params, include_items, page, page_size)
 
 
 @router.get("/admin/orders/{order_id}")
@@ -193,4 +241,3 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             (str(uuid4()), order_id, admin["id"], order["status"], body.status),
         )
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
-

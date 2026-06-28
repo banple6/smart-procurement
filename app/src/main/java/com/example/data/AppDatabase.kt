@@ -1,4 +1,4 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
 import android.content.Context
 import androidx.room.*
@@ -66,7 +66,7 @@ data class OrderEntity(
     val displayOrderNo: String = "",
     val submitTime: String,
     val deliveryPoint: String,
-    val status: String, // "待确认", "已确认", "分拣中", "配送中", "已完成", "异常"
+    val status: String, // "待接单", "已接单", "备货中", "已发货", "已完成", "已取消"
     val requesterName: String,
     val department: String,
     val phone: String,
@@ -74,13 +74,8 @@ data class OrderEntity(
     val urgent: Boolean = false,
     val allowSubstitute: Boolean = true,
     val estimatedDelivery: String = "",
-    val driverName: String = "",
-    val driverPhone: String = "",
-    val licensePlate: String = "",
-    val distanceInfo: String = "",
     val progressPercent: Float = 0f,
-    val progressText: String = "",
-    val exceptionText: String = ""
+    val progressText: String = ""
 )
 
 @Entity(tableName = "order_items")
@@ -205,7 +200,7 @@ interface SupplyDao {
 
 @Database(
     entities = [ProductEntity::class, UserEntity::class, CartItemEntity::class, OrderEntity::class, OrderItemEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

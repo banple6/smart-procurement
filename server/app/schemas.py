@@ -17,11 +17,14 @@ class UnitCreate(BaseModel):
     unit_code: str
     unit_name: str
     default_delivery_point: str = ""
+    address_note: str = ""
 
 
 class UnitUpdate(BaseModel):
+    unit_code: Optional[str] = None
     unit_name: Optional[str] = None
     default_delivery_point: Optional[str] = None
+    address_note: Optional[str] = None
     active: Optional[bool] = None
 
 
@@ -101,10 +104,10 @@ class OrderItemRequest(BaseModel):
 
 
 class OrderCreate(BaseModel):
+    client_request_id: Optional[str] = None
     note: str = ""
     items: list[OrderItemRequest]
 
 
 class OrderStatusPatch(BaseModel):
     status: str
-

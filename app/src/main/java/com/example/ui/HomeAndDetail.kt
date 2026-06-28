@@ -1,4 +1,4 @@
-package com.example.ui
+package com.smartprocurement.internal.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
-import com.example.data.ProductEntity
+import com.smartprocurement.internal.data.ProductEntity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -732,6 +732,6 @@ private fun Double.clean(): String = if (this % 1.0 == 0.0) toInt().toString() e
 private fun Long.toTimeText(): String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))
 private fun roleLabel(role: String): String = when (role) {
     "admin" -> "系统管理员"
-    "warehouse" -> "后勤管理"
-    else -> "普通员工"
+    "unit_user" -> "子单位账号"
+    else -> "未知角色"
 }

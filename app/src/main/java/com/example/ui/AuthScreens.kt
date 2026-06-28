@@ -1,4 +1,4 @@
-package com.example.ui
+package com.smartprocurement.internal.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,7 +20,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.domain.validation.ActivationInput
 
 @Composable
 fun LoginScreen(viewModel: SupplyViewModel) {
@@ -117,111 +116,6 @@ fun LoginScreen(viewModel: SupplyViewModel) {
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AccountActivationScreen(viewModel: SupplyViewModel) {
-    var inviteCode by remember { mutableStateOf("") }
-    var realName by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var department by remember { mutableStateOf("后勤管理处") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var role by remember { mutableStateOf("warehouse") }
-    var departmentExpanded by remember { mutableStateOf(false) }
-    var roleExpanded by remember { mutableStateOf(false) }
-    val departments = listOf("后勤管理处", "仓储配送部", "机关食堂", "综合管理处", "财务科")
-    val roles = listOf("warehouse" to "后勤/超市管理人员", "staff" to "普通内部工作人员", "admin" to "系统管理员")
-
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("内部账号激活", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    TextButton(onClick = { viewModel.navigateBack() }) { Text("返回") }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(MaterialTheme.colorScheme.background)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("仅限内部授权人员使用，请使用管理员提供的邀请码。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FormField(inviteCode, { inviteCode = it }, "邀请码或激活码", viewModel.activationErrors["inviteCode"])
-            FormField(realName, { realName = it }, "姓名", viewModel.activationErrors["realName"])
-            FormField(phone, { phone = it }, "手机号", viewModel.activationErrors["phone"])
-
-            ExposedDropdownMenuBox(expanded = departmentExpanded, onExpandedChange = { departmentExpanded = !departmentExpanded }) {
-                OutlinedTextField(
-                    value = department,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("所属部门") },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    isError = viewModel.activationErrors.containsKey("department"),
-                    supportingText = { viewModel.activationErrors["department"]?.let { Text(it) } }
-                )
-                ExposedDropdownMenu(expanded = departmentExpanded, onDismissRequest = { departmentExpanded = false }) {
-                    departments.forEach {
-                        DropdownMenuItem(text = { Text(it) }, onClick = {
-                            department = it
-                            departmentExpanded = false
-                        })
-                    }
-                }
-            }
-
-            FormField(username, { username = it }, "登录账号或工号", viewModel.activationErrors["username"])
-            PasswordField(password, { password = it }, "设置密码", viewModel.activationErrors["password"])
-            PasswordField(confirmPassword, { confirmPassword = it }, "确认密码", viewModel.activationErrors["confirmPassword"])
-
-            ExposedDropdownMenuBox(expanded = roleExpanded, onExpandedChange = { roleExpanded = !roleExpanded }) {
-                OutlinedTextField(
-                    value = roles.first { it.first == role }.second,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text("账号角色") },
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth()
-                )
-                ExposedDropdownMenu(expanded = roleExpanded, onDismissRequest = { roleExpanded = false }) {
-                    roles.forEach { (value, label) ->
-                        DropdownMenuItem(text = { Text(label) }, onClick = {
-                            role = value
-                            roleExpanded = false
-                        })
-                    }
-                }
-            }
-
-            Button(
-                onClick = {
-                    viewModel.activateAccount(
-                        ActivationInput(inviteCode, realName, phone, department, username, password, confirmPassword),
-                        role
-                    )
-                },
-                enabled = !viewModel.isAuthLoading,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Text("激活并登录", fontWeight = FontWeight.Bold)
-            }
-        }
     }
 }
 

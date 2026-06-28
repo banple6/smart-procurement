@@ -1,7 +1,7 @@
-package com.example
+package com.smartprocurement.internal
 
-import com.example.domain.validation.IngredientFormInput
-import com.example.domain.validation.IngredientValidator
+import com.smartprocurement.internal.domain.validation.IngredientFormInput
+import com.smartprocurement.internal.domain.validation.IngredientValidator
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

@@ -5,7 +5,7 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from .database import connect, init_db, one, upload_dir
+from .database import connect, init_db, one, transaction, upload_dir
 from .routers import auth, dashboard, ledger, orders, products, units
 from .security import hash_password
 
@@ -54,7 +54,19 @@ def health():
     return {"status": "ok"}
 
 
+@api.get("/health/ready")
+def ready():
+    Path(upload_dir()).mkdir(parents=True, exist_ok=True)
+    with transaction() as conn:
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS readiness_probe(value INTEGER)")
+        conn.execute("INSERT INTO readiness_probe(value) VALUES (1)")
+        conn.execute("DELETE FROM readiness_probe")
+    probe = Path(upload_dir()) / ".ready"
+    probe.write_text("ok")
+    probe.unlink(missing_ok=True)
+    return {"status": "ready"}
+
+
 app.mount("/api/v1", api)
 Path(upload_dir()).mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=upload_dir()), name="uploads")
-

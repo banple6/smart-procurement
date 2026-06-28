@@ -56,3 +56,12 @@ def decode_token(token: str) -> dict[str, Any] | None:
     except Exception:
         return None
 
+
+def create_session_token(hours: int | None = None) -> tuple[str, str, int]:
+    token = secrets.token_urlsafe(48)
+    exp = int(time.time()) + int(hours or int(os.getenv("SESSION_HOURS", "72"))) * 3600
+    return token, hash_token(token), exp
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()

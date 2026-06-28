@@ -1,4 +1,4 @@
-package com.example.ui
+package com.smartprocurement.internal.ui
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
@@ -28,8 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import com.example.data.*
-import com.example.ui.theme.*
+import com.smartprocurement.internal.data.*
+import com.smartprocurement.internal.ui.theme.*
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.*
@@ -703,7 +703,7 @@ fun ConfirmDetailsScreen(details: Screen.ConfirmDetails, viewModel: SupplyViewMo
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("配送中心配送方案", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("已发货心配送方案", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(12.dp))
 
                         DetailRow(label = "送达日期", value = details.date)
@@ -914,11 +914,7 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    if (order.status == "异常") {
-                                        viewModel.navigateTo(Screen.ReplacementConfirm(order.orderId))
-                                    } else {
-                                        viewModel.navigateTo(Screen.OrderDetails(order.orderId))
-                                    }
+                                    viewModel.navigateTo(Screen.OrderDetails(order.orderId))
                                 },
                             shape = RoundedCornerShape(24.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -940,11 +936,10 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                         modifier = Modifier
                                             .background(
                                                 when (order.status) {
-                                                    "待确认" -> Color(0xFFEFF6FF)
-                                                    "分拣中" -> Color(0xFFFEF3C7)
-                                                    "配送中" -> Color(0xFFECFDF5)
-                                                    "已确认", "已完成" -> Color(0xFFD1FAE5)
-                                                    "异常" -> Color(0xFFFEE2E2)
+                                                    "待接单" -> Color(0xFFEFF6FF)
+                                                    "备货中" -> Color(0xFFFEF3C7)
+                                                    "已发货" -> Color(0xFFECFDF5)
+                                                    "已接单", "已完成" -> Color(0xFFD1FAE5)
                                                     else -> MaterialTheme.colorScheme.surfaceVariant
                                                 },
                                                 CircleShape
@@ -956,11 +951,10 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = when (order.status) {
-                                                "待确认" -> Color(0xFF1D4ED8)
-                                                "分拣中" -> Color(0xFFB45309)
-                                                "配送中" -> Color(0xFF047857)
-                                                "已确认", "已完成" -> Color(0xFF065F46)
-                                                "异常" -> Color(0xFFB91C1C)
+                                                "待接单" -> Color(0xFF1D4ED8)
+                                                "备货中" -> Color(0xFFB45309)
+                                                "已发货" -> Color(0xFF047857)
+                                                "已接单", "已完成" -> Color(0xFF065F46)
                                                 else -> MaterialTheme.colorScheme.outline
                                             }
                                         )
@@ -981,35 +975,11 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                     Text(order.deliveryPoint, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(180.dp), textAlign = TextAlign.End)
                                 }
 
-                                if (order.status == "异常") {
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .background(Color(0xFFFEF2F2), RoundedCornerShape(16.dp))
-                                            .border(0.5.dp, Color(0xFFFCA5A5), RoundedCornerShape(16.dp))
-                                            .padding(10.dp)
-                                    ) {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(imageVector = Icons.Default.Warning, contentDescription = "exception", tint = Color(0xFFDC2626), modifier = Modifier.size(16.dp))
-                                            Text(
-                                                text = order.exceptionText ?: "部分食材缺货，请立即点击确认替换方案",
-                                                fontSize = 12.sp,
-                                                color = Color(0xFF991B1B),
-                                                fontWeight = FontWeight.Bold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                } else if (order.status == "分拣中" && order.progressPercent != null) {
+                                if (order.status == "备货中" && order.progressPercent != null) {
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(order.progressText ?: "正在配发中...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text(order.progressText ?: "正在备货中...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Text("${(order.progressPercent!! * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                         }
                                         LinearProgressIndicator(
@@ -1120,46 +1090,8 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
 
                         // Timeline details
                         LogisticsTimelineItem(title = "物资提交成功", desc = ord.submitTime, isDone = true)
-                        LogisticsTimelineItem(title = "食堂管理员审核中", desc = "自动复核通过", isDone = ord.status != "待确认")
-                        LogisticsTimelineItem(title = "分拣发货", desc = ord.estimatedDelivery ?: "分拣配发中", isDone = ord.status == "配送中" || ord.status == "已完成")
-                    }
-                }
-
-                // Delivery driver bento card
-                if (ord.driverName != null) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("配送路线 & 派送员", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(imageVector = Icons.Default.Person, contentDescription = "driver", tint = Color.White)
-                                    }
-                                    Column {
-                                        Text("${ord.driverName} (${ord.licensePlate ?: "保密"})", fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                        Text(ord.driverPhone ?: "联系电话：分拣完配发", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-
-                                Icon(imageVector = Icons.Default.Phone, contentDescription = "call", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
+                        LogisticsTimelineItem(title = "管理员接单", desc = "等待接单或已接单", isDone = ord.status != "待接单")
+                        LogisticsTimelineItem(title = "备货发货", desc = ord.estimatedDelivery ?: "备货发货中", isDone = ord.status == "已发货" || ord.status == "已完成")
                     }
                 }
 

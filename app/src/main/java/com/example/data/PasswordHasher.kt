@@ -1,4 +1,4 @@
-package com.example.data
+package com.smartprocurement.internal.data
 
 import java.security.SecureRandom
 import javax.crypto.SecretKeyFactory

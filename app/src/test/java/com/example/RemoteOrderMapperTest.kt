@@ -1,6 +1,6 @@
-package com.example
+package com.smartprocurement.internal
 
-import com.example.data.RemoteOrderMapper
+import com.smartprocurement.internal.data.RemoteOrderMapper
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -39,7 +39,7 @@ class RemoteOrderMapperTest {
 
         assertEquals("remote-order-id", mapped.order.orderId)
         assertEquals("SP00000001", mapped.order.displayOrderNo)
-        assertEquals("配送中", mapped.order.status)
+        assertEquals("已发货", mapped.order.status)
         assertEquals("东区一楼收货点", mapped.order.deliveryPoint)
         assertEquals("东区食堂", mapped.order.department)
         assertEquals("上午配送", mapped.order.remarks)
