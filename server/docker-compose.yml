@@ -7,6 +7,7 @@ services:
     volumes:
       - ../data:/app/data
       - ../uploads:/app/uploads
+      - ../private_uploads:/app/private_uploads
       - ../backups:/app/backups
     expose:
       - "8000"

@@ -1,13 +1,14 @@
-# 智慧后勤采购
+# 生鲜后勤
 
 内部生鲜采购与配送管理系统，包含 Android 客户端和 FastAPI 后端。
 
-## 智慧后勤采购后端部署
+## 生鲜后勤后端部署
 
 后端位于 `server/`，生产目录为 `/opt/smart-procurement/`。迁移一台新服务器只需要迁移：
 
 - `/opt/smart-procurement/data/smart_procurement.db`
 - `/opt/smart-procurement/uploads/`
+- `/opt/smart-procurement/private_uploads/`
 - `/opt/smart-procurement/app/.env`
 
 手动备份：
@@ -16,7 +17,7 @@
 ssh aliyun-procurement "cd /opt/smart-procurement/app && docker compose exec api bash /app/backup.sh"
 ```
 
-备份文件位于 `/opt/smart-procurement/backups/`，默认保留最近 14 天。恢复时停止容器，替换数据库和 `uploads` 后重新启动 `docker compose up -d`。
+备份文件位于 `/opt/smart-procurement/backups/`，默认保留最近 14 天。恢复时停止容器，按原相对路径恢复数据库、普通商品 `uploads` 和发货凭证 `private_uploads`，再重新启动 `docker compose up -d`。恢复后检查订单详情中的发货照片是否能通过登录账号读取。
 
 管理员密码重置：
 

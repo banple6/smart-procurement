@@ -8,23 +8,23 @@ from .security import hash_token
 
 def current_user(authorization: str | None = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     with connect() as conn:
         session = one(conn, "SELECT * FROM sessions WHERE token_hash = ?", (hash_token(token),))
         if not session or session["revoked_at"] or int(session["expires_at"]) < int(time.time()):
-            raise HTTPException(status_code=401, detail="Invalid token")
+            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
         user = one(conn, "SELECT * FROM users WHERE id = ?", (session["user_id"],))
         if not user:
-            raise HTTPException(status_code=401, detail="User not found")
+            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
         if not user["active"]:
-            raise HTTPException(status_code=403, detail="User disabled")
+            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
         if user["role"] == "unit_user":
             unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
             if not unit or not unit["active"]:
-                raise HTTPException(status_code=403, detail="Unit disabled")
+                raise HTTPException(status_code=403, detail="所属单位已停用")
         conn.execute("UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?", (session["id"],))
         conn.commit()
     return user
@@ -32,13 +32,13 @@ def current_user(authorization: str | None = Header(default=None)):
 
 def require_admin_user(user=Depends(current_user)):
     if user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+        raise HTTPException(status_code=403, detail="当前账号无管理员权限")
     return user
 
 
 def require_unit_user(user=Depends(current_user)):
     if user["role"] != "unit_user":
-        raise HTTPException(status_code=403, detail="Unit user only")
+        raise HTTPException(status_code=403, detail="当前账号不能提交订单")
     if not user["unit_id"]:
-        raise HTTPException(status_code=403, detail="Unit account missing unit")
+        raise HTTPException(status_code=403, detail="账号未绑定所属单位")
     return user

@@ -14,6 +14,27 @@ def dashboard(admin=Depends(require_admin_user)):
         preparing = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE status = 'preparing'")
         shipped = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE status = 'shipped'")
         tight = one(conn, "SELECT COUNT(*) AS c FROM products WHERE supply_status = 'tight' OR CAST(stock_quantity AS REAL) - CAST(reserved_quantity AS REAL) <= CAST(warning_quantity AS REAL)")
+        recent_orders = all_rows(
+            conn,
+            """
+            SELECT id, order_no, unit_name_snapshot, delivery_point_snapshot, status, total_cents, created_at
+            FROM orders
+            ORDER BY created_at DESC
+            LIMIT 5
+            """,
+        )
+        demand_rank = all_rows(
+            conn,
+            """
+            SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit, SUM(CAST(quantity AS REAL)) AS quantity
+            FROM order_items
+            JOIN orders ON orders.id = order_items.order_id
+            WHERE orders.status NOT IN ('cancelled')
+            GROUP BY product_id, product_name_snapshot, unit_snapshot
+            ORDER BY quantity DESC
+            LIMIT 5
+            """,
+        )
     return {
         "today_orders": total["c"],
         "today_total_cents": total["amount"],
@@ -21,6 +42,8 @@ def dashboard(admin=Depends(require_admin_user)):
         "preparing": preparing["c"],
         "shipped": shipped["c"],
         "tight_inventory": tight["c"],
+        "recent_orders": recent_orders,
+        "demand_rank": demand_rank,
     }
 
 
@@ -38,4 +61,3 @@ def order_summary(admin=Depends(require_admin_user)):
             ORDER BY quantity DESC
             """,
         )
-

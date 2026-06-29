@@ -1,14 +1,17 @@
 from decimal import Decimal
 from datetime import datetime
+import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
 from ..database import all_rows, one, transaction, connect
 from ..dependencies import current_user, require_admin_user, require_unit_user
 from ..models import ADMIN_TRANSITIONS
 from ..schemas import OrderCreate, OrderStatusPatch
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
+from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 
 router = APIRouter(tags=["orders"])
 
@@ -25,7 +28,7 @@ def order_no(conn) -> str:
 def get_unit(conn, unit_id: str):
     unit = one(conn, "SELECT * FROM units WHERE id = ? AND active = 1", (unit_id,))
     if not unit:
-        raise HTTPException(status_code=403, detail="Unit unavailable")
+        raise HTTPException(status_code=403, detail="所属单位已停用，请联系管理员")
     return unit
 
 
@@ -33,31 +36,70 @@ def order_items(conn, order_id: str):
     return all_rows(conn, "SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid", (order_id,))
 
 
-def order_out(conn, order: dict) -> dict:
-    return {**order, "items": order_items(conn, order["id"])}
+def shipping_photo_rows(conn, order_id: str):
+    return all_rows(
+        conn,
+        """
+        SELECT p.*, users.username AS uploaded_by_username
+        FROM order_shipping_photos p
+        LEFT JOIN users ON users.id = p.uploaded_by
+        WHERE p.order_id = ?
+        ORDER BY p.uploaded_at, p.rowid
+        """,
+        (order_id,),
+    )
+
+
+def shipping_photo_out(order_id: str, row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "thumbnail_url": f"/api/v1/orders/{order_id}/shipping-photos/{row['id']}?variant=thumbnail",
+        "full_url": f"/api/v1/orders/{order_id}/shipping-photos/{row['id']}?variant=full",
+        "uploaded_at": row["uploaded_at"],
+        "uploaded_by_username": row.get("uploaded_by_username") or "",
+        "source": row["source"],
+    }
+
+
+def order_out(conn, order: dict, include_items: bool = True, include_shipping_photos: bool = True) -> dict:
+    username = one(conn, "SELECT username FROM users WHERE id = ?", (order.get("created_by"),))
+    item_count = one(conn, "SELECT COUNT(*) AS c FROM order_items WHERE order_id = ?", (order["id"],))["c"]
+    photo_count = one(conn, "SELECT COUNT(*) AS c FROM order_shipping_photos WHERE order_id = ?", (order["id"],))["c"]
+    payload = {
+        **order,
+        "created_by_username": username["username"] if username else "",
+        "item_count": item_count,
+        "shipping_note": order.get("shipping_note") or "",
+        "shipping_photo_count": photo_count,
+    }
+    payload.pop("created_by", None)
+    if include_items:
+        payload["items"] = order_items(conn, order["id"])
+    if include_shipping_photos:
+        payload["shipping_photos"] = [shipping_photo_out(order["id"], row) for row in shipping_photo_rows(conn, order["id"])]
+    return payload
 
 
 def order_list(conn, sql: str, params: list, include_items: bool, page: int, page_size: int) -> dict:
     count_sql = f"SELECT COUNT(*) AS c FROM ({sql}) AS filtered_orders"
     total = one(conn, count_sql, params)["c"]
     rows = all_rows(conn, sql + " ORDER BY created_at DESC LIMIT ? OFFSET ?", (*params, page_size, (page - 1) * page_size))
-    if include_items:
-        rows = [order_out(conn, row) for row in rows]
+    rows = [order_out(conn, row, include_items=include_items, include_shipping_photos=False) for row in rows]
     return {"items": rows, "total": total, "page": page, "page_size": page_size}
 
 
 def fetch_order_for_user(conn, order_id: str, user: dict):
     order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="订单不存在或无权查看")
     if user["role"] == "unit_user" and order["unit_id"] != user["unit_id"]:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="订单不存在或无权查看")
     return order
 
 
 def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: str | None = None):
     if not body.items:
-        raise HTTPException(status_code=400, detail="Order requires items")
+        raise HTTPException(status_code=400, detail="请先选择食材")
     unit = get_unit(conn, user["unit_id"])
     if body.client_request_id and not existing_order_id:
         existing = one(
@@ -141,12 +183,38 @@ def order_detail(order_id: str, user=Depends(current_user)):
         return order_out(conn, order)
 
 
+@router.get("/orders/{order_id}/shipping-photos/{photo_id}")
+def shipping_photo_file(
+    order_id: str,
+    photo_id: str,
+    variant: str = Query(default="thumbnail", pattern="^(thumbnail|full)$"),
+    user=Depends(current_user),
+):
+    with connect() as conn:
+        fetch_order_for_user(conn, order_id, user)
+        row = one(conn, "SELECT * FROM order_shipping_photos WHERE id = ? AND order_id = ?", (photo_id, order_id))
+        if not row:
+            raise HTTPException(status_code=404, detail="照片不存在")
+    relative_path = row["thumbnail_path"] if variant == "thumbnail" else row["image_path"]
+    path = resolve_private_path(relative_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="照片不存在")
+    return FileResponse(
+        path,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "no-store, private",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 @router.put("/orders/{order_id}")
 def update_pending_order(order_id: str, body: OrderCreate, user=Depends(require_unit_user)):
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, user)
         if order["status"] != "pending":
-            raise HTTPException(status_code=409, detail="Only pending orders can be edited")
+            raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         updated = create_order_rows(conn, body, user, existing_order_id=order_id)
@@ -158,7 +226,7 @@ def cancel_order(order_id: str, user=Depends(require_unit_user)):
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, user)
         if order["status"] not in ("pending",):
-            raise HTTPException(status_code=409, detail="Only pending orders can be cancelled by unit")
+            raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         conn.execute("UPDATE orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
@@ -174,7 +242,7 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, user)
         if order["status"] != "shipped":
-            raise HTTPException(status_code=409, detail="Only shipped orders can be completed")
+            raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
@@ -217,9 +285,11 @@ def admin_order_detail(order_id: str, admin=Depends(require_admin_user)):
 def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(require_admin_user)):
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, admin)
+        if body.status == "shipped":
+            raise HTTPException(status_code=409, detail="请先拍摄并上传发货照片")
         allowed = ADMIN_TRANSITIONS.get(order["status"], set())
         if body.status not in allowed:
-            raise HTTPException(status_code=409, detail="Illegal status transition")
+            raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         if body.status == "cancelled":
             for item in order_items(conn, order_id):
                 release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, admin["id"])
@@ -241,3 +311,98 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             (str(uuid4()), order_id, admin["id"], order["status"], body.status),
         )
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
+
+
+@router.post("/admin/orders/{order_id}/ship")
+async def ship_order(
+    order_id: str,
+    photos: list[UploadFile] | None = File(default=None),
+    note: str = Form(default=""),
+    client_request_id: str = Form(...),
+    admin=Depends(require_admin_user),
+):
+    if not client_request_id.strip():
+        raise HTTPException(status_code=400, detail="缺少请求编号，请重试")
+    request_id = client_request_id.strip()
+    uploads = photos or []
+
+    with connect() as conn:
+        existing = one(conn, "SELECT * FROM orders WHERE ship_request_id = ?", (request_id,))
+        if existing:
+            if existing["id"] != order_id:
+                raise HTTPException(status_code=409, detail="请求编号已被其他订单使用")
+            return order_out(conn, existing)
+        order = fetch_order_for_user(conn, order_id, admin)
+        if order["status"] != "preparing":
+            raise HTTPException(status_code=409, detail="只有备货中的订单才能确认发货")
+
+    processed = await process_shipping_uploads(
+        uploads,
+        order_no=order["order_no"],
+        unit_name=order["unit_name_snapshot"],
+        operator_username=admin["username"],
+    )
+    try:
+        with transaction() as conn:
+            existing = one(conn, "SELECT * FROM orders WHERE ship_request_id = ?", (request_id,))
+            if existing:
+                cleanup_photos(processed)
+                if existing["id"] != order_id:
+                    raise HTTPException(status_code=409, detail="请求编号已被其他订单使用")
+                return order_out(conn, existing)
+            current = fetch_order_for_user(conn, order_id, admin)
+            if current["status"] != "preparing":
+                raise HTTPException(status_code=409, detail="只有备货中的订单才能确认发货")
+            for photo in processed:
+                conn.execute(
+                    """
+                    INSERT INTO order_shipping_photos(
+                      id, order_id, image_path, thumbnail_path, uploaded_by, source, mime_type, file_size, width, height, sha256
+                    ) VALUES (?, ?, ?, ?, ?, 'camera', ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        photo.id,
+                        order_id,
+                        photo.image_path,
+                        photo.thumbnail_path,
+                        admin["id"],
+                        photo.mime_type,
+                        photo.file_size,
+                        photo.width,
+                        photo.height,
+                        photo.sha256,
+                    ),
+                )
+            conn.execute(
+                """
+                UPDATE orders
+                SET status = 'shipped',
+                    shipped_at = CURRENT_TIMESTAMP,
+                    updated_at = CURRENT_TIMESTAMP,
+                    shipping_note = ?,
+                    ship_request_id = ?
+                WHERE id = ?
+                """,
+                (note.strip(), request_id, order_id),
+            )
+            conn.execute(
+                "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'ship', 'preparing', 'shipped', ?)",
+                (str(uuid4()), order_id, admin["id"], note.strip()),
+            )
+            conn.execute(
+                """
+                INSERT INTO audit_logs(id, actor_id, actor_role, action, object_type, object_id, after_json, result)
+                VALUES (?, ?, ?, 'order_ship', 'order', ?, ?, 'success')
+                """,
+                (
+                    str(uuid4()),
+                    admin["id"],
+                    admin["role"],
+                    order_id,
+                    json.dumps({"shipping_photo_count": len(processed), "client_request_id": request_id}, ensure_ascii=False),
+                ),
+            )
+            return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
+    except Exception:
+        cleanup_photos(processed)
+        raise

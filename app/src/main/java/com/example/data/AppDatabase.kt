@@ -3,8 +3,18 @@ package com.smartprocurement.internal.data
 import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import org.json.JSONArray
 
 // --- Entities ---
+
+data class ShippingPhotoDto(
+    val id: String,
+    val thumbnailUrl: String,
+    val fullUrl: String,
+    val uploadedAt: String,
+    val uploadedByUsername: String,
+    val source: String
+)
 
 @Entity(tableName = "products")
 data class ProductEntity(
@@ -24,6 +34,7 @@ data class ProductEntity(
     val imagePath: String = "",
     val packagingSpec: String = "",
     val stockQuantity: String = "0",
+    val reservedQuantity: String = "0",
     val warningQuantity: String = "",
     val availableQuantity: String = "",
     val storageMethod: String = "",
@@ -65,18 +76,41 @@ data class OrderEntity(
     @PrimaryKey val orderId: String,
     val displayOrderNo: String = "",
     val submitTime: String,
+    val createdAt: String = "",
+    val acceptedAt: String = "",
+    val preparingAt: String = "",
+    val shippedAt: String = "",
+    val completedAt: String = "",
     val deliveryPoint: String,
     val status: String, // "待接单", "已接单", "备货中", "已发货", "已完成", "已取消"
     val requesterName: String,
     val department: String,
     val phone: String,
     val remarks: String = "",
+    val shippingNote: String = "",
+    val shippingPhotoCount: Int = 0,
+    val shippingPhotosJson: String = "[]",
+    val totalCents: Long = 0,
+    val itemCount: Int = 0,
     val urgent: Boolean = false,
-    val allowSubstitute: Boolean = true,
-    val estimatedDelivery: String = "",
-    val progressPercent: Float = 0f,
-    val progressText: String = ""
-)
+    val allowSubstitute: Boolean = true
+) {
+    val shippingPhotos: List<ShippingPhotoDto>
+        get() = runCatching {
+            val array = JSONArray(shippingPhotosJson.ifBlank { "[]" })
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                ShippingPhotoDto(
+                    id = item.optString("id"),
+                    thumbnailUrl = item.optString("thumbnail_url"),
+                    fullUrl = item.optString("full_url"),
+                    uploadedAt = item.optString("uploaded_at").replace('T', ' ').take(16),
+                    uploadedByUsername = item.optString("uploaded_by_username"),
+                    source = item.optString("source", "camera")
+                )
+            }
+        }.getOrDefault(emptyList())
+}
 
 @Entity(tableName = "order_items")
 data class OrderItemEntity(
@@ -200,7 +234,7 @@ interface SupplyDao {
 
 @Database(
     entities = [ProductEntity::class, UserEntity::class, CartItemEntity::class, OrderEntity::class, OrderItemEntity::class],
-    version = 4,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

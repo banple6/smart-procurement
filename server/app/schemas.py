@@ -98,6 +98,15 @@ class ProductStatusPatch(BaseModel):
     active: bool = True
 
 
+class ProductPricePatch(BaseModel):
+    price_cents: int = Field(ge=0)
+
+
+class ProductStockPatch(BaseModel):
+    stock_quantity: str
+    detail: str = ""
+
+
 class OrderItemRequest(BaseModel):
     product_id: str
     quantity: str

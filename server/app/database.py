@@ -12,6 +12,10 @@ def upload_dir() -> str:
     return os.getenv("UPLOAD_DIR", str(Path(__file__).resolve().parents[1] / "uploads"))
 
 
+def private_upload_dir() -> str:
+    return os.getenv("PRIVATE_UPLOAD_DIR", str(Path(__file__).resolve().parents[1] / "private_uploads"))
+
+
 def connect() -> sqlite3.Connection:
     path = Path(database_path())
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +172,8 @@ def ensure_core_schema(conn: sqlite3.Connection):
           preparing_at TEXT,
           shipped_at TEXT,
           completed_at TEXT,
+          shipping_note TEXT,
+          ship_request_id TEXT,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -194,6 +200,21 @@ def ensure_core_schema(conn: sqlite3.Connection):
           new_status TEXT,
           detail TEXT NOT NULL DEFAULT '',
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS order_shipping_photos (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL REFERENCES orders(id),
+          image_path TEXT NOT NULL,
+          thumbnail_path TEXT NOT NULL,
+          uploaded_by TEXT NOT NULL REFERENCES users(id),
+          uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          source TEXT NOT NULL DEFAULT 'camera',
+          mime_type TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          width INTEGER NOT NULL,
+          height INTEGER NOT NULL,
+          sha256 TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS sessions (
@@ -231,20 +252,56 @@ def ensure_core_schema(conn: sqlite3.Connection):
     add_column(conn, "units", "address_note TEXT NOT NULL DEFAULT ''")
     add_column(conn, "users", "last_login_at TEXT")
     add_column(conn, "orders", "client_request_id TEXT")
+    add_column(conn, "orders", "shipping_note TEXT")
+    add_column(conn, "orders", "ship_request_id TEXT")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_request_id ON orders(client_request_id) WHERE client_request_id IS NOT NULL")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_ship_request_id ON orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_status_created ON orders(unit_id, status, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shipping_photos_order_id ON order_shipping_photos(order_id)")
+
+
+def apply_shipping_photos_migration(conn: sqlite3.Connection):
+    add_column(conn, "orders", "shipping_note TEXT")
+    add_column(conn, "orders", "ship_request_id TEXT")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS order_shipping_photos (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL REFERENCES orders(id),
+          image_path TEXT NOT NULL,
+          thumbnail_path TEXT NOT NULL,
+          uploaded_by TEXT NOT NULL REFERENCES users(id),
+          uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          source TEXT NOT NULL DEFAULT 'camera',
+          mime_type TEXT NOT NULL,
+          file_size INTEGER NOT NULL,
+          width INTEGER NOT NULL,
+          height INTEGER NOT NULL,
+          sha256 TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_shipping_photos_order_id ON order_shipping_photos(order_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_ship_request_id ON orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
 
 
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
+    Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
     applied: list[str] = []
     with transaction() as conn:
         ensure_core_schema(conn)
-        existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", ("0001_core_security_orders",))
-        if not existing:
-            conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", ("0001_core_security_orders",))
-            applied.append("0001_core_security_orders")
+        migrations = [
+            ("0001_core_security_orders", lambda c: None),
+            ("0002_shipping_photos", apply_shipping_photos_migration),
+        ]
+        for version, fn in migrations:
+            existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
+            if not existing:
+                fn(conn)
+                conn.execute("INSERT INTO schema_migrations(version) VALUES (?)", (version,))
+                applied.append(version)
     return applied
 
 
@@ -253,10 +310,12 @@ def migration_status() -> dict:
         ensure_core_schema(conn)
         rows = all_rows(conn, "SELECT version, applied_at FROM schema_migrations ORDER BY version")
     applied = [row["version"] for row in rows]
-    pending = [] if "0001_core_security_orders" in applied else ["0001_core_security_orders"]
+    known = ["0001_core_security_orders", "0002_shipping_photos"]
+    pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}
 
 
 def init_db():
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
+    Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
     migrate()

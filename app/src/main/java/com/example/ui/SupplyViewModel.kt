@@ -11,10 +11,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.smartprocurement.internal.BuildConfig
 import com.smartprocurement.internal.data.*
+import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.domain.validation.AuthValidator
+import com.smartprocurement.internal.domain.validation.CartProductSnapshot
+import com.smartprocurement.internal.domain.validation.CartValidator
 import com.smartprocurement.internal.domain.validation.IngredientFormInput
 import com.smartprocurement.internal.domain.validation.IngredientValidator
 import com.smartprocurement.internal.domain.validation.LoginInput
+import com.smartprocurement.internal.domain.validation.PasswordChangeInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,32 +26,28 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 sealed interface Screen {
     object Splash : Screen
     object Login : Screen
-    object DeviceAuth : Screen
+    object ChangePassword : Screen
     object Home : Screen
     object AddProduct : Screen
     data class EditProduct(val productId: String) : Screen
     object DeletedProducts : Screen
     data class ProductDetail(val productId: String) : Screen
     object Cart : Screen
-    object DeliveryForm : Screen
-    data class ConfirmDetails(
-        val date: String,
-        val timeRange: String,
-        val location: String,
-        val contact: String,
-        val urgent: Boolean,
-        val allowSubstitute: Boolean,
-        val remarks: String
-    ) : Screen
     data class SubmitSuccess(val orderId: String) : Screen
     object OrderList : Screen
     data class OrderDetails(val orderId: String) : Screen
+    data class ShippingProof(val orderId: String) : Screen
+    object UnitManagement : Screen
+    object AccountManagement : Screen
+    object Ledger : Screen
+    object InventoryRecords : Screen
 }
 
 data class IngredientFormState(
@@ -95,8 +95,13 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                         val remoteUser = withContext(Dispatchers.IO) { apiClient.me(session.token) }
                         authToken = session.token
                         applyRemoteUser(remoteUser)
-                        refreshProducts()
-                        refreshOrders()
+                        if (remoteUser.mustChangePassword) {
+                            popToRootAndNavigate(Screen.ChangePassword)
+                        } else {
+                            refreshProducts()
+                            refreshOrders()
+                            refreshDashboard()
+                        }
                     }.onFailure {
                         sessionStore.clearSession()
                     }
@@ -129,20 +134,32 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var userName by mutableStateOf("未登录")
     var userId by mutableStateOf("")
     var userDept by mutableStateOf("")
-    val institution = "智慧后勤采购"
+    var currentUnitName by mutableStateOf("")
+    var currentUnitCode by mutableStateOf("")
+    var defaultDeliveryPoint by mutableStateOf("")
     var userRole by mutableStateOf("")
     var unitId by mutableStateOf("")
-    var isDeviceAuthorized by mutableStateOf(false)
+    var mustChangePassword by mutableStateOf(false)
     var lastSyncText by mutableStateOf("")
 
     val loginErrors = mutableStateMapOf<String, String>()
+    val passwordErrors = mutableStateMapOf<String, String>()
     val ingredientErrors = mutableStateMapOf<String, String>()
     var isAuthLoading by mutableStateOf(false)
+    var isChangingPassword by mutableStateOf(false)
+    var isSubmittingOrder by mutableStateOf(false)
+    var activeOrderActionId by mutableStateOf("")
+    var activeShippingUploadId by mutableStateOf("")
     var isSavingIngredient by mutableStateOf(false)
+    var dashboard by mutableStateOf(AdminDashboard())
+    var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
+    var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
+    var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
     var pendingCameraUri by mutableStateOf<Uri?>(null)
 
     // Alert dialog message helper
     var alertMessage by mutableStateOf<String?>(null)
+    var snackbarMessage by mutableStateOf<String?>(null)
 
     // --- Navigation Methods ---
     fun navigateTo(screen: Screen) {
@@ -166,7 +183,11 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun finishSplash() {
-        if (currentUser != null) popToRootAndNavigate(Screen.Home) else popToRootAndNavigate(Screen.Login)
+        when {
+            currentUser == null -> popToRootAndNavigate(Screen.Login)
+            mustChangePassword -> popToRootAndNavigate(Screen.ChangePassword)
+            else -> popToRootAndNavigate(Screen.Home)
+        }
     }
 
     fun login(username: String, password: String, rememberLogin: Boolean) {
@@ -191,15 +212,57 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                             username = login.user.username,
                             displayName = login.user.displayName,
                             role = login.user.role,
-                            unitId = login.user.unitId
+                            unitId = login.user.unitId,
+                            unitCode = login.user.unitCode,
+                            unitName = login.user.unitName,
+                            defaultDeliveryPoint = login.user.defaultDeliveryPoint,
+                            mustChangePassword = login.user.mustChangePassword
                         )
                     )
                 }
-                refreshProducts()
-                refreshOrders()
-                popToRootAndNavigate(Screen.Home)
+                if (login.user.mustChangePassword) {
+                    popToRootAndNavigate(Screen.ChangePassword)
+                } else {
+                    refreshProducts()
+                    refreshOrders()
+                    refreshDashboard()
+                    popToRootAndNavigate(Screen.Home)
+                }
             }.onFailure {
-                loginErrors["password"] = it.message ?: "账号或密码错误"
+                loginErrors["password"] = it.toUserMessage("账号或密码错误")
+            }
+        }
+    }
+
+    fun changePassword(oldPassword: String, newPassword: String) {
+        val validation = AuthValidator.validatePasswordChange(
+            PasswordChangeInput(username = userId, oldPassword = oldPassword, newPassword = newPassword)
+        )
+        passwordErrors.clear()
+        passwordErrors.putAll(validation.errors)
+        if (!validation.isValid) return
+        if (authToken.isBlank()) {
+            alertMessage = "登录已过期，请重新登录"
+            popToRootAndNavigate(Screen.Login)
+            return
+        }
+        isChangingPassword = true
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) { apiClient.changePassword(authToken, oldPassword, newPassword) }
+            }
+            isChangingPassword = false
+            result.onSuccess {
+                sessionStore.clearSession()
+                repository.clearCart()
+                repository.clearOrderCache()
+                authToken = ""
+                currentUser = null
+                mustChangePassword = false
+                alertMessage = "密码已修改，请使用新密码重新登录"
+                popToRootAndNavigate(Screen.Login)
+            }.onFailure {
+                passwordErrors["newPassword"] = it.toUserMessage("密码修改失败")
             }
         }
     }
@@ -217,8 +280,12 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             userName = "未登录"
             userId = ""
             userDept = ""
+            currentUnitName = ""
+            currentUnitCode = ""
+            defaultDeliveryPoint = ""
             userRole = ""
             unitId = ""
+            mustChangePassword = false
             authToken = ""
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
@@ -233,15 +300,18 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             passwordSalt = "",
             realName = user.displayName,
             phone = "",
-            department = if (user.role == "admin") "系统管理员" else "子单位账号",
+            department = if (user.role == "admin") "系统管理员" else user.unitName,
             role = user.role
         )
         userName = user.displayName
         userId = user.username
-        userDept = if (user.role == "admin") "系统管理员" else "子单位账号"
+        userDept = if (user.role == "admin") "系统管理员" else user.unitName
+        currentUnitName = user.unitName
+        currentUnitCode = user.unitCode
+        defaultDeliveryPoint = user.defaultDeliveryPoint
         userRole = user.role
         unitId = user.unitId
-        isDeviceAuthorized = false
+        mustChangePassword = user.mustChangePassword
     }
 
     fun refreshProducts() {
@@ -252,7 +322,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 repository.replaceProducts(products)
                 lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
             }.onFailure {
-                alertMessage = it.message ?: "商品同步失败"
+                alertMessage = it.toUserMessage("商品同步失败")
             }
         }
     }
@@ -266,7 +336,134 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 repository.replaceOrders(orders)
             }.onFailure {
-                alertMessage = it.message ?: "订单同步失败"
+                alertMessage = it.toUserMessage("订单同步失败")
+            }
+        }
+    }
+
+    fun refreshOrderDetail(orderId: String) {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val bundle = withContext(Dispatchers.IO) {
+                    apiClient.orderDetail(authToken, orderId, currentUser?.role == "admin")
+                }
+                repository.upsertOrder(bundle)
+            }.onFailure {
+                alertMessage = it.toUserMessage("订单同步失败")
+            }
+        }
+    }
+
+    fun refreshDashboard() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching {
+                dashboard = withContext(Dispatchers.IO) { apiClient.dashboard(authToken) }
+            }.onFailure {
+                alertMessage = it.toUserMessage("工作台同步失败")
+            }
+        }
+    }
+
+    fun refreshUnits() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.units(authToken) } }
+                .onSuccess { adminUnits = it }
+                .onFailure { alertMessage = it.toUserMessage("单位同步失败") }
+        }
+    }
+
+    fun saveUnit(id: String, code: String, name: String, deliveryPoint: String) {
+        if (code.isBlank() || name.isBlank() || deliveryPoint.isBlank()) {
+            alertMessage = "请填写单位编码、单位名称和默认配送点"
+            return
+        }
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.saveUnit(authToken, id, code, name, deliveryPoint) } }
+                .onSuccess {
+                    refreshUnits()
+                    snackbarMessage = "单位已保存"
+                }.onFailure { alertMessage = it.toUserMessage("单位保存失败") }
+        }
+    }
+
+    fun setUnitStatus(id: String, active: Boolean) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.setUnitStatus(authToken, id, active) } }
+                .onSuccess {
+                    refreshUnits()
+                    snackbarMessage = if (active) "单位已启用" else "单位已停用"
+                }.onFailure { alertMessage = it.toUserMessage("单位状态修改失败") }
+        }
+    }
+
+    fun refreshUsers() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.users(authToken) } }
+                .onSuccess { adminUsers = it }
+                .onFailure { alertMessage = it.toUserMessage("账号同步失败") }
+        }
+    }
+
+    fun createUnitUser(username: String, displayName: String, unitId: String, password: String) {
+        if (username.isBlank() || displayName.isBlank() || unitId.isBlank() || password.isBlank()) {
+            alertMessage = "请填写登录账号、显示名称、所属单位和初始密码"
+            return
+        }
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.createUnitUser(authToken, username, displayName, unitId, password) } }
+                .onSuccess {
+                    refreshUsers()
+                    alertMessage = "账号已创建，初始密码：$password"
+                }.onFailure { alertMessage = it.toUserMessage("账号创建失败") }
+        }
+    }
+
+    fun setUserStatus(id: String, active: Boolean) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.setUserStatus(authToken, id, active) } }
+                .onSuccess {
+                    refreshUsers()
+                    alertMessage = if (active) "账号已启用" else "账号已停用"
+                }.onFailure { alertMessage = it.toUserMessage("账号状态修改失败") }
+        }
+    }
+
+    fun resetUserPassword(id: String, newPassword: String) {
+        if (newPassword.isBlank()) {
+            alertMessage = "请填写新密码"
+            return
+        }
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.resetPassword(authToken, id, newPassword) } }
+                .onSuccess {
+                    alertMessage = "密码已重置，新密码：$newPassword"
+                }.onFailure { alertMessage = it.toUserMessage("密码重置失败") }
+        }
+    }
+
+    fun refreshLedger() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.ledger(authToken) } }
+                .onSuccess { ledgerRows = it }
+                .onFailure { alertMessage = it.toUserMessage("台账同步失败") }
+        }
+    }
+
+    fun exportLedger(uri: Uri) {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) { apiClient.exportLedger(authToken) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            }.onSuccess {
+                snackbarMessage = "Excel 已保存"
+            }.onFailure {
+                alertMessage = it.toUserMessage("Excel 保存失败")
             }
         }
     }
@@ -317,6 +514,10 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         ingredientErrors.clear()
         ingredientErrors.putAll(validation.errors)
         if (!validation.isValid) return
+        if (form.isAvailable && form.status != "暂停供应" && Money.yuanTextToCents(form.internalPrice) <= 0) {
+            ingredientErrors["internalPrice"] = "请先填写商品价格"
+            return
+        }
 
         isSavingIngredient = true
         viewModelScope.launch {
@@ -339,6 +540,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 imagePath = form.imagePath,
                 packagingSpec = form.packagingSpec.trim(),
                 stockQuantity = form.stockQuantity,
+                reservedQuantity = existing?.reservedQuantity ?: "0",
                 warningQuantity = form.warningQuantity,
                 availableQuantity = form.availableQuantity,
                 storageMethod = form.storageMethod,
@@ -363,10 +565,10 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             isSavingIngredient = false
             result.onSuccess {
                 refreshProducts()
-                alertMessage = if (existing == null) "食材已保存" else "食材修改已保存"
+                snackbarMessage = if (existing == null) "食材新增已保存" else "食材修改已保存"
                 onSuccess()
             }.onFailure {
-                alertMessage = it.message ?: "保存失败"
+                alertMessage = it.toUserMessage("保存失败")
             }
         }
     }
@@ -383,9 +585,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }.onSuccess {
                 refreshProducts()
-                alertMessage = if (available) "食材已重新上架" else "食材已下架"
+                snackbarMessage = if (available) "食材已重新上架" else "食材已下架"
             }.onFailure {
-                alertMessage = it.message ?: "调整供应状态失败"
+                alertMessage = it.toUserMessage("调整供应状态失败")
             }
         }
     }
@@ -402,7 +604,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     alertMessage = "食材已删除"
                     navigateBack()
                 }.onFailure {
-                    alertMessage = it.message ?: "删除失败"
+                    alertMessage = it.toUserMessage("删除失败")
                 }
         }
     }
@@ -413,19 +615,40 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
         viewModelScope.launch {
-            repository.restoreProduct(productId)
-            alertMessage = "食材已恢复"
+            runCatching { withContext(Dispatchers.IO) { apiClient.restoreProduct(authToken, productId) } }
+                .onSuccess {
+                    refreshProducts()
+                    snackbarMessage = "食材已恢复"
+                }.onFailure {
+                    alertMessage = it.toUserMessage("恢复失败")
+                }
         }
     }
 
     // --- Cart Actions ---
     fun addToCart(productId: String, quantity: Double, remarks: String = "") {
+        val product = allProducts.value.find { it.id == productId }
+        val validation = product?.let { validateCartQuantity(it, quantity) }
+        if (validation != null && !validation.isValid) {
+            alertMessage = validation.message
+            return
+        }
         viewModelScope.launch {
             repository.addToCart(productId, quantity, remarks)
         }
     }
 
     fun updateCartQty(productId: String, quantity: Double) {
+        if (quantity <= 0) {
+            deleteCartItem(productId)
+            return
+        }
+        val product = allProducts.value.find { it.id == productId }
+        val validation = product?.let { validateCartQuantity(it, quantity) }
+        if (validation != null && !validation.isValid) {
+            alertMessage = validation.message
+            return
+        }
         viewModelScope.launch {
             repository.updateCartItemQuantity(productId, quantity)
         }
@@ -450,6 +673,18 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // --- Submit Order ---
+    fun submitOrder(remarks: String) {
+        submitOrder(
+            date = "",
+            timeRange = "",
+            location = defaultDeliveryPoint,
+            contact = "",
+            urgent = false,
+            allowSubstitute = false,
+            remarks = remarks
+        )
+    }
+
     fun submitOrder(
         date: String,
         timeRange: String,
@@ -459,22 +694,33 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         allowSubstitute: Boolean,
         remarks: String
     ) {
+        if (isSubmittingOrder) return
         viewModelScope.launch {
             val cartList = repository.getCartItemsDirect()
             if (cartList.isEmpty()) return@launch
+            val invalid = cartList.firstNotNullOfOrNull { item ->
+                val product = allProducts.value.find { it.id == item.productId }
+                if (product == null) "食材不存在或已下架" else validateCartQuantity(product, item.quantity).message.takeIf { validateCartQuantity(product, item.quantity).isValid.not() }
+            }
+            if (invalid != null) {
+                alertMessage = invalid
+                return@launch
+            }
             if (authToken.isBlank()) {
                 alertMessage = "请先登录后再提交订单"
                 popToRootAndNavigate(Screen.Login)
                 return@launch
             }
 
+            isSubmittingOrder = true
             val remoteResult = runCatching {
                 withContext(Dispatchers.IO) {
                     apiClient.createOrder(authToken, remarks, cartList.map { it.productId to it.quantity })
                 }
             }
+            isSubmittingOrder = false
             if (remoteResult.isFailure) {
-                alertMessage = remoteResult.exceptionOrNull()?.message ?: "订单提交失败"
+                alertMessage = remoteResult.exceptionOrNull().toUserMessage("订单提交失败")
                 return@launch
             }
             val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())
@@ -507,10 +753,12 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun performOrderAction(order: OrderEntity) {
+        if (activeOrderActionId == order.orderId) return
         if (authToken.isBlank()) {
             alertMessage = "请重新登录后操作订单"
             return
         }
+        activeOrderActionId = order.orderId
         viewModelScope.launch {
             val result = runCatching {
                 val bundle = withContext(Dispatchers.IO) {
@@ -530,28 +778,53 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 refreshProducts()
                 bundle
             }
+            activeOrderActionId = ""
             result.onSuccess {
-                alertMessage = "订单状态已更新"
+                snackbarMessage = "订单状态已更新"
             }.onFailure {
-                alertMessage = it.message ?: "订单操作失败"
+                alertMessage = it.toUserMessage("订单操作失败")
             }
         }
     }
 
-    // --- Replacement Confirm ---
-    fun acceptReplacement(orderId: String) {
+    fun submitShippingProof(orderId: String, photoFiles: List<File>, note: String, onSuccess: () -> Unit) {
+        if (activeShippingUploadId == orderId) return
+        if (authToken.isBlank()) {
+            alertMessage = "请重新登录后操作订单"
+            return
+        }
+        if (photoFiles.isEmpty()) {
+            alertMessage = "请至少拍摄一张发货照片"
+            return
+        }
+        activeShippingUploadId = orderId
+        val requestId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            repository.updateOrderStatus(orderId, "已接单")
-            alertMessage = "已接单替换方案。订单已更新，正在通知已发货心。"
+            val result = runCatching {
+                val bundle = withContext(Dispatchers.IO) {
+                    apiClient.shipOrder(authToken, orderId, photoFiles, note, requestId)
+                }
+                repository.upsertOrder(bundle)
+                refreshOrders()
+                refreshProducts()
+                bundle
+            }
+            activeShippingUploadId = ""
+            result.onSuccess {
+                snackbarMessage = "发货照片已保存，订单已更新为已发货"
+                onSuccess()
+            }.onFailure {
+                alertMessage = it.toUserMessage("发货失败")
+            }
         }
     }
 
-    fun rejectReplacement(orderId: String) {
-        viewModelScope.launch {
-            repository.updateOrderStatus(orderId, "已完成")
-            alertMessage = "该食材已取消申领，订单需求已更新。"
-        }
+    fun absoluteApiUrl(path: String): String {
+        if (path.isBlank() || path.startsWith("http")) return path
+        return BuildConfig.API_BASE_URL.substringBefore("/api/v1/").trimEnd('/') + path
     }
+
+    fun bearerToken(): String = authToken
 
     private fun ProductEntity.toFormState(): IngredientFormState = IngredientFormState(
         id = id,
@@ -578,5 +851,64 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         remark = remark
     )
 
+    private fun validateCartQuantity(product: ProductEntity, quantity: Double) = CartValidator.canOrder(
+        CartProductSnapshot(
+            availableQuantity = product.availableQuantity.ifBlank { product.stockQuantity },
+            minQty = product.minQty,
+            stepQty = product.stepQty,
+            priceCents = Money.yuanDoubleToCents(product.price),
+            status = product.status,
+            isAvailable = product.isAvailable,
+            isDeleted = product.isDeleted
+        ),
+        quantity
+    )
+
     private fun Double.toCleanString(): String = if (this % 1.0 == 0.0) toInt().toString() else toString()
+
+    private fun Throwable?.toUserMessage(fallback: String): String {
+        val message = this?.message.orEmpty()
+        val userMessage = when {
+            message.contains("登录已过期") -> "登录已过期，请重新登录"
+            message.contains("账号已停用") -> "账号已停用，请联系管理员"
+            message.contains("所属单位已停用") -> "所属单位已停用，请联系管理员"
+            message.contains("库存不足") -> "库存不足，请减少数量"
+            message.contains("价格未设置") -> "价格未设置"
+            message.contains("暂停供应") -> "该商品已暂停供应"
+            message.contains("订单状态已变化") -> "订单状态已变化，请刷新后重试"
+            message.contains("低于最小申领量") -> "低于最小申领量"
+            message.contains("步长") -> "数量不符合申领步长"
+            message.contains("timeout", ignoreCase = true) || message.contains("failed", ignoreCase = true) || message.contains("connect", ignoreCase = true) -> "网络连接失败，请稍后重试"
+            else -> message.ifBlank { fallback }
+        }
+        if (
+            userMessage.contains("登录已过期") ||
+            userMessage.contains("账号已停用") ||
+            userMessage.contains("所属单位已停用")
+        ) {
+            clearLocalSessionForAuthError()
+        }
+        return userMessage
+    }
+
+    private fun clearLocalSessionForAuthError() {
+        viewModelScope.launch {
+            sessionStore.clearSession()
+            repository.clearCart()
+            repository.clearOrderCache()
+            authToken = ""
+            currentUser = null
+            userName = "未登录"
+            userId = ""
+            userDept = ""
+            currentUnitName = ""
+            currentUnitCode = ""
+            defaultDeliveryPoint = ""
+            userRole = ""
+            unitId = ""
+            mustChangePassword = false
+            currentTab = "home"
+            popToRootAndNavigate(Screen.Login)
+        }
+    }
 }

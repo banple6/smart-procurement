@@ -25,28 +25,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smartprocurement.internal.data.CartItemEntity
 import kotlinx.coroutines.delay
+
+fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
 
 @Composable
 fun SupplyAppContent(viewModel: SupplyViewModel) {
     val currentScreen = viewModel.navigationStack.lastOrNull() ?: Screen.Splash
     val cartList by viewModel.cartItems.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel.snackbarMessage) {
+        val message = viewModel.snackbarMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
+        viewModel.snackbarMessage = null
+    }
 
     // Handle Android system hardware back buttons
     BackHandler(enabled = viewModel.navigationStack.size > 1) {
         viewModel.navigateBack()
     }
 
-    // Custom Toast Alert notification
     viewModel.alertMessage?.let { msg ->
         AlertDialog(
             onDismissRequest = { viewModel.alertMessage = null },
             confirmButton = {
                 TextButton(onClick = { viewModel.alertMessage = null }) {
-                    Text("确定", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text("我知道了", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
             },
-            title = { Text("通知", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            title = { Text("提示", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = { Text(msg, fontSize = 14.sp) },
             shape = RoundedCornerShape(12.dp),
             containerColor = Color.White
@@ -63,8 +72,8 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             is Screen.Login -> {
                 LoginScreen(viewModel)
             }
-            is Screen.DeviceAuth -> {
-                DeviceAuthScreen(viewModel)
+            is Screen.ChangePassword -> {
+                ChangePasswordScreen(viewModel)
             }
             is Screen.Home -> {
                 MainTabFrame(viewModel)
@@ -81,22 +90,38 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             is Screen.ProductDetail -> {
                 ProductDetailScreen(productId = currentScreen.productId, viewModel = viewModel)
             }
-            is Screen.DeliveryForm -> {
-                DeliveryFormScreen(viewModel = viewModel)
-            }
-            is Screen.ConfirmDetails -> {
-                ConfirmDetailsScreen(details = currentScreen, viewModel = viewModel)
-            }
             is Screen.SubmitSuccess -> {
                 SubmitSuccessScreen(orderId = currentScreen.orderId, viewModel = viewModel)
             }
             is Screen.OrderDetails -> {
                 OrderDetailsScreen(orderId = currentScreen.orderId, viewModel = viewModel)
             }
+            is Screen.ShippingProof -> {
+                ShippingProofScreen(orderId = currentScreen.orderId, viewModel = viewModel)
+            }
+            is Screen.UnitManagement -> {
+                UnitManagementScreen(viewModel)
+            }
+            is Screen.AccountManagement -> {
+                AccountManagementScreen(viewModel)
+            }
+            is Screen.Ledger -> {
+                LedgerScreen(viewModel)
+            }
+            is Screen.InventoryRecords -> {
+                InventoryRecordsScreen(viewModel)
+            }
             else -> {
                 MainTabFrame(viewModel)
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
+        )
     }
 }
 
@@ -130,7 +155,7 @@ fun SplashScreen(onFinish: () -> Unit) {
             }
             Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = "智慧后勤采购",
+                text = "生鲜后勤",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
@@ -150,7 +175,12 @@ fun SplashScreen(onFinish: () -> Unit) {
 @Composable
 fun MainTabFrame(viewModel: SupplyViewModel) {
     val cartList by viewModel.cartItems.collectAsState()
-    val totalCartCount = cartList.sumOf { it.quantity }
+    val totalCartCount = cartBadgeCount(cartList)
+    val isAdmin = viewModel.canManageIngredients()
+    LaunchedEffect(isAdmin) {
+        if (isAdmin && viewModel.currentTab == "home") viewModel.currentTab = "dashboard"
+        if (!isAdmin && viewModel.currentTab == "dashboard") viewModel.currentTab = "home"
+    }
 
     Scaffold(
         bottomBar = {
@@ -167,10 +197,10 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                 }
             ) {
                 NavigationBarItem(
-                    selected = viewModel.currentTab == "home",
-                    onClick = { viewModel.currentTab = "home" },
-                    icon = { Icon(imageVector = Icons.Default.Home, contentDescription = "home") },
-                    label = { Text("首页", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    selected = viewModel.currentTab == if (isAdmin) "dashboard" else "home",
+                    onClick = { viewModel.currentTab = if (isAdmin) "dashboard" else "home" },
+                    icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else Icons.Default.Home, contentDescription = "home") },
+                    label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -181,33 +211,37 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                 )
 
                 NavigationBarItem(
-                    selected = viewModel.currentTab == "cart",
-                    onClick = { viewModel.currentTab = "cart" },
+                    selected = viewModel.currentTab == if (isAdmin) "ingredients" else "cart",
+                    onClick = { viewModel.currentTab = if (isAdmin) "ingredients" else "cart" },
                     icon = {
-                        Box {
-                            Icon(imageVector = Icons.Default.ShoppingCart, contentDescription = "cart")
-                            if (totalCartCount > 0) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .background(MaterialTheme.colorScheme.error, CircleShape)
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 10.dp, y = (-4).dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val countText = if (totalCartCount > 9) "9+" else if (totalCartCount % 1.0 == 0.0) totalCartCount.toInt().toString() else String.format("%.0f", totalCartCount)
-                                    Text(
-                                        text = countText,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        textAlign = TextAlign.Center
-                                    )
+                        if (isAdmin) {
+                            Icon(imageVector = Icons.Default.List, contentDescription = "ingredients")
+                        } else {
+                            Box {
+                                Icon(imageVector = Icons.Default.ShoppingCart, contentDescription = "cart")
+                                if (totalCartCount > 0) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .background(MaterialTheme.colorScheme.error, CircleShape)
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 10.dp, y = (-4).dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val countText = if (totalCartCount > 9) "9+" else totalCartCount.toString()
+                                        Text(
+                                            text = countText,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         }
                     },
-                    label = { Text("清单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "食材" else "清单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                         selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -253,7 +287,9 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                 .padding(innerPadding)
         ) {
             when (viewModel.currentTab) {
+                "dashboard" -> AdminDashboardScreen(viewModel)
                 "home" -> HomeScreen(viewModel)
+                "ingredients" -> HomeScreen(viewModel)
                 "cart" -> CartScreen(viewModel)
                 "orders" -> OrderListScreen(viewModel)
                 "profile" -> ProfileScreen(viewModel)

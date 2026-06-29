@@ -42,7 +42,7 @@ def create_unit(body: UnitCreate, admin=Depends(require_admin_user)):
 def update_unit(unit_id: str, body: UnitUpdate, admin=Depends(require_admin_user)):
     fields = body.model_dump(exclude_unset=True)
     if not fields:
-        raise HTTPException(status_code=400, detail="No fields")
+        raise HTTPException(status_code=400, detail="请填写需要保存的内容")
     assignments = ", ".join(f"{key} = ?" for key in fields)
     values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
     with connect() as conn:
@@ -79,9 +79,9 @@ def list_users(admin=Depends(require_admin_user)):
 @router.post("/users")
 def create_user(body: UserCreate, admin=Depends(require_admin_user)):
     if body.role not in ("admin", "unit_user"):
-        raise HTTPException(status_code=400, detail="Invalid role")
+        raise HTTPException(status_code=400, detail="账号角色不正确")
     if body.role == "unit_user" and not body.unit_id:
-        raise HTTPException(status_code=400, detail="unit_id required")
+        raise HTTPException(status_code=400, detail="请选择所属单位")
     user_id = str(uuid4())
     with connect() as conn:
         conn.execute(
@@ -99,7 +99,7 @@ def create_user(body: UserCreate, admin=Depends(require_admin_user)):
 def update_user(user_id: str, body: UserUpdate, admin=Depends(require_admin_user)):
     fields = body.model_dump(exclude_unset=True)
     if not fields:
-        raise HTTPException(status_code=400, detail="No fields")
+        raise HTTPException(status_code=400, detail="请填写需要保存的内容")
     assignments = ", ".join(f"{key} = ?" for key in fields)
     values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
     with connect() as conn:

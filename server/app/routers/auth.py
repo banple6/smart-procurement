@@ -10,13 +10,25 @@ from ..security import create_session_token, hash_password, hash_token, verify_p
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def public_user(user: dict) -> dict:
+def validate_new_password(username: str, password: str):
+    if password.lower() == username.lower():
+        raise HTTPException(status_code=400, detail="新密码不能与账号相同")
+    has_letter = any(ch.isalpha() for ch in password)
+    has_digit = any(ch.isdigit() for ch in password)
+    if len(password) < 8 or not has_letter or not has_digit:
+        raise HTTPException(status_code=400, detail="密码至少 8 位，且包含字母和数字")
+
+
+def public_user(user: dict, unit: dict | None = None) -> dict:
     return {
         "id": user["id"],
         "username": user["username"],
         "display_name": user["display_name"],
         "role": user["role"],
-        "unit_id": user["unit_id"],
+        "unit_id": user["unit_id"] or "",
+        "unit_code": unit["unit_code"] if unit else "",
+        "unit_name": unit["unit_name"] if unit else "",
+        "default_delivery_point": unit["default_delivery_point"] if unit else "",
         "active": bool(user["active"]),
         "must_change_password": bool(user["must_change_password"]),
     }
@@ -27,13 +39,14 @@ def login(body: LoginRequest, request: Request):
     with connect() as conn:
         user = one(conn, "SELECT * FROM users WHERE username = ?", (body.username,))
         if not user or not verify_password(body.password, user["password_hash"]):
-            raise HTTPException(status_code=401, detail="Invalid username or password")
+            raise HTTPException(status_code=401, detail="账号或密码错误")
         if not user["active"]:
-            raise HTTPException(status_code=403, detail="User disabled")
+            raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+        unit = None
         if user["role"] == "unit_user":
             unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
             if not unit or not unit["active"]:
-                raise HTTPException(status_code=403, detail="Unit disabled")
+                raise HTTPException(status_code=403, detail="所属单位已停用")
         token, token_hash, expires_at = create_session_token()
         conn.execute(
             """
@@ -51,12 +64,16 @@ def login(body: LoginRequest, request: Request):
         )
         conn.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
         conn.commit()
-        return {"token": token, "expires_at": expires_at, "user": public_user(user)}
+        return {"token": token, "expires_at": expires_at, "user": public_user(user, unit)}
 
 
 @router.get("/me")
 def me(user=Depends(current_user)):
-    return public_user(user)
+    unit = None
+    if user["unit_id"]:
+        with connect() as conn:
+            unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
+    return public_user(user, unit)
 
 
 @router.post("/logout")
@@ -75,7 +92,8 @@ def logout(authorization: str | None = Header(default=None)):
 @router.post("/change-password")
 def change_password(body: ChangePasswordRequest, user=Depends(current_user)):
     if not verify_password(body.old_password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Old password invalid")
+        raise HTTPException(status_code=401, detail="原密码错误")
+    validate_new_password(user["username"], body.new_password)
     with connect() as conn:
         conn.execute(
             "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",

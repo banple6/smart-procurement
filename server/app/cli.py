@@ -29,7 +29,7 @@ def reset_admin_password(username: str, env_var: str = "NEW_ADMIN_PASSWORD") -> 
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="智慧后勤采购 server admin utilities")
+    parser = argparse.ArgumentParser(description="生鲜后勤 server admin utilities")
     subparsers = parser.add_subparsers(dest="command", required=True)
     reset = subparsers.add_parser("reset-admin-password", help="Reset an admin password from NEW_ADMIN_PASSWORD")
     reset.add_argument("username", help="Admin username to reset")

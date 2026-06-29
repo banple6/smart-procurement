@@ -7,7 +7,7 @@ from ..services.exports import ledger_workbook
 router = APIRouter(prefix="/admin", tags=["ledger"])
 
 
-def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None, product=None):
+def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None, product=None, order_no=None):
     where = ["1 = 1"]
     params = []
     if start_date:
@@ -25,6 +25,9 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
     if product:
         where.append("(order_items.product_name_snapshot LIKE ? OR order_items.product_code_snapshot LIKE ?)")
         params.extend([f"%{product}%", f"%{product}%"])
+    if order_no:
+        where.append("orders.order_no LIKE ?")
+        params.append(f"%{order_no}%")
     return all_rows(
         conn,
         f"""
@@ -39,15 +42,15 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
 
 
 @router.get("/ledger")
-def ledger(start_date: str | None = None, end_date: str | None = None, unit_id: str | None = None, status: str | None = None, product: str | None = None, admin=Depends(require_admin_user)):
+def ledger(start_date: str | None = None, end_date: str | None = None, unit_id: str | None = None, status: str | None = None, product: str | None = None, order_no: str | None = None, admin=Depends(require_admin_user)):
     with connect() as conn:
-        return ledger_rows(conn, start_date, end_date, unit_id, status, product)
+        return ledger_rows(conn, start_date, end_date, unit_id, status, product, order_no)
 
 
 @router.get("/ledger/export.xlsx")
-def export_ledger(start_date: str | None = None, end_date: str | None = None, unit_id: str | None = None, status: str | None = None, product: str | None = None, admin=Depends(require_admin_user)):
+def export_ledger(start_date: str | None = None, end_date: str | None = None, unit_id: str | None = None, status: str | None = None, product: str | None = None, order_no: str | None = None, admin=Depends(require_admin_user)):
     with connect() as conn:
-        content = ledger_workbook(ledger_rows(conn, start_date, end_date, unit_id, status, product))
+        content = ledger_workbook(ledger_rows(conn, start_date, end_date, unit_id, status, product, order_no))
     return Response(
         content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

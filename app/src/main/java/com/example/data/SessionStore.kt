@@ -27,7 +27,11 @@ data class LoginSession(
     val username: String = "",
     val displayName: String = "",
     val role: String = "",
-    val unitId: String = ""
+    val unitId: String = "",
+    val unitCode: String = "",
+    val unitName: String = "",
+    val defaultDeliveryPoint: String = "",
+    val mustChangePassword: Boolean = false
 )
 
 class SessionStore(private val context: Context) {
@@ -39,6 +43,10 @@ class SessionStore(private val context: Context) {
     private val displayNameKey = stringPreferencesKey("display_name")
     private val roleKey = stringPreferencesKey("role")
     private val unitIdKey = stringPreferencesKey("unit_id")
+    private val unitCodeKey = stringPreferencesKey("unit_code")
+    private val unitNameKey = stringPreferencesKey("unit_name")
+    private val defaultDeliveryPointKey = stringPreferencesKey("default_delivery_point")
+    private val mustChangePasswordKey = booleanPreferencesKey("must_change_password")
     private val tokenIvKey = stringPreferencesKey("token_iv")
 
     val sessionFlow: Flow<LoginSession?> = context.sessionDataStore.data.map { preferences ->
@@ -51,7 +59,11 @@ class SessionStore(private val context: Context) {
             username = preferences[usernameKey].orEmpty(),
             displayName = preferences[displayNameKey].orEmpty(),
             role = preferences[roleKey].orEmpty(),
-            unitId = preferences[unitIdKey].orEmpty()
+            unitId = preferences[unitIdKey].orEmpty(),
+            unitCode = preferences[unitCodeKey].orEmpty(),
+            unitName = preferences[unitNameKey].orEmpty(),
+            defaultDeliveryPoint = preferences[defaultDeliveryPointKey].orEmpty(),
+            mustChangePassword = preferences[mustChangePasswordKey] ?: false
         )
     }
 
@@ -74,6 +86,10 @@ class SessionStore(private val context: Context) {
             preferences[displayNameKey] = session.displayName
             preferences[roleKey] = session.role
             preferences[unitIdKey] = session.unitId
+            preferences[unitCodeKey] = session.unitCode
+            preferences[unitNameKey] = session.unitName
+            preferences[defaultDeliveryPointKey] = session.defaultDeliveryPoint
+            preferences[mustChangePasswordKey] = session.mustChangePassword
         }
     }
 
@@ -88,6 +104,10 @@ class SessionStore(private val context: Context) {
             preferences.remove(displayNameKey)
             preferences.remove(roleKey)
             preferences.remove(unitIdKey)
+            preferences.remove(unitCodeKey)
+            preferences.remove(unitNameKey)
+            preferences.remove(defaultDeliveryPointKey)
+            preferences.remove(mustChangePasswordKey)
         }
     }
 

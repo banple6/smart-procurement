@@ -46,7 +46,7 @@ fun LoginScreen(viewModel: SupplyViewModel) {
             Icon(Icons.Default.Home, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
         }
         Spacer(modifier = Modifier.height(18.dp))
-        Text("智慧后勤采购", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("生鲜后勤", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         Text("内部生鲜采购与配送管理系统", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(28.dp))
 
@@ -116,6 +116,59 @@ fun LoginScreen(viewModel: SupplyViewModel) {
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
+    }
+}
+
+@Composable
+fun ChangePasswordScreen(viewModel: SupplyViewModel) {
+    var oldPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(24.dp)
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("首次登录修改密码", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("新密码至少 8 位，必须包含字母和数字。修改成功后请重新登录。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PasswordField(
+                    value = oldPassword,
+                    onValueChange = { oldPassword = it },
+                    label = "原密码",
+                    error = viewModel.passwordErrors["oldPassword"]
+                )
+                PasswordField(
+                    value = newPassword,
+                    onValueChange = { newPassword = it },
+                    label = "新密码",
+                    error = viewModel.passwordErrors["newPassword"]
+                )
+                Button(
+                    onClick = { viewModel.changePassword(oldPassword, newPassword) },
+                    enabled = !viewModel.isChangingPassword,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    if (viewModel.isChangingPassword) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                    } else {
+                        Text("修改密码", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
     }
 }
 
