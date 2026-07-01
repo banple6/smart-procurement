@@ -19,6 +19,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentSectionHeader
+import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
+import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
 
 @Composable
 fun AdminDashboardScreen(viewModel: SupplyViewModel) {
@@ -30,30 +36,19 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("工作台", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text("今日采购处理情况", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { viewModel.refreshDashboard() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                }
-            }
+            GovernmentTopBar(
+                title = "工作台",
+                actionText = "刷新",
+                actionIcon = Icons.Default.Refresh,
+                onAction = { viewModel.refreshDashboard() }
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
+                .background(GovernmentColors.PageBackground),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -75,11 +70,11 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                         MetricTile("收货异常", dashboard.openReceiptIssues.toString(), Modifier.weight(1f))
                         MetricTile("今日备货", "查看", Modifier.weight(1f).clickable { viewModel.navigateTo(Screen.PreparationSummary) })
                     }
-                    Button(
+                    GovernmentPrimaryButton(
+                        text = "查看单位配送单",
                         onClick = { viewModel.navigateTo(Screen.DeliverySheets) },
-                        modifier = Modifier.fillMaxWidth().height(52.dp),
-                        shape = RoundedCornerShape(8.dp)
-                    ) { Text("查看单位配送单") }
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
             item {
@@ -99,11 +94,11 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(order.orderNo, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(order.unitName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(order.unitName, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text(order.status, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    Text(Money.formatCents(order.totalCents), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    GovernmentStatusLabel(order.status)
+                                    Text(Money.formatCents(order.totalCents), style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                                 }
                             }
                         }
@@ -144,7 +139,7 @@ private fun MetricTile(label: String, value: String, modifier: Modifier = Modifi
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
             Text(value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         }
     }
@@ -152,14 +147,9 @@ private fun MetricTile(label: String, value: String, modifier: Modifier = Modifi
 
 @Composable
 private fun SectionPanel(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-    ) {
+    GovernmentCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            GovernmentSectionHeader(title)
             content()
         }
     }

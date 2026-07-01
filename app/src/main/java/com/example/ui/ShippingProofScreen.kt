@@ -29,6 +29,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.smartprocurement.internal.ui.designsystem.GovernmentBottomActionBar
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentInfoBanner
+import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
 import java.io.File
 import java.util.UUID
 
@@ -90,18 +96,12 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
     val ord = order
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("发货凭证", fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = { leavePage() }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
+            GovernmentTopBar(title = "发货凭证", onBack = { leavePage() })
         },
         bottomBar = {
-            Surface(tonalElevation = 8.dp) {
-                Button(
+            GovernmentBottomActionBar {
+                GovernmentPrimaryButton(
+                    text = if (uploading) "正在上传" else "上传照片并确认发货",
                     onClick = {
                         viewModel.submitShippingProof(
                             orderId = orderId,
@@ -116,12 +116,7 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .padding(16.dp)
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(if (uploading) "正在上传..." else "上传照片并确认发货", fontWeight = FontWeight.Bold)
-                }
+                )
             }
         }
     ) { innerPadding ->
@@ -129,6 +124,7 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .background(GovernmentColors.PageBackground)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -138,16 +134,23 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
                 return@Column
             }
             if (ord.status != "备货中") {
-                Text("订单状态已发生变化", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                GovernmentInfoBanner(
+                    title = "订单状态已变化",
+                    message = "当前订单不是备货中，不能上传发货照片。",
+                    danger = true
+                )
             }
-            Card(shape = RoundedCornerShape(8.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("订单：${ord.displayOrderNo}", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("收货单位：${ord.department}", fontSize = 14.sp)
-                    Text("配送点：${ord.deliveryPoint}", fontSize = 14.sp)
+                    Text("收货单位：${ord.department}", style = MaterialTheme.typography.bodyMedium)
+                    Text("配送点：${ord.deliveryPoint}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Text("请拍摄装车或交接前的食材照片，至少 1 张，最多 3 张。", fontSize = 14.sp)
+            GovernmentInfoBanner(
+                title = "拍照留存",
+                message = "请拍摄装车或交接前的食材照片，至少 1 张，最多 3 张。"
+            )
             OutlinedButton(
                 onClick = {
                     if (photoPaths.size >= 3) return@OutlinedButton
@@ -162,13 +165,13 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(52.dp),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(6.dp)
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (photoPaths.size >= 3) "已达到 3 张上限" else "拍摄发货照片", fontWeight = FontWeight.Bold)
             }
-            Text("已拍照片：${photoPaths.size}/3", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("已拍照片：${photoPaths.size}/3", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (photoPaths.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     photoPaths.forEach { path ->
@@ -214,7 +217,7 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
 
     previewPath?.let { path ->
         Dialog(onDismissRequest = { previewPath = null }) {
-            Box(modifier = Modifier.fillMaxWidth().height(420.dp).background(MaterialTheme.colorScheme.surface)) {
+            Box(modifier = Modifier.fillMaxWidth().height(420.dp).background(GovernmentColors.SurfaceWhite, RoundedCornerShape(10.dp))) {
                 AsyncImage(
                     model = File(path),
                     contentDescription = "发货照片预览",

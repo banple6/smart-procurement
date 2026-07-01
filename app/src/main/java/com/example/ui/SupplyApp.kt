@@ -28,6 +28,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
+import com.smartprocurement.internal.ui.designsystem.GovernmentBrandMark
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentShapes
+import com.smartprocurement.internal.ui.designsystem.GovernmentThemeDefaults
 import kotlinx.coroutines.delay
 
 fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
@@ -60,14 +64,14 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             },
             title = { Text("提示", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = { Text(msg, fontSize = 14.sp) },
-            shape = RoundedCornerShape(12.dp),
+            shape = RoundedCornerShape(GovernmentShapes.LargeRadius),
             containerColor = Color.White
         )
     }
 
     viewModel.oneTimeCredentialNotice?.let { notice ->
         val copyText = """
-            生鲜后勤系统
+            ${GovernmentThemeDefaults.appName}
             单位：${notice.unitName}
             账号：${notice.username}
             初始密码：${notice.password}
@@ -97,8 +101,8 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                     Text("请立即复制并交给该单位负责人。关闭后系统不会再次显示该密码。", fontSize = 13.sp)
                 }
             },
-            shape = RoundedCornerShape(12.dp),
-            containerColor = Color.White
+            shape = RoundedCornerShape(GovernmentShapes.LargeRadius),
+            containerColor = GovernmentColors.SurfaceWhite
         )
     }
 
@@ -181,38 +185,23 @@ fun SplashScreen(onFinish: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.primary),
+            .background(GovernmentColors.PageBackground),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(Color.White.copy(alpha = 0.1f), CircleShape)
-                    .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = "splash_logo",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(20.dp))
+            GovernmentBrandMark(modifier = Modifier.size(80.dp))
+            Spacer(modifier = Modifier.height(18.dp))
             Text(
-                text = "生鲜后勤",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-                letterSpacing = 2.sp
+                text = GovernmentThemeDefaults.appName,
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = GovernmentColors.GovernmentBlueDark
             )
             Text(
-                text = "内部食材申领配送终端",
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.7f),
-                modifier = Modifier.padding(top = 4.dp),
-                letterSpacing = 1.sp
+                text = GovernmentThemeDefaults.appDescription,
+                style = MaterialTheme.typography.bodyMedium,
+                color = GovernmentColors.TextSecondary,
+                modifier = Modifier.padding(top = 6.dp)
             )
         }
     }
@@ -231,11 +220,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 8.dp,
+                containerColor = GovernmentColors.SurfaceWhite,
+                tonalElevation = 0.dp,
                 modifier = Modifier.drawBehind {
                     drawLine(
-                        color = Color(0xFFCAC4D0),
+                        color = GovernmentColors.Divider,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f
@@ -246,13 +235,13 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     selected = viewModel.currentTab == if (isAdmin) "dashboard" else "home",
                     onClick = { viewModel.currentTab = if (isAdmin) "dashboard" else "home" },
                     icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else Icons.Default.Home, contentDescription = "home") },
-                    label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        selectedIconColor = GovernmentColors.GovernmentBlue,
+                        selectedTextColor = GovernmentColors.GovernmentBlue,
+                        unselectedIconColor = GovernmentColors.TextTertiary,
+                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        indicatorColor = Color.Transparent
                     )
                 )
 
@@ -277,7 +266,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                                         val countText = if (totalCartCount > 9) "9+" else totalCartCount.toString()
                                         Text(
                                             text = countText,
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
                                             textAlign = TextAlign.Center
@@ -287,13 +276,13 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                             }
                         }
                     },
-                    label = { Text(if (isAdmin) "食材" else "清单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "食材" else "清单", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        selectedIconColor = GovernmentColors.GovernmentBlue,
+                        selectedTextColor = GovernmentColors.GovernmentBlue,
+                        unselectedIconColor = GovernmentColors.TextTertiary,
+                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        indicatorColor = Color.Transparent
                     )
                 )
 
@@ -301,13 +290,13 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     selected = viewModel.currentTab == "orders",
                     onClick = { viewModel.currentTab = "orders" },
                     icon = { Icon(imageVector = Icons.Default.Menu, contentDescription = "orders") },
-                    label = { Text("订单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text("订单", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        selectedIconColor = GovernmentColors.GovernmentBlue,
+                        selectedTextColor = GovernmentColors.GovernmentBlue,
+                        unselectedIconColor = GovernmentColors.TextTertiary,
+                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        indicatorColor = Color.Transparent
                     )
                 )
 
@@ -315,13 +304,13 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     selected = viewModel.currentTab == "profile",
                     onClick = { viewModel.currentTab = "profile" },
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
-                    label = { Text("我的", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text("我的", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        selectedIconColor = GovernmentColors.GovernmentBlue,
+                        selectedTextColor = GovernmentColors.GovernmentBlue,
+                        unselectedIconColor = GovernmentColors.TextTertiary,
+                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        indicatorColor = Color.Transparent
                     )
                 )
             }
