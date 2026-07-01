@@ -39,6 +39,10 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.product.AdminProductActionRow
+import com.smartprocurement.internal.ui.product.ProductPublishConfirmDialog
+import com.smartprocurement.internal.ui.product.QuickInventorySheet
+import com.smartprocurement.internal.ui.product.QuickPriceSheet
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -57,6 +61,9 @@ fun HomeScreen(viewModel: SupplyViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("全部") }
     var selectedStatus by remember { mutableStateOf("全部") }
+    var priceProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var inventoryProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var toggleProduct by remember { mutableStateOf<ProductEntity?>(null) }
 
     val filteredProducts = products.filter { product ->
         val matchQuery = product.name.contains(searchQuery, ignoreCase = true) || product.code.contains(searchQuery, ignoreCase = true)
@@ -171,11 +178,45 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                         canOrder = !viewModel.canManageIngredients(),
                         onOpen = { viewModel.navigateTo(Screen.ProductDetail(product.id)) },
                         onAdd = { viewModel.addToCart(product.id, if (it == 0.0) product.minQty else it + product.stepQty) },
-                        onRemove = { viewModel.updateCartQty(product.id, it - product.stepQty) }
+                        onRemove = { viewModel.updateCartQty(product.id, it - product.stepQty) },
+                        onPrice = { priceProduct = product },
+                        onInventory = { inventoryProduct = product },
+                        onToggle = { toggleProduct = product },
+                        adminActionLoading = viewModel.activePriceProductId == product.id ||
+                            viewModel.activeInventoryProductId == product.id ||
+                            viewModel.activeStatusProductId == product.id
                     )
                 }
             }
         }
+    }
+    priceProduct?.let { product ->
+        QuickPriceSheet(
+            product = product,
+            loading = viewModel.activePriceProductId == product.id,
+            onDismiss = { priceProduct = null },
+            onSave = { priceText, reason -> viewModel.updateProductPrice(product, priceText, reason) { priceProduct = null } }
+        )
+    }
+    inventoryProduct?.let { product ->
+        QuickInventorySheet(
+            product = product,
+            loading = viewModel.activeInventoryProductId == product.id,
+            onDismiss = { inventoryProduct = null },
+            onSave = { mode, quantity, reason -> viewModel.adjustProductInventory(product, mode, quantity, reason) { inventoryProduct = null } }
+        )
+    }
+    toggleProduct?.let { product ->
+        ProductPublishConfirmDialog(
+            product = product,
+            loading = viewModel.activeStatusProductId == product.id,
+            onDismiss = { toggleProduct = null },
+            onConfirm = {
+                val publish = !product.isAvailable || product.status == "已下架"
+                viewModel.setIngredientAvailable(product.id, publish)
+                toggleProduct = null
+            }
+        )
     }
 }
 
@@ -204,7 +245,11 @@ private fun IngredientCard(
     canOrder: Boolean,
     onOpen: () -> Unit,
     onAdd: (Double) -> Unit,
-    onRemove: (Double) -> Unit
+    onRemove: (Double) -> Unit,
+    onPrice: () -> Unit = {},
+    onInventory: () -> Unit = {},
+    onToggle: () -> Unit = {},
+    adminActionLoading: Boolean = false
 ) {
     val available = product.availableQuantity.ifBlank { product.stockQuantity }
     val availableNumber = available.toDoubleOrNull() ?: 0.0
@@ -268,7 +313,15 @@ private fun IngredientCard(
                     Text("总库存：${product.stockQuantity.ifBlank { "0" }} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("预占库存：${product.reservedQuantity.ifBlank { "0" }} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("可用库存：$available ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    Spacer(Modifier.height(6.dp))
+                    AdminProductActionRow(
+                        product = product,
+                        loading = adminActionLoading,
+                        onPrice = onPrice,
+                        onInventory = onInventory,
+                        onToggle = onToggle
+                    )
+                }
             }
         }
     }
@@ -333,7 +386,7 @@ fun ProductDetailScreen(productId: String, viewModel: SupplyViewModel) {
                     IngredientDetailRow("单位", product.unit)
                     IngredientDetailRow("当前库存", "${product.stockQuantity.ifBlank { "0" }} ${product.unit}")
                     IngredientDetailRow("库存预警", product.warningQuantity.ifBlank { "未设置" })
-                    IngredientDetailRow("今日可供数量", product.availableQuantity.ifBlank { "未设置" })
+                    IngredientDetailRow("可用库存", "${product.availableQuantity.ifBlank { product.stockQuantity }} ${product.unit}")
                     IngredientDetailRow("供应状态", product.displayStatus())
                     IngredientDetailRow("是否上架", if (product.isAvailable) "是" else "否")
                 }
@@ -434,7 +487,11 @@ private fun DetailActions(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
-    var form by remember(productId, viewModel.allProducts.collectAsState().value) {
+    val productsForForm by viewModel.allProducts.collectAsState()
+    val editingProduct = productId?.let { id -> productsForForm.find { it.id == id } }
+    var priceProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var inventoryProduct by remember { mutableStateOf<ProductEntity?>(null) }
+    var form by remember(productId, productsForForm) {
         mutableStateOf(viewModel.formStateFor(productId))
     }
     var leavingConfirm by remember { mutableStateOf(false) }
@@ -474,7 +531,7 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                         .height(52.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text(if (productId == null) "保存食材" else "保存修改", fontWeight = FontWeight.Bold)
+                    Text(if (productId == null) "保存并上架" else "保存资料", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -530,8 +587,16 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                     DropDownInput("食材分类", form.category, EditableCategories) { form = form.copy(category = it) }
                     FormInput("规格描述", form.spec, { form = form.copy(spec = it) }, viewModel.ingredientErrors["spec"])
                     DropDownInput("计量单位", form.unit, Units) { form = form.copy(unit = it) }
-                    DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"])
-                    DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"])
+                    if (productId == null) {
+                        DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"])
+                        DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"])
+                    } else if (editingProduct != null) {
+                        ReadOnlyProductOperationSummary(
+                            product = editingProduct,
+                            onPrice = { priceProduct = editingProduct },
+                            onInventory = { inventoryProduct = editingProduct }
+                        )
+                    }
                 }
             }
             item {
@@ -550,9 +615,6 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                             FormInput("保质期说明", form.shelfLife, { form = form.copy(shelfLife = it) }, null)
                             DropDownInput("存储方式", form.storageMethod, StorageMethods) { form = form.copy(storageMethod = it) }
                             FormInput("商品说明", form.remark, { form = form.copy(remark = it) }, null, singleLine = false)
-                            DropDownInput("供应状态", form.status, EditableStatuses) { form = form.copy(status = it) }
-                            SwitchRow("是否上架", form.isAvailable) { form = form.copy(isAvailable = it) }
-                            DecimalInput("今日可供数量", form.availableQuantity, { form = form.copy(availableQuantity = it) }, viewModel.ingredientErrors["availableQuantity"])
                         }
                     }
                 }
@@ -568,6 +630,38 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
             dismissButton = { TextButton(onClick = { leavingConfirm = false }) { Text("继续编辑") } },
             confirmButton = { TextButton(onClick = { viewModel.navigateBack() }) { Text("离开") } }
         )
+    }
+    priceProduct?.let { product ->
+        QuickPriceSheet(
+            product = product,
+            loading = viewModel.activePriceProductId == product.id,
+            onDismiss = { priceProduct = null },
+            onSave = { priceText, reason -> viewModel.updateProductPrice(product, priceText, reason) { priceProduct = null } }
+        )
+    }
+    inventoryProduct?.let { product ->
+        QuickInventorySheet(
+            product = product,
+            loading = viewModel.activeInventoryProductId == product.id,
+            onDismiss = { inventoryProduct = null },
+            onSave = { mode, quantity, reason -> viewModel.adjustProductInventory(product, mode, quantity, reason) { inventoryProduct = null } }
+        )
+    }
+}
+
+@Composable
+private fun ReadOnlyProductOperationSummary(product: ProductEntity, onPrice: () -> Unit, onInventory: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("价格", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text("${Money.formatYuan(product.price)} / ${product.unit}", fontSize = 14.sp)
+        OutlinedButton(onClick = onPrice, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+            Text("修改价格")
+        }
+        Text("库存", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text("总库存 ${product.stockQuantity} · 已预占 ${product.reservedQuantity} · 可用 ${product.availableQuantity.ifBlank { product.stockQuantity }}", fontSize = 14.sp)
+        OutlinedButton(onClick = onInventory, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+            Text("调整库存")
+        }
     }
 }
 

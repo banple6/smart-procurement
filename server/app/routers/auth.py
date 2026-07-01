@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from ..database import connect, one, revoke_user_sessions
+from ..database import connect, one, revoke_user_sessions, write_audit
 from ..dependencies import current_user
 from ..schemas import ChangePasswordRequest, LoginRequest
 from ..security import create_session_token, hash_password, hash_token, verify_password
@@ -17,6 +17,10 @@ def validate_new_password(username: str, password: str):
     has_digit = any(ch.isdigit() for ch in password)
     if len(password) < 8 or not has_letter or not has_digit:
         raise HTTPException(status_code=400, detail="密码至少 8 位，且包含字母和数字")
+
+
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
 
 
 def public_user(user: dict, unit: dict | None = None) -> dict:
@@ -36,9 +40,32 @@ def public_user(user: dict, unit: dict | None = None) -> dict:
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request):
+    username = normalize_username(body.username)
     with connect() as conn:
-        user = one(conn, "SELECT * FROM users WHERE username = ?", (body.username,))
+        user = one(conn, "SELECT * FROM users WHERE lower(username) = lower(?)", (username,))
+        if user and user["locked_until"]:
+            locked = one(conn, "SELECT ? > CURRENT_TIMESTAMP AS active_lock", (user["locked_until"],))
+            if locked and locked["active_lock"]:
+                raise HTTPException(status_code=423, detail="尝试次数过多，请稍后再试")
         if not user or not verify_password(body.password, user["password_hash"]):
+            if user:
+                next_count = int(user["failed_login_count"] or 0) + 1
+                if next_count >= 5:
+                    conn.execute(
+                        """
+                        UPDATE users
+                        SET failed_login_count = ?, locked_until = datetime('now', '+15 minutes'), updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (next_count, user["id"]),
+                    )
+                    write_audit(conn, user["id"], user["role"], "LOGIN_FAILED_LOCKED", "user", user["id"], result="failure")
+                else:
+                    conn.execute(
+                        "UPDATE users SET failed_login_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (next_count, user["id"]),
+                    )
+                conn.commit()
             raise HTTPException(status_code=401, detail="账号或密码错误")
         if not user["active"]:
             raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
@@ -46,7 +73,7 @@ def login(body: LoginRequest, request: Request):
         if user["role"] == "unit_user":
             unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
             if not unit or not unit["active"]:
-                raise HTTPException(status_code=403, detail="所属单位已停用")
+                raise HTTPException(status_code=403, detail="所属单位已停用，请联系管理员")
         token, token_hash, expires_at = create_session_token()
         conn.execute(
             """
@@ -62,7 +89,11 @@ def login(body: LoginRequest, request: Request):
                 request.client.host if request.client else "",
             ),
         )
-        conn.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+        conn.execute(
+            "UPDATE users SET last_login_at = CURRENT_TIMESTAMP, failed_login_count = 0, locked_until = NULL WHERE id = ?",
+            (user["id"],),
+        )
+        write_audit(conn, user["id"], user["role"], "LOGIN_SUCCESS", "user", user["id"])
         conn.commit()
         return {"token": token, "expires_at": expires_at, "user": public_user(user, unit)}
 
@@ -93,12 +124,20 @@ def logout(authorization: str | None = Header(default=None)):
 def change_password(body: ChangePasswordRequest, user=Depends(current_user)):
     if not verify_password(body.old_password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="原密码错误")
+    if verify_password(body.new_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
     validate_new_password(user["username"], body.new_password)
     with connect() as conn:
         conn.execute(
-            "UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            """
+            UPDATE users
+            SET password_hash = ?, must_change_password = 0, password_changed_at = CURRENT_TIMESTAMP,
+                failed_login_count = 0, locked_until = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
             (hash_password(body.new_password), user["id"]),
         )
         revoke_user_sessions(conn, user["id"])
+        write_audit(conn, user["id"], user["role"], "USER_CHANGE_PASSWORD", "user", user["id"])
         conn.commit()
     return {"ok": True}

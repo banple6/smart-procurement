@@ -2,6 +2,8 @@ package com.smartprocurement.internal.data
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 
@@ -14,6 +16,24 @@ data class ShippingPhotoDto(
     val uploadedAt: String,
     val uploadedByUsername: String,
     val source: String
+)
+
+data class ReceiptIssuePhotoDto(
+    val id: String,
+    val thumbnailUrl: String,
+    val fullUrl: String,
+    val uploadedAt: String,
+    val source: String
+)
+
+data class ReceiptIssueDto(
+    val id: String,
+    val issueType: String,
+    val description: String,
+    val status: String,
+    val reportedAt: String,
+    val resolutionNote: String,
+    val photos: List<ReceiptIssuePhotoDto>
 )
 
 @Entity(tableName = "products")
@@ -45,6 +65,7 @@ data class ProductEntity(
     val remark: String = "",
     val isDeleted: Boolean = false,
     val createdBy: String = "",
+    val serverUpdatedAt: String = "",
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -77,6 +98,7 @@ data class OrderEntity(
     val displayOrderNo: String = "",
     val submitTime: String,
     val createdAt: String = "",
+    val serverUpdatedAt: String = "",
     val acceptedAt: String = "",
     val preparingAt: String = "",
     val shippedAt: String = "",
@@ -90,6 +112,9 @@ data class OrderEntity(
     val shippingNote: String = "",
     val shippingPhotoCount: Int = 0,
     val shippingPhotosJson: String = "[]",
+    val openReceiptIssueCount: Int = 0,
+    val receiptIssuesJson: String = "[]",
+    val hasAdjustments: Boolean = false,
     val totalCents: Long = 0,
     val itemCount: Int = 0,
     val urgent: Boolean = false,
@@ -110,11 +135,39 @@ data class OrderEntity(
                 )
             }
         }.getOrDefault(emptyList())
+
+    val receiptIssues: List<ReceiptIssueDto>
+        get() = runCatching {
+            val array = JSONArray(receiptIssuesJson.ifBlank { "[]" })
+            List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                val photosArray = item.optJSONArray("photos")
+                ReceiptIssueDto(
+                    id = item.optString("id"),
+                    issueType = item.optString("issue_type"),
+                    description = item.optString("description"),
+                    status = item.optString("status"),
+                    reportedAt = item.optString("reported_at").replace('T', ' ').take(16),
+                    resolutionNote = item.optString("resolution_note"),
+                    photos = List(photosArray?.length() ?: 0) { photoIndex ->
+                        val photo = photosArray!!.getJSONObject(photoIndex)
+                        ReceiptIssuePhotoDto(
+                            id = photo.optString("id"),
+                            thumbnailUrl = photo.optString("thumbnail_url"),
+                            fullUrl = photo.optString("full_url"),
+                            uploadedAt = photo.optString("uploaded_at").replace('T', ' ').take(16),
+                            source = photo.optString("source", "camera")
+                        )
+                    }
+                )
+            }
+        }.getOrDefault(emptyList())
 }
 
 @Entity(tableName = "order_items")
 data class OrderItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val remoteItemId: String = "",
     val orderId: String,
     val productId: String,
     val productName: String,
@@ -122,6 +175,9 @@ data class OrderItemEntity(
     val productUnit: String,
     val productImageUrl: String,
     val requestedQty: Double,
+    val actualQty: Double = requestedQty,
+    val adjustmentReason: String = "",
+    val adjusted: Boolean = false,
     val confirmedQty: Double,
     val deliveredQty: Double,
     val price: Double,
@@ -234,7 +290,7 @@ interface SupplyDao {
 
 @Database(
     entities = [ProductEntity::class, UserEntity::class, CartItemEntity::class, OrderEntity::class, OrderItemEntity::class],
-    version = 7,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -244,6 +300,26 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE products ADD COLUMN serverUpdatedAt TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN openReceiptIssueCount INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE orders ADD COLUMN receiptIssuesJson TEXT NOT NULL DEFAULT '[]'")
+                db.execSQL("ALTER TABLE orders ADD COLUMN hasAdjustments INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE orders ADD COLUMN serverUpdatedAt TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE order_items ADD COLUMN actualQty REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE order_items ADD COLUMN adjustmentReason TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE order_items ADD COLUMN adjusted INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE order_items ADD COLUMN remoteItemId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("UPDATE order_items SET actualQty = requestedQty WHERE actualQty = 0")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -251,6 +327,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "supply_procurement_database"
                 )
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

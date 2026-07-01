@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .database import connect, init_db, one, private_upload_dir, transaction, upload_dir
-from .routers import auth, dashboard, ledger, orders, products, units
+from .routers import auth, dashboard, ledger, orders, procurement, products, units
 from .security import hash_password
 
 app = FastAPI(title="生鲜后勤 API", version="1.0.0")
@@ -45,6 +45,7 @@ api.include_router(auth.router)
 api.include_router(units.router)
 api.include_router(products.router)
 api.include_router(orders.router)
+api.include_router(procurement.router)
 api.include_router(dashboard.router)
 api.include_router(ledger.router)
 

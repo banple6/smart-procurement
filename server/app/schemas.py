@@ -53,7 +53,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 class ProductCreate(BaseModel):
-    product_code: str
+    product_code: Optional[str] = None
     name: str
     category: str
     spec: str
@@ -91,6 +91,7 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     supply_status: Optional[str] = None
     active: Optional[bool] = None
+    expected_updated_at: Optional[str] = None
 
 
 class ProductStatusPatch(BaseModel):
@@ -99,12 +100,21 @@ class ProductStatusPatch(BaseModel):
 
 
 class ProductPricePatch(BaseModel):
-    price_cents: int = Field(ge=0)
+    price_cents: int = Field(gt=0, le=99999999)
+    reason: str = ""
+    expected_updated_at: Optional[str] = None
 
 
 class ProductStockPatch(BaseModel):
     stock_quantity: str
     detail: str = ""
+
+
+class ProductInventoryAdjust(BaseModel):
+    mode: str
+    quantity: str
+    reason: str
+    expected_updated_at: Optional[str] = None
 
 
 class OrderItemRequest(BaseModel):
@@ -120,3 +130,24 @@ class OrderCreate(BaseModel):
 
 class OrderStatusPatch(BaseModel):
     status: str
+
+
+class CutoffPatch(BaseModel):
+    enabled: bool
+    cutoff_time: str
+
+
+class CutoffOverridePut(BaseModel):
+    enabled: bool
+    cutoff_time: str
+    note: str = ""
+
+
+class OrderItemActualQuantityPatch(BaseModel):
+    actual_quantity: str
+    reason: str
+    expected_updated_at: Optional[str] = None
+
+
+class ReceiptIssueResolve(BaseModel):
+    resolution_note: str = ""

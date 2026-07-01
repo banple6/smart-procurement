@@ -71,6 +71,15 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                         MetricTile("今日金额", Money.formatCents(dashboard.todayTotalCents), Modifier.weight(1f))
                         MetricTile("库存紧张", dashboard.tightInventory.toString(), Modifier.weight(1f))
                     }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                        MetricTile("收货异常", dashboard.openReceiptIssues.toString(), Modifier.weight(1f))
+                        MetricTile("今日备货", "查看", Modifier.weight(1f).clickable { viewModel.navigateTo(Screen.PreparationSummary) })
+                    }
+                    Button(
+                        onClick = { viewModel.navigateTo(Screen.DeliverySheets) },
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) { Text("查看单位配送单") }
                 }
             }
             item {

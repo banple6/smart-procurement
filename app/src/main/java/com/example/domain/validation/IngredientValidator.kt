@@ -26,13 +26,7 @@ object IngredientValidator {
         requirePositive(input.quantityStep, "quantityStep", "数量步长必须大于 0", errors)
         requireNonNegative(input.stockQuantity, "stockQuantity", "当前库存不能小于 0", errors)
         requireNonNegative(input.warningQuantity, "warningQuantity", "库存预警值不能小于 0", errors, allowBlank = true)
-        requireNonNegative(input.availableQuantity, "availableQuantity", "今日可供数量不能小于 0", errors, allowBlank = true)
         requireNonNegative(input.internalPrice, "internalPrice", "内部参考价不能小于 0", errors, allowBlank = true)
-        val stock = input.stockQuantity.toDecimalOrNull()
-        val available = input.availableQuantity.toDecimalOrNull()
-        if (!errors.containsKey("availableQuantity") && stock != null && available != null && available > stock) {
-            errors["availableQuantity"] = "今日可供数量不能大于当前库存"
-        }
         return ValidationResult(errors)
     }
 

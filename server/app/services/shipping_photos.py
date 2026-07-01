@@ -77,28 +77,63 @@ async def process_shipping_uploads(
         raise
 
 
+async def process_receipt_issue_uploads(
+    uploads: list[UploadFile],
+    *,
+    order_no: str,
+    unit_name: str,
+    reporter_username: str,
+) -> list[ProcessedShippingPhoto]:
+    if len(uploads) > 3:
+        raise HTTPException(status_code=400, detail="最多上传三张异常照片")
+
+    processed: list[ProcessedShippingPhoto] = []
+    try:
+        for upload in uploads:
+            processed.append(
+                await process_one_upload(
+                    upload,
+                    order_no=order_no,
+                    unit_name=unit_name,
+                    operator_username=reporter_username,
+                    relative_root="receipt_issues",
+                    too_large_message="异常照片不能超过 5MB",
+                    invalid_message="异常照片格式不正确",
+                    watermark_title="收货异常",
+                )
+            )
+        return processed
+    except Exception:
+        cleanup_photos(processed)
+        raise
+
+
 async def process_one_upload(
     upload: UploadFile,
     *,
     order_no: str,
     unit_name: str,
     operator_username: str,
+    relative_root: str = "shipping",
+    too_large_message: str = "发货照片不能超过 5MB",
+    invalid_message: str = "发货照片格式不正确",
+    watermark_title: str = "发货时间",
 ) -> ProcessedShippingPhoto:
     raw = await upload.read()
     if len(raw) > MAX_PHOTO_BYTES:
-        raise HTTPException(status_code=400, detail="发货照片不能超过 5MB")
+        raise HTTPException(status_code=400, detail=too_large_message)
 
     try:
         from io import BytesIO
 
         with Image.open(BytesIO(raw)) as opened:
             if opened.format not in ALLOWED_FORMATS:
-                raise HTTPException(status_code=400, detail="发货照片格式不正确")
+                raise HTTPException(status_code=400, detail=invalid_message)
             image = ImageOps.exif_transpose(opened).convert("RGB")
     except HTTPException:
         raise
     except (UnidentifiedImageError, OSError, ValueError):
-        raise HTTPException(status_code=400, detail="发货照片格式不正确") from None
+        raise HTTPException(status_code=400, detail=invalid_message) from None
 
     image.thumbnail((MAX_FULL_SIDE, MAX_FULL_SIDE), Image.Resampling.LANCZOS)
     add_watermark(
@@ -106,7 +141,7 @@ async def process_one_upload(
         [
             f"订单号：{order_no}",
             f"收货单位：{unit_name}",
-            f"发货时间：{datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M')}",
+            f"{watermark_title}：{datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M')}",
             f"操作账号：{operator_username}",
         ],
     )
@@ -115,7 +150,7 @@ async def process_one_upload(
     thumb.thumbnail((MAX_THUMB_SIDE, MAX_THUMB_SIDE), Image.Resampling.LANCZOS)
 
     now = datetime.now(ZoneInfo("Asia/Shanghai"))
-    relative_dir = Path("shipping") / f"{now.year:04d}" / f"{now.month:02d}"
+    relative_dir = Path(relative_root) / f"{now.year:04d}" / f"{now.month:02d}"
     root = private_root()
     target_dir = root / relative_dir
     target_dir.mkdir(parents=True, exist_ok=True)

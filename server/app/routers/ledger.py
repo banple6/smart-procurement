@@ -31,7 +31,8 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
     return all_rows(
         conn,
         f"""
-        SELECT orders.*, order_items.*
+        SELECT orders.*, order_items.*,
+               COALESCE(NULLIF(order_items.actual_quantity, ''), order_items.quantity) AS quantity
         FROM orders
         JOIN order_items ON order_items.order_id = orders.id
         WHERE {' AND '.join(where)}

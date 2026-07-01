@@ -33,7 +33,7 @@ class IngredientValidationTest {
         assertTrue(result.errors["warningQuantity"] == "库存预警值不能小于 0")
         assertTrue(result.errors["minOrderQuantity"] == "最小申领量必须大于 0")
         assertTrue(result.errors["quantityStep"] == "数量步长必须大于 0")
-        assertTrue(result.errors["availableQuantity"] == "今日可供数量不能小于 0")
+        assertFalse(result.errors.containsKey("availableQuantity"))
         assertTrue(result.errors["internalPrice"] == "内部参考价不能小于 0")
     }
 

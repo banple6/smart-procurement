@@ -20,6 +20,7 @@ class SupplyRepository(private val supplyDao: SupplyDao) {
         supplyDao.insertProducts(products)
     }
     suspend fun saveProduct(product: ProductEntity) = supplyDao.insertProduct(product.withComputedSupplyStatus())
+    suspend fun upsertRemoteProduct(product: ProductEntity) = supplyDao.insertProduct(product)
     suspend fun setProductAvailable(id: String, available: Boolean) {
         supplyDao.updateProductAvailability(
             id = id,

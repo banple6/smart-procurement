@@ -23,19 +23,31 @@ class AuthValidationTest {
     @Test
     fun password_change_requires_letters_digits_length_and_not_username() {
         val weak = AuthValidator.validatePasswordChange(
-            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "12345678")
+            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "12345678", confirmPassword = "12345678")
         )
         assertFalse(weak.isValid)
         assertEquals("密码至少 8 位，且包含字母和数字", weak.errors["newPassword"])
 
         val same = AuthValidator.validatePasswordChange(
-            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "unit001")
+            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "unit001", confirmPassword = "unit001")
         )
         assertFalse(same.isValid)
         assertEquals("新密码不能与账号相同", same.errors["newPassword"])
 
+        val sameAsOld = AuthValidator.validatePasswordChange(
+            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "OldPass123", confirmPassword = "OldPass123")
+        )
+        assertFalse(sameAsOld.isValid)
+        assertEquals("新密码不能与原密码相同", sameAsOld.errors["newPassword"])
+
+        val mismatch = AuthValidator.validatePasswordChange(
+            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "NewPass123", confirmPassword = "NewPass124")
+        )
+        assertFalse(mismatch.isValid)
+        assertEquals("两次输入的新密码不一致", mismatch.errors["confirmPassword"])
+
         val valid = AuthValidator.validatePasswordChange(
-            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "NewPass123")
+            PasswordChangeInput(username = "unit001", oldPassword = "OldPass123", newPassword = "NewPass123", confirmPassword = "NewPass123")
         )
         assertTrue(valid.errors.toString(), valid.isValid)
     }

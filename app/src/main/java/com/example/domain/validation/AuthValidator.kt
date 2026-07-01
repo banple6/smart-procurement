@@ -8,7 +8,8 @@ data class LoginInput(
 data class PasswordChangeInput(
     val username: String,
     val oldPassword: String,
-    val newPassword: String
+    val newPassword: String,
+    val confirmPassword: String
 )
 
 data class ValidationResult(val errors: Map<String, String>) {
@@ -26,7 +27,12 @@ object AuthValidator {
     fun validatePasswordChange(input: PasswordChangeInput): ValidationResult {
         val errors = linkedMapOf<String, String>()
         if (input.oldPassword.isBlank()) errors["oldPassword"] = "原密码不能为空"
-        if (input.newPassword.equals(input.username, ignoreCase = true)) {
+        if (input.newPassword != input.confirmPassword) {
+            errors["confirmPassword"] = "两次输入的新密码不一致"
+        }
+        if (input.newPassword.equals(input.oldPassword)) {
+            errors["newPassword"] = "新密码不能与原密码相同"
+        } else if (input.newPassword.equals(input.username, ignoreCase = true)) {
             errors["newPassword"] = "新密码不能与账号相同"
         } else {
             val hasLetter = input.newPassword.any { it.isLetter() }

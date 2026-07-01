@@ -44,12 +44,16 @@ import java.util.*
 fun CartScreen(viewModel: SupplyViewModel) {
     val cartList by viewModel.cartItems.collectAsState()
     val products by viewModel.allProducts.collectAsState()
+    val cutoff = viewModel.cutoffInfo
     var note by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
     val rows = cartList.mapNotNull { item ->
         products.find { it.id == item.productId }?.let { product -> item to product }
     }
     val totalCents = rows.sumOf { (item, product) -> lineSubtotalCents(product.price, item.quantity) }
+    LaunchedEffect(Unit) {
+        viewModel.refreshCutoff()
+    }
 
     Scaffold(
         topBar = {
@@ -136,6 +140,9 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    item {
+                        CutoffCard(cutoff)
+                    }
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -239,13 +246,21 @@ fun CartScreen(viewModel: SupplyViewModel) {
                         }
                         Button(
                             onClick = { showConfirm = true },
-                            enabled = !viewModel.isSubmittingOrder,
+                            enabled = !viewModel.isSubmittingOrder && cutoff?.isClosed != true,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(52.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(if (viewModel.isSubmittingOrder) "正在提交" else "提交订单", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                when {
+                                    viewModel.isSubmittingOrder -> "正在提交"
+                                    cutoff?.isClosed == true -> "今日已截止"
+                                    else -> "提交订单"
+                                },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -272,6 +287,40 @@ fun CartScreen(viewModel: SupplyViewModel) {
                 }) { Text("提交订单") }
             }
         )
+    }
+}
+
+@Composable
+private fun CutoffCard(cutoff: CutoffInfo?) {
+    val closed = cutoff?.isClosed == true
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (closed) Color(0xFFFFF1F2) else MaterialTheme.colorScheme.secondaryContainer
+        ),
+        border = BorderStroke(1.dp, if (closed) Color(0xFFFCA5A5) else MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("今日下单截止", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (cutoff == null) "正在读取服务端时间" else "截止时间 ${cutoff.cutoffTime}",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                if (closed) "已截止" else "可提交",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (closed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+        }
     }
 }
 
@@ -618,6 +667,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                 Text("商品明细 (${orderItems.size} 种)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
                 orderItems.forEach { item ->
+                    var showAdjust by remember(item.remoteItemId, item.actualQty) { mutableStateOf(false) }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(24.dp),
@@ -647,15 +697,35 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
 
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text("单价：${Money.formatYuan(item.price)} / ${item.productUnit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("数量：${item.requestedQty.cleanQty()} ${item.productUnit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.requestedQty))}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    Text("申领：${item.requestedQty.cleanQty()} ${item.productUnit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("实发：${item.actualQty.cleanQty()} ${item.productUnit}", fontSize = 11.sp, color = if (item.adjusted) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (item.adjusted) FontWeight.Bold else FontWeight.Normal)
+                                    if (item.adjustmentReason.isNotBlank()) {
+                                        Text("原因：${item.adjustmentReason}", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                    }
+                                    Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.actualQty))}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    if (viewModel.canManageIngredients() && ord.status in listOf("待接单", "已接单", "备货中")) {
+                                        TextButton(onClick = { showAdjust = true }, modifier = Modifier.height(48.dp)) {
+                                            Text("调整实发")
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    if (showAdjust) {
+                        AdjustQuantityDialog(
+                            item = item,
+                            onDismiss = { showAdjust = false },
+                            onConfirm = { quantity, reason ->
+                                showAdjust = false
+                                viewModel.adjustOrderItem(ord, item, quantity, reason)
+                            }
+                        )
+                    }
                 }
 
                 ShippingProofSummary(order = ord, viewModel = viewModel)
+                ReceiptIssueSummary(order = ord, viewModel = viewModel)
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -732,6 +802,119 @@ private fun ShippingProofSummary(order: OrderEntity, viewModel: SupplyViewModel)
 }
 
 @Composable
+private fun ReceiptIssueSummary(order: OrderEntity, viewModel: SupplyViewModel) {
+    var showIssueDialog by remember(order.orderId) { mutableStateOf(false) }
+    val issues = order.receiptIssues
+    if (issues.isEmpty() && order.status !in listOf("已发货", "已完成")) return
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("收货异常", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            if (issues.isEmpty()) {
+                Text("暂无异常反馈", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                issues.forEach { issue ->
+                    Text(
+                        "${if (issue.status == "open") "待处理" else "已处理"}：${issue.description.ifBlank { issue.issueType }}",
+                        fontSize = 13.sp,
+                        color = if (issue.status == "open") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (viewModel.canManageIngredients() && issue.status == "open") {
+                        TextButton(onClick = { viewModel.resolveReceiptIssue(issue.id, order.orderId, "已处理") }, modifier = Modifier.height(48.dp)) {
+                            Text("标记已处理")
+                        }
+                    }
+                }
+            }
+            if (!viewModel.canManageIngredients() && order.status == "已发货" && order.openReceiptIssueCount == 0) {
+                OutlinedButton(onClick = { showIssueDialog = true }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(8.dp)) {
+                    Text("收货有问题")
+                }
+            }
+        }
+    }
+    if (showIssueDialog) {
+        ReceiptIssueDialog(
+            onDismiss = { showIssueDialog = false },
+            onConfirm = { type, description ->
+                showIssueDialog = false
+                viewModel.submitReceiptIssue(order.orderId, type, description, emptyList()) {}
+            }
+        )
+    }
+}
+
+@Composable
+private fun ReceiptIssueDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var type by remember { mutableStateOf("quantity_shortage") }
+    var description by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("反馈收货异常") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = type == "quantity_shortage", onClick = { type = "quantity_shortage" }, label = { Text("数量不符") })
+                    FilterChip(selected = type == "quality_issue", onClick = { type = "quality_issue" }, label = { Text("质量问题") })
+                }
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("说明") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(type, description.ifBlank { if (type == "quantity_shortage") "数量不符" else "质量问题" }) },
+                enabled = description.isNotBlank()
+            ) { Text("提交异常") }
+        }
+    )
+}
+
+@Composable
+private fun AdjustQuantityDialog(item: OrderItemEntity, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var quantity by remember { mutableStateOf(item.actualQty.cleanQty()) }
+    var reason by remember { mutableStateOf(item.adjustmentReason) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("调整实发数量") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${item.productName}，申领 ${item.requestedQty.cleanQty()} ${item.productUnit}", fontSize = 13.sp)
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("实发数量") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("调整原因") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(quantity, reason) }, enabled = quantity.isNotBlank() && reason.isNotBlank()) {
+                Text("保存调整")
+            }
+        }
+    )
+}
+
+@Composable
 private fun authenticatedImageRequest(path: String, viewModel: SupplyViewModel): ImageRequest {
     val context = LocalContext.current
     return ImageRequest.Builder(context)
@@ -765,6 +948,7 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
         "完成订单" -> "已完成"
         "取消订单" -> "已取消"
         "确认收货" -> "已完成"
+        "再次下单" -> "清单"
         else -> label
     }
     val loading = viewModel.activeOrderActionId == order.orderId
@@ -772,6 +956,8 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
         onClick = {
             if (label == "确认发货") {
                 viewModel.navigateTo(Screen.ShippingProof(order.orderId))
+            } else if (label == "再次下单") {
+                viewModel.reorder(order.orderId)
             } else {
                 showConfirm = true
             }

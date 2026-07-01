@@ -26,7 +26,8 @@ def dashboard(admin=Depends(require_admin_user)):
         demand_rank = all_rows(
             conn,
             """
-            SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit, SUM(CAST(quantity AS REAL)) AS quantity
+            SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit,
+                   SUM(CAST(COALESCE(NULLIF(actual_quantity, ''), quantity) AS REAL)) AS quantity
             FROM order_items
             JOIN orders ON orders.id = order_items.order_id
             WHERE orders.status NOT IN ('cancelled')
@@ -35,6 +36,7 @@ def dashboard(admin=Depends(require_admin_user)):
             LIMIT 5
             """,
         )
+        open_issues = one(conn, "SELECT COUNT(*) AS c FROM receipt_issues WHERE status = 'open'")
     return {
         "today_orders": total["c"],
         "today_total_cents": total["amount"],
@@ -42,6 +44,7 @@ def dashboard(admin=Depends(require_admin_user)):
         "preparing": preparing["c"],
         "shipped": shipped["c"],
         "tight_inventory": tight["c"],
+        "open_receipt_issues": open_issues["c"],
         "recent_orders": recent_orders,
         "demand_rank": demand_rank,
     }
@@ -53,7 +56,8 @@ def order_summary(admin=Depends(require_admin_user)):
         return all_rows(
             conn,
             """
-            SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit, SUM(CAST(quantity AS REAL)) AS quantity
+            SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit,
+                   SUM(CAST(COALESCE(NULLIF(actual_quantity, ''), quantity) AS REAL)) AS quantity
             FROM order_items
             JOIN orders ON orders.id = order_items.order_id
             WHERE orders.status NOT IN ('cancelled')

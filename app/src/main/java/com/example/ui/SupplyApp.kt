@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -35,6 +37,7 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
     val currentScreen = viewModel.navigationStack.lastOrNull() ?: Screen.Splash
     val cartList by viewModel.cartItems.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(viewModel.snackbarMessage) {
         val message = viewModel.snackbarMessage ?: return@LaunchedEffect
@@ -57,6 +60,43 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             },
             title = { Text("提示", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = { Text(msg, fontSize = 14.sp) },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = Color.White
+        )
+    }
+
+    viewModel.oneTimeCredentialNotice?.let { notice ->
+        val copyText = """
+            生鲜后勤系统
+            单位：${notice.unitName}
+            账号：${notice.username}
+            初始密码：${notice.password}
+            首次登录后请按提示修改密码。
+        """.trimIndent()
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {
+                TextButton(onClick = { viewModel.oneTimeCredentialNotice = null }) {
+                    Text("关闭", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(copyText))
+                    viewModel.snackbarMessage = "账号和密码已复制"
+                }) {
+                    Text("复制账号和密码")
+                }
+            },
+            title = { Text(notice.type, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("单位：${notice.unitName}")
+                    Text("账号：${notice.username}")
+                    Text("初始密码：${notice.password}", fontWeight = FontWeight.Bold)
+                    Text("请立即复制并交给该单位负责人。关闭后系统不会再次显示该密码。", fontSize = 13.sp)
+                }
+            },
             shape = RoundedCornerShape(12.dp),
             containerColor = Color.White
         )
@@ -110,6 +150,12 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             }
             is Screen.InventoryRecords -> {
                 InventoryRecordsScreen(viewModel)
+            }
+            is Screen.PreparationSummary -> {
+                PreparationSummaryScreen(viewModel)
+            }
+            is Screen.DeliverySheets -> {
+                DeliverySheetsScreen(viewModel)
             }
             else -> {
                 MainTabFrame(viewModel)

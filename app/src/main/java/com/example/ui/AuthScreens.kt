@@ -123,6 +123,7 @@ fun LoginScreen(viewModel: SupplyViewModel) {
 fun ChangePasswordScreen(viewModel: SupplyViewModel) {
     var oldPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -139,8 +140,8 @@ fun ChangePasswordScreen(viewModel: SupplyViewModel) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("首次登录修改密码", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("新密码至少 8 位，必须包含字母和数字。修改成功后请重新登录。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("首次登录，请修改密码", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("为保证账号安全，修改后请使用新密码重新登录。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 PasswordField(
                     value = oldPassword,
                     onValueChange = { oldPassword = it },
@@ -153,8 +154,14 @@ fun ChangePasswordScreen(viewModel: SupplyViewModel) {
                     label = "新密码",
                     error = viewModel.passwordErrors["newPassword"]
                 )
+                PasswordField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = "确认新密码",
+                    error = viewModel.passwordErrors["confirmPassword"]
+                )
                 Button(
-                    onClick = { viewModel.changePassword(oldPassword, newPassword) },
+                    onClick = { viewModel.changePassword(oldPassword, newPassword, confirmPassword) },
                     enabled = !viewModel.isChangingPassword,
                     modifier = Modifier
                         .fillMaxWidth()
