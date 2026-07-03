@@ -2,6 +2,7 @@ package com.smartprocurement.internal.ui
 
 import android.app.Application
 import android.net.Uri
+import android.os.Build
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,9 @@ sealed interface Screen {
     object InventoryRecords : Screen
     object PreparationSummary : Screen
     object DeliverySheets : Screen
+    object WebQrScanner : Screen
+    object WebLoginConfirm : Screen
+    object WebSessions : Screen
 }
 
 data class IngredientFormState(
@@ -87,6 +91,17 @@ data class OneTimeCredentialNotice(
     val password: String,
     val type: String
 )
+
+fun extractWebLoginToken(rawValue: String): String {
+    val trimmed = rawValue.trim()
+    if (!trimmed.startsWith("jingrongxianpei://web-login?", ignoreCase = true)) return ""
+    val query = trimmed.substringAfter('?', missingDelimiterValue = "")
+    return query
+        .split('&')
+        .firstOrNull { it.startsWith("token=") }
+        ?.substringAfter('=')
+        .orEmpty()
+}
 
 sealed interface ProductSaveState {
     object Idle : ProductSaveState
@@ -188,6 +203,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var deliverySheetUnits by mutableStateOf<List<DeliverySheetUnit>>(emptyList())
     var notificationBadges by mutableStateOf(NotificationBadges())
     var pendingCameraUri by mutableStateOf<Uri?>(null)
+    var pendingWebLogin by mutableStateOf<WebLoginScanResult?>(null)
+    var webLoginActionLoading by mutableStateOf(false)
+    var webSessionRecords by mutableStateOf<List<WebSessionRecord>>(emptyList())
 
     // Alert dialog message helper
     var alertMessage by mutableStateOf<String?>(null)
@@ -539,6 +557,116 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             runCatching { withContext(Dispatchers.IO) { apiClient.revokeUserSessions(authToken, id) } }
                 .onSuccess { snackbarMessage = "该账号已从所有设备退出" }
                 .onFailure { alertMessage = it.toUserMessage("强制退出失败") }
+        }
+    }
+
+    fun openWebQrScanner() {
+        if (authToken.isBlank()) {
+            alertMessage = "请先登录后再扫码"
+            popToRootAndNavigate(Screen.Login)
+            return
+        }
+        pendingWebLogin = null
+        navigateTo(Screen.WebQrScanner)
+    }
+
+    fun scanWebLoginQr(rawValue: String) {
+        val qrToken = extractWebLoginToken(rawValue)
+        if (qrToken.isBlank()) {
+            alertMessage = "二维码无效，请扫描网页版登录二维码"
+            return
+        }
+        if (webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.scanWebLoginQr(
+                        token = authToken,
+                        qrToken = qrToken,
+                        deviceName = Build.MODEL.orEmpty().ifBlank { "Android 设备" },
+                        appVersion = BuildConfig.VERSION_NAME
+                    )
+                }
+            }
+            webLoginActionLoading = false
+            result.onSuccess {
+                pendingWebLogin = it
+                navigateTo(Screen.WebLoginConfirm)
+            }.onFailure {
+                alertMessage = it.toUserMessage("扫码失败")
+            }
+        }
+    }
+
+    fun approveWebLogin() {
+        val challenge = pendingWebLogin ?: return
+        if (webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.approveWebLoginQr(authToken, challenge.challengeId) } }
+                .onSuccess {
+                    snackbarMessage = "网页登录已确认"
+                    pendingWebLogin = null
+                    currentTab = "profile"
+                    popToRootAndNavigate(Screen.Home)
+                }
+                .onFailure { alertMessage = it.toUserMessage("确认登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun rejectWebLogin() {
+        val challenge = pendingWebLogin ?: return
+        if (webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.rejectWebLoginQr(authToken, challenge.challengeId) } }
+                .onSuccess {
+                    snackbarMessage = "网页登录已拒绝"
+                    pendingWebLogin = null
+                    currentTab = "profile"
+                    popToRootAndNavigate(Screen.Home)
+                }
+                .onFailure { alertMessage = it.toUserMessage("拒绝登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun refreshWebSessions() {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.webSessions(authToken) } }
+                .onSuccess { webSessionRecords = it }
+                .onFailure { alertMessage = it.toUserMessage("网页登录记录同步失败") }
+        }
+    }
+
+    fun revokeWebSession(sessionId: String) {
+        if (webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.revokeWebSession(authToken, sessionId) } }
+                .onSuccess {
+                    snackbarMessage = "该网页登录已退出"
+                    refreshWebSessions()
+                }
+                .onFailure { alertMessage = it.toUserMessage("退出网页登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun revokeAllWebSessions() {
+        if (webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.revokeAllWebSessions(authToken) } }
+                .onSuccess {
+                    snackbarMessage = "全部网页登录已退出"
+                    refreshWebSessions()
+                }
+                .onFailure { alertMessage = it.toUserMessage("退出全部网页登录失败") }
+            webLoginActionLoading = false
         }
     }
 

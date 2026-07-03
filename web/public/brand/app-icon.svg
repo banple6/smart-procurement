@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="景荣鲜配">
+  <rect width="64" height="64" rx="12" fill="#0B2864"/>
+  <path d="M17 25h30v21H17z" fill="none" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M23 25v-6h18v6" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32 41c5-1 8-5 8-11-6 1-10 4-11 10 0 0 1 1 3 1Z" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M31 40c-1-4-4-6-8-7 0 4 2 7 6 8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

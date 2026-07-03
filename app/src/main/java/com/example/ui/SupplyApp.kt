@@ -2,6 +2,7 @@ package com.smartprocurement.internal.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,15 +24,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smartprocurement.internal.R
 import com.smartprocurement.internal.data.CartItemEntity
-import com.smartprocurement.internal.ui.designsystem.GovernmentBrandMark
 import com.smartprocurement.internal.ui.designsystem.GovernmentColors
 import com.smartprocurement.internal.ui.designsystem.GovernmentShapes
 import com.smartprocurement.internal.ui.designsystem.GovernmentThemeDefaults
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import kotlinx.coroutines.delay
 
 fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
@@ -161,6 +166,15 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             is Screen.DeliverySheets -> {
                 DeliverySheetsScreen(viewModel)
             }
+            is Screen.WebQrScanner -> {
+                WebQrScannerScreen(viewModel)
+            }
+            is Screen.WebLoginConfirm -> {
+                WebLoginConfirmScreen(viewModel)
+            }
+            is Screen.WebSessions -> {
+                WebSessionsScreen(viewModel)
+            }
             else -> {
                 MainTabFrame(viewModel)
             }
@@ -177,30 +191,42 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
 
 @Composable
 fun SplashScreen(onFinish: () -> Unit) {
+    PoliceStatusBar(color = PoliceColors.PoliceNavy, darkIcons = false)
     LaunchedEffect(Unit) {
-        delay(1500)
+        delay(1000)
         onFinish()
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(GovernmentColors.PageBackground),
+            .background(PoliceColors.PoliceNavy),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            GovernmentBrandMark(modifier = Modifier.size(80.dp))
-            Spacer(modifier = Modifier.height(18.dp))
+            Image(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
+                contentDescription = "景荣鲜配",
+                modifier = Modifier.size(76.dp)
+            )
+            Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = GovernmentThemeDefaults.appName,
-                style = MaterialTheme.typography.displaySmall,
+                text = PoliceBrandConfig.appName,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = GovernmentColors.GovernmentBlueDark
+                color = PoliceColors.TextOnBlue,
+                letterSpacing = 0.sp
             )
             Text(
-                text = GovernmentThemeDefaults.appDescription,
+                text = PoliceBrandConfig.systemName,
                 style = MaterialTheme.typography.bodyMedium,
-                color = GovernmentColors.TextSecondary,
+                color = PoliceColors.TextOnBlue.copy(alpha = 0.85f),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+            Text(
+                text = PoliceBrandConfig.internalUseLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = PoliceColors.TextOnBlue.copy(alpha = 0.65f),
                 modifier = Modifier.padding(top = 6.dp)
             )
         }
@@ -220,11 +246,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = GovernmentColors.SurfaceWhite,
+                containerColor = PoliceColors.SurfaceWhite,
                 tonalElevation = 0.dp,
                 modifier = Modifier.drawBehind {
                     drawLine(
-                        color = GovernmentColors.Divider,
+                        color = PoliceColors.DividerColor,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f
@@ -237,10 +263,10 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else Icons.Default.Home, contentDescription = "home") },
                     label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = GovernmentColors.GovernmentBlue,
-                        selectedTextColor = GovernmentColors.GovernmentBlue,
-                        unselectedIconColor = GovernmentColors.TextTertiary,
-                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        selectedIconColor = PoliceColors.PolicePrimary,
+                        selectedTextColor = PoliceColors.PolicePrimary,
+                        unselectedIconColor = PoliceColors.TextTertiary,
+                        unselectedTextColor = PoliceColors.TextTertiary,
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -278,10 +304,10 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     },
                     label = { Text(if (isAdmin) "食材" else "清单", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = GovernmentColors.GovernmentBlue,
-                        selectedTextColor = GovernmentColors.GovernmentBlue,
-                        unselectedIconColor = GovernmentColors.TextTertiary,
-                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        selectedIconColor = PoliceColors.PolicePrimary,
+                        selectedTextColor = PoliceColors.PolicePrimary,
+                        unselectedIconColor = PoliceColors.TextTertiary,
+                        unselectedTextColor = PoliceColors.TextTertiary,
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -292,10 +318,10 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = Icons.Default.Menu, contentDescription = "orders") },
                     label = { Text("订单", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = GovernmentColors.GovernmentBlue,
-                        selectedTextColor = GovernmentColors.GovernmentBlue,
-                        unselectedIconColor = GovernmentColors.TextTertiary,
-                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        selectedIconColor = PoliceColors.PolicePrimary,
+                        selectedTextColor = PoliceColors.PolicePrimary,
+                        unselectedIconColor = PoliceColors.TextTertiary,
+                        unselectedTextColor = PoliceColors.TextTertiary,
                         indicatorColor = Color.Transparent
                     )
                 )
@@ -306,10 +332,10 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
                     label = { Text("我的", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = GovernmentColors.GovernmentBlue,
-                        selectedTextColor = GovernmentColors.GovernmentBlue,
-                        unselectedIconColor = GovernmentColors.TextTertiary,
-                        unselectedTextColor = GovernmentColors.TextTertiary,
+                        selectedIconColor = PoliceColors.PolicePrimary,
+                        selectedTextColor = PoliceColors.PolicePrimary,
+                        unselectedIconColor = PoliceColors.TextTertiary,
+                        unselectedTextColor = PoliceColors.TextTertiary,
                         indicatorColor = Color.Transparent
                     )
                 )

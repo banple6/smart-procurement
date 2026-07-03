@@ -38,8 +38,7 @@ def public_user(user: dict, unit: dict | None = None) -> dict:
     }
 
 
-@router.post("/login")
-def login(body: LoginRequest, request: Request):
+def login_user(body: LoginRequest, request: Request) -> dict:
     username = normalize_username(body.username)
     with connect() as conn:
         user = one(conn, "SELECT * FROM users WHERE lower(username) = lower(?)", (username,))
@@ -96,6 +95,11 @@ def login(body: LoginRequest, request: Request):
         write_audit(conn, user["id"], user["role"], "LOGIN_SUCCESS", "user", user["id"])
         conn.commit()
         return {"token": token, "expires_at": expires_at, "user": public_user(user, unit)}
+
+
+@router.post("/login")
+def login(body: LoginRequest, request: Request):
+    return login_user(body, request)
 
 
 @router.get("/me")

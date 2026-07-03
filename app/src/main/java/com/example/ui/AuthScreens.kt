@@ -16,15 +16,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.smartprocurement.internal.ui.designsystem.GovernmentBrandMark
 import com.smartprocurement.internal.ui.designsystem.GovernmentCard
-import com.smartprocurement.internal.ui.designsystem.GovernmentColors
-import com.smartprocurement.internal.ui.designsystem.GovernmentDimens
-import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
-import com.smartprocurement.internal.ui.designsystem.GovernmentThemeDefaults
+import com.smartprocurement.internal.ui.designsystem.PoliceBadgeImage
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceDimens
+import com.smartprocurement.internal.ui.designsystem.PolicePrimaryButton
+import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 
 @Composable
 fun LoginScreen(viewModel: SupplyViewModel) {
+    PoliceStatusBar(color = PoliceColors.PoliceNavy, darkIcons = false)
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -40,15 +42,16 @@ fun LoginScreen(viewModel: SupplyViewModel) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(GovernmentColors.GovernmentBlue)
+                .background(PoliceColors.PoliceNavy)
                 .statusBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 28.dp),
+                .padding(horizontal = 24.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GovernmentBrandMark(modifier = Modifier.size(72.dp))
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(GovernmentThemeDefaults.appName, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = GovernmentColors.TextOnPrimary)
-            Text(GovernmentThemeDefaults.appDescription, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextOnPrimary.copy(alpha = 0.88f))
+            PoliceBadgeImage(size = 56.dp, contentDescription = "人民警察警徽")
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(PoliceBrandConfig.appName, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = PoliceColors.TextOnBlue)
+            Text(PoliceBrandConfig.systemName, style = MaterialTheme.typography.bodyMedium, color = PoliceColors.TextOnBlue.copy(alpha = 0.86f))
+            Text(PoliceBrandConfig.internalUseLabel, style = MaterialTheme.typography.bodySmall, color = PoliceColors.TextOnBlue.copy(alpha = 0.68f), modifier = Modifier.padding(top = 4.dp))
         }
         Column(
             modifier = Modifier
@@ -56,9 +59,8 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            GovernmentCard {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Text("内部账号登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = GovernmentColors.TextPrimary)
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("内部账号登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = PoliceColors.TextPrimary)
 
                     OutlinedTextField(
                         value = username,
@@ -90,12 +92,12 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                         supportingText = { viewModel.loginErrors["password"]?.let { Text(it) } }
                     )
 
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = GovernmentDimens.MinTouchTarget)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = PoliceDimens.MinTouchTarget)) {
                         Checkbox(checked = rememberLogin, onCheckedChange = { rememberLogin = it })
                         Text("记住登录状态", style = MaterialTheme.typography.bodyMedium)
                     }
 
-                    GovernmentPrimaryButton(
+                    PolicePrimaryButton(
                         text = if (viewModel.isAuthLoading) "正在登录" else "登录",
                         onClick = { viewModel.login(username, password, rememberLogin) },
                         enabled = !viewModel.isAuthLoading
@@ -104,10 +106,9 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                     Text(
                         "本系统仅限内部授权账号使用。忘记密码请联系系统管理员。",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = GovernmentColors.TextSecondary
+                        color = PoliceColors.TextSecondary
                     )
                 }
-            }
         }
     }
 }
@@ -130,7 +131,7 @@ fun ChangePasswordScreen(viewModel: SupplyViewModel) {
         GovernmentCard {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("首次登录，请修改密码", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                Text("修改成功后需要使用新密码重新登录。", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("修改成功后需要使用新密码重新登录。", style = MaterialTheme.typography.bodyMedium, color = PoliceColors.TextSecondary)
                 PasswordField(
                     value = oldPassword,
                     onValueChange = { oldPassword = it },
@@ -149,7 +150,7 @@ fun ChangePasswordScreen(viewModel: SupplyViewModel) {
                     label = "确认新密码",
                     error = viewModel.passwordErrors["confirmPassword"]
                 )
-                GovernmentPrimaryButton(
+                PolicePrimaryButton(
                     text = if (viewModel.isChangingPassword) "正在修改" else "修改密码",
                     onClick = { viewModel.changePassword(oldPassword, newPassword, confirmPassword) },
                     enabled = !viewModel.isChangingPassword

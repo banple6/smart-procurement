@@ -151,6 +151,33 @@ data class NotificationBadges(
     val resolvedReceiptIssues: Int = 0
 )
 
+data class WebLoginBrowserInfo(
+    val name: String,
+    val os: String,
+    val ip: String,
+    val userAgent: String
+)
+
+data class WebLoginScanResult(
+    val challengeId: String,
+    val status: String,
+    val browser: WebLoginBrowserInfo,
+    val deviceName: String,
+    val appVersion: String
+)
+
+data class WebSessionRecord(
+    val id: String,
+    val browserName: String,
+    val browserOs: String,
+    val browserIp: String,
+    val deviceName: String,
+    val appVersion: String,
+    val lastSeenAt: String,
+    val absoluteExpiresAt: String,
+    val active: Boolean
+)
+
 class ProcurementApiClient(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
     private val client: OkHttpClient = OkHttpClient.Builder()
@@ -421,6 +448,50 @@ class ProcurementApiClient(
         )
     }
 
+    fun scanWebLoginQr(token: String, qrToken: String, deviceName: String, appVersion: String): WebLoginScanResult {
+        val body = JSONObject()
+            .put("qr_token", qrToken)
+            .put("device_name", deviceName)
+            .put("app_version", appVersion)
+            .toString()
+            .toRequestBody(JSON)
+        return parseWebLoginScanResult(request("mobile/web-auth/qr/scan", token = token, method = "POST", body = body))
+    }
+
+    fun approveWebLoginQr(token: String, challengeId: String): String {
+        return request("mobile/web-auth/qr/$challengeId/approve", token = token, method = "POST").optString("status")
+    }
+
+    fun rejectWebLoginQr(token: String, challengeId: String): String {
+        return request("mobile/web-auth/qr/$challengeId/reject", token = token, method = "POST").optString("status")
+    }
+
+    fun webSessions(token: String): List<WebSessionRecord> {
+        val array = request("mobile/web-sessions", token = token).optJSONArray("items") ?: JSONArray()
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            WebSessionRecord(
+                id = item.optString("id"),
+                browserName = item.optString("browser_name"),
+                browserOs = item.optString("browser_os"),
+                browserIp = item.optString("browser_ip"),
+                deviceName = item.optString("device_name"),
+                appVersion = item.optString("app_version"),
+                lastSeenAt = item.optString("last_seen_at").replace('T', ' ').take(16),
+                absoluteExpiresAt = item.optString("absolute_expires_at").replace('T', ' ').take(16),
+                active = item.optBooleanCompat("active")
+            )
+        }
+    }
+
+    fun revokeWebSession(token: String, sessionId: String) {
+        request("mobile/web-sessions/$sessionId", token = token, method = "DELETE")
+    }
+
+    fun revokeAllWebSessions(token: String) {
+        request("mobile/web-sessions/revoke-all", token = token, method = "POST")
+    }
+
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> {
         val path = if (isAdmin) "admin/orders?include_items=true" else "orders?include_items=true"
         val json = request(path, token = token)
@@ -682,6 +753,22 @@ class ProcurementApiClient(
         defaultDeliveryPoint = json.optString("default_delivery_point"),
         mustChangePassword = json.optBoolean("must_change_password", false)
     )
+
+    private fun parseWebLoginScanResult(json: JSONObject): WebLoginScanResult {
+        val browser = json.optJSONObject("browser") ?: JSONObject()
+        return WebLoginScanResult(
+            challengeId = json.optString("challenge_id"),
+            status = json.optString("status"),
+            browser = WebLoginBrowserInfo(
+                name = browser.optString("name"),
+                os = browser.optString("os"),
+                ip = browser.optString("ip"),
+                userAgent = browser.optString("user_agent")
+            ),
+            deviceName = json.optString("device_name"),
+            appVersion = json.optString("app_version")
+        )
+    }
 
     private fun parseProduct(json: JSONObject): ProductEntity {
         val status = json.optString("supply_status", "normal")

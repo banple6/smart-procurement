@@ -13,6 +13,12 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class WebQrScanRequest(BaseModel):
+    qr_token: str
+    device_name: str = ""
+    app_version: str = ""
+
+
 class UnitCreate(BaseModel):
     unit_code: str
     unit_name: str

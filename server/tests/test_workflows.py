@@ -36,6 +36,14 @@ def login(client, username, password):
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_health_allows_head_for_deployment_checks(tmp_path):
+    client = make_client(tmp_path)
+    assert client.get("/api/v1/health").status_code == 200
+    assert client.head("/api/v1/health").status_code == 200
+    assert client.get("/api/v1/health/ready").status_code == 200
+    assert client.head("/api/v1/health/ready").status_code == 200
+
+
 def create_unit_user_product_order(client):
     admin_headers = login(client, "root_admin", "StrongPassword123")
     unit = client.post(
@@ -208,6 +216,350 @@ def test_login_and_me_return_unit_profile_fields(tmp_path):
     assert admin_me.status_code == 200
     assert admin_me.json()["unit_id"] == ""
     assert admin_me.json()["unit_name"] == ""
+
+
+def create_web_qr_challenge(client):
+    response = client.post("/api/v1/web-auth/qr/challenges")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["challenge_id"]
+    assert payload["qr_payload"].startswith("jingrongxianpei://web-login?token=")
+    assert payload["qr_svg_data_url"].startswith("data:image/svg+xml;base64,")
+    assert payload["status"] == "pending"
+    assert payload["expires_at"] > payload["server_now"]
+    assert client.cookies.get("jrxp_qr_binding")
+    return payload
+
+
+def test_web_qr_login_creates_bound_cookie_session_and_keeps_csrf(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, _, unit_id, _ = create_unit_user_product_order(client)
+
+    challenge = create_web_qr_challenge(client)
+    status = client.get(f"/api/v1/web-auth/qr/challenges/{challenge['challenge_id']}/status")
+    assert status.status_code == 200
+    assert status.json()["status"] == "pending"
+
+    isolated_browser = TestClient(client.app)
+    isolated_status = isolated_browser.get(f"/api/v1/web-auth/qr/challenges/{challenge['challenge_id']}/status")
+    assert isolated_status.status_code == 403
+
+    token = challenge["qr_payload"].split("token=", 1)[1]
+    scan = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=login(client, "unit001", "UnitPassword123"),
+        json={"qr_token": token, "device_name": "Redmi Note 12", "app_version": "1.2.3"},
+    )
+    assert scan.status_code == 200, scan.text
+    assert scan.json()["challenge_id"] == challenge["challenge_id"]
+    assert scan.json()["status"] == "scanned"
+    assert scan.json()["browser"]["name"]
+    assert scan.json()["browser"]["ip"]
+    assert scan.json()["user"]["role"] == "unit_user"
+    assert scan.json()["user"]["unit_id"] == unit_id
+
+    pending_consume = client.post(f"/api/v1/web-auth/qr/challenges/{challenge['challenge_id']}/consume")
+    assert pending_consume.status_code == 409
+
+    approved = client.post(
+        f"/api/v1/mobile/web-auth/qr/{challenge['challenge_id']}/approve",
+        headers=login(client, "unit001", "UnitPassword123"),
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+
+    consume = client.post(f"/api/v1/web-auth/qr/challenges/{challenge['challenge_id']}/consume")
+    assert consume.status_code == 200, consume.text
+    assert consume.json()["user"]["username"] == "unit001"
+    assert consume.json()["user"]["role"] == "unit_user"
+    assert consume.json()["user"]["unit_id"] == unit_id
+    assert "token" not in consume.json()
+
+    session_cookie = client.cookies.get("jrxp_dev_session")
+    csrf_cookie = client.cookies.get("csrf_token")
+    assert session_cookie
+    assert csrf_cookie
+    assert "httponly" in consume.headers["set-cookie"].lower()
+    assert "samesite=strict" in consume.headers["set-cookie"].lower()
+
+    me = client.get("/api/v1/web-auth/me")
+    assert me.status_code == 200, me.text
+    assert me.json()["username"] == "unit001"
+
+    forbidden_without_csrf = client.post(
+        "/api/v1/orders",
+        json={"items": []},
+    )
+    assert forbidden_without_csrf.status_code == 403
+    assert forbidden_without_csrf.json()["detail"] == "请求已过期，请刷新页面后重试"
+
+    allowed_with_csrf = client.get(
+        "/api/v1/products",
+        headers={"X-CSRF-Token": csrf_cookie},
+    )
+    assert allowed_with_csrf.status_code == 200
+
+    logout_response = client.post("/api/v1/web-auth/logout", headers={"X-CSRF-Token": csrf_cookie})
+    assert logout_response.status_code == 200
+    assert client.get("/api/v1/web-auth/me").status_code == 401
+
+    # Existing Android Bearer sessions still work after Web-specific additions.
+    assert client.get("/api/v1/auth/me", headers=admin_headers).status_code == 200
+
+
+def test_web_qr_reject_expiry_password_change_and_legacy_password_login_are_blocked(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, _, _, _ = create_unit_user_product_order(client)
+
+    legacy = client.post(
+        "/api/v1/web/auth/login",
+        json={"username": "root_admin", "password": "StrongPassword123"},
+    )
+    assert legacy.status_code in (404, 405)
+
+    challenge = create_web_qr_challenge(client)
+    token = challenge["qr_payload"].split("token=", 1)[1]
+    scan = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=login(client, "unit001", "UnitPassword123"),
+        json={"qr_token": token, "device_name": "Redmi Note 12", "app_version": "1.2.3"},
+    )
+    assert scan.status_code == 200
+    rejected = client.post(
+        f"/api/v1/mobile/web-auth/qr/{challenge['challenge_id']}/reject",
+        headers=login(client, "unit001", "UnitPassword123"),
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "rejected"
+    assert client.post(f"/api/v1/web-auth/qr/challenges/{challenge['challenge_id']}/consume").status_code == 409
+
+    expired = create_web_qr_challenge(client)
+    expired_token = expired["qr_payload"].split("token=", 1)[1]
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute("UPDATE web_login_challenges SET expires_at = datetime('now', '-1 minute') WHERE id = ?", (expired["challenge_id"],))
+        conn.commit()
+    expired_scan = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=login(client, "unit001", "UnitPassword123"),
+        json={"qr_token": expired_token, "device_name": "Redmi Note 12", "app_version": "1.2.3"},
+    )
+    assert expired_scan.status_code == 410
+
+    unit = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "PWD", "unit_name": "首次改密单位", "default_delivery_point": "首次改密点"},
+    ).json()
+    must_change = client.post(
+        "/api/v1/admin/users",
+        headers=admin_headers,
+        json={
+            "username": "must_change",
+            "password": "MustChange123",
+            "display_name": "首次改密账号",
+            "role": "unit_user",
+            "unit_id": unit["id"],
+            "must_change_password": True,
+        },
+    )
+    assert must_change.status_code == 200
+    change_headers = login(client, "must_change", "MustChange123")
+    change_challenge = create_web_qr_challenge(client)
+    change_scan = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=change_headers,
+        json={
+            "qr_token": change_challenge["qr_payload"].split("token=", 1)[1],
+            "device_name": "Redmi Note 12",
+            "app_version": "1.2.3",
+        },
+    )
+    assert change_scan.status_code == 403
+    assert change_scan.json()["detail"] == "请先修改初始密码"
+
+
+def test_admin_dashboard_overview_uses_beijing_business_date_and_keeps_legacy_dashboard(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)
+
+    unit2 = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "U003", "unit_name": "第三食堂", "default_delivery_point": "三号点"},
+    )
+    assert unit2.status_code == 200, unit2.text
+    product2 = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={
+            "product_code": "VEG-POTATO",
+            "name": "土豆",
+            "category": "蔬菜",
+            "spec": "净菜",
+            "unit": "公斤",
+            "price_cents": 300,
+            "stock_quantity": "30",
+            "reserved_quantity": "0",
+            "min_order_quantity": "1",
+            "quantity_step": "1",
+            "warning_quantity": "5",
+            "supply_status": "normal",
+        },
+    )
+    assert product2.status_code == 200, product2.text
+
+    from app.database import connect
+
+    def insert_order(
+        *,
+        unit: str,
+        unit_name: str,
+        status: str,
+        total_cents: int,
+        created_at: str,
+        product: str,
+        product_name: str,
+        quantity: str,
+        actual_quantity: str,
+    ) -> str:
+        order_id = str(uuid4())
+        item_id = str(uuid4())
+        with connect() as conn:
+            admin_id = conn.execute("SELECT id FROM users WHERE username = 'root_admin'").fetchone()["id"]
+            conn.execute(
+                """
+                INSERT INTO orders(
+                  id, order_no, unit_id, unit_name_snapshot, delivery_point_snapshot,
+                  note, status, total_cents, created_by, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?)
+                """,
+                (
+                    order_id,
+                    "SP20260703-" + order_id[:6],
+                    unit,
+                    unit_name,
+                    f"{unit_name}配送点",
+                    status,
+                    total_cents,
+                    admin_id,
+                    created_at,
+                    created_at,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO order_items(
+                  id, order_id, product_id, product_code_snapshot, product_name_snapshot,
+                  category_snapshot, spec_snapshot, unit_snapshot, price_cents_snapshot,
+                  quantity, requested_quantity, actual_quantity, subtotal_cents
+                )
+                VALUES (?, ?, ?, 'P', ?, '蔬菜', '普通', '公斤', 100, ?, ?, ?, ?)
+                """,
+                (item_id, order_id, product, product_name, quantity, quantity, actual_quantity, total_cents),
+            )
+            conn.commit()
+        return order_id
+
+    yesterday_local = insert_order(
+        unit=unit_id,
+        unit_name="第一食堂",
+        status="completed",
+        total_cents=500,
+        created_at="2026-07-02 15:59:59",
+        product=product_id,
+        product_name="西红柿",
+        quantity="9",
+        actual_quantity="9",
+    )
+    pending_order = insert_order(
+        unit=unit_id,
+        unit_name="第一食堂",
+        status="pending",
+        total_cents=1000,
+        created_at="2026-07-02 16:30:00",
+        product=product_id,
+        product_name="西红柿",
+        quantity="5",
+        actual_quantity="3",
+    )
+    insert_order(
+        unit=unit2.json()["id"],
+        unit_name="第三食堂",
+        status="preparing",
+        total_cents=2000,
+        created_at="2026-07-03 08:00:00",
+        product=product2.json()["id"],
+        product_name="土豆",
+        quantity="4",
+        actual_quantity="",
+    )
+    insert_order(
+        unit=unit2.json()["id"],
+        unit_name="第三食堂",
+        status="shipped",
+        total_cents=300,
+        created_at="2026-07-03 15:59:59",
+        product=product2.json()["id"],
+        product_name="土豆",
+        quantity="1",
+        actual_quantity="1",
+    )
+    insert_order(
+        unit=unit_id,
+        unit_name="第一食堂",
+        status="cancelled",
+        total_cents=9999,
+        created_at="2026-07-03 03:00:00",
+        product=product_id,
+        product_name="西红柿",
+        quantity="99",
+        actual_quantity="99",
+    )
+    with connect() as conn:
+        conn.execute("UPDATE products SET stock_quantity = '4', reserved_quantity = '3', warning_quantity = '2' WHERE id = ?", (product_id,))
+        conn.execute(
+            """
+            INSERT INTO receipt_issues(id, order_id, unit_id, issue_type, description, status, reported_by, reported_at)
+            VALUES (?, ?, ?, 'quality', '包装破损', 'open', (SELECT id FROM users WHERE username = 'unit001'), '2026-07-03 09:00:00')
+            """,
+            (str(uuid4()), pending_order, unit_id),
+        )
+        conn.commit()
+
+    overview = client.get(
+        "/api/v1/admin/dashboard/overview",
+        headers=admin_headers,
+        params={"business_date": "2026-07-03", "range_days": 7},
+    )
+    assert overview.status_code == 200, overview.text
+    payload = overview.json()
+    assert payload["business_date"] == "2026-07-03"
+    assert payload["metrics"]["today_valid_orders"] == 3
+    assert payload["metrics"]["today_total_cents"] == 3300
+    assert payload["metrics"]["pending"] == 1
+    assert payload["metrics"]["preparing"] == 1
+    assert payload["metrics"]["waiting_shipment"] == 1
+    assert payload["metrics"]["waiting_receipt"] == 1
+    assert payload["metrics"]["open_receipt_issues"] == 1
+    assert payload["metrics"]["tight_inventory"] == 1
+    assert payload["comparisons"]["orders_vs_yesterday_percent"] == 200.0
+    assert payload["trend"][-1]["date"] == "2026-07-03"
+    assert payload["trend"][-1]["order_count"] == 3
+    assert payload["trend"][-1]["amount_cents"] == 3300
+    assert next(item for item in payload["demand_rank"] if item["name"] == "西红柿")["quantity"] == 3
+    assert payload["unit_rank"][0]["unit_name"] == "第三食堂"
+    assert len(payload["recent_orders"]) <= 10
+
+    forbidden = client.get("/api/v1/admin/dashboard/overview", headers=unit_headers)
+    assert forbidden.status_code == 403
+
+    legacy = client.get("/api/v1/admin/dashboard", headers=admin_headers)
+    assert legacy.status_code == 200
+    assert {"today_orders", "today_total_cents", "pending", "recent_orders", "demand_rank"}.issubset(legacy.json().keys())
+    assert yesterday_local
 
 
 def test_change_password_requires_complex_password_and_new_login(tmp_path):

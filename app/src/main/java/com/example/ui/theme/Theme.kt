@@ -1,7 +1,7 @@
 package com.smartprocurement.internal.ui.theme
 
 import androidx.compose.runtime.Composable
-import com.smartprocurement.internal.ui.designsystem.GovernmentTheme
+import com.smartprocurement.internal.ui.designsystem.PoliceTheme
 
 @Composable
 fun MyApplicationTheme(
@@ -10,5 +10,5 @@ fun MyApplicationTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    GovernmentTheme(content = content)
+    PoliceTheme(content = content)
 }

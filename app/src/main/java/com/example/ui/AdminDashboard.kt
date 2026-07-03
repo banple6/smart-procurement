@@ -24,7 +24,7 @@ import com.smartprocurement.internal.ui.designsystem.GovernmentColors
 import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
 import com.smartprocurement.internal.ui.designsystem.GovernmentSectionHeader
 import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
-import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
 
 @Composable
 fun AdminDashboardScreen(viewModel: SupplyViewModel) {
@@ -36,11 +36,9 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            GovernmentTopBar(
+            PoliceBrandHeader(
                 title = "工作台",
-                actionText = "刷新",
-                actionIcon = Icons.Default.Refresh,
-                onAction = { viewModel.refreshDashboard() }
+                subtitle = "系统管理员 · ${viewModel.userName}"
             )
         }
     ) { padding ->

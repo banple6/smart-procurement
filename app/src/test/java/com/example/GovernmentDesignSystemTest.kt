@@ -18,9 +18,9 @@ class GovernmentDesignSystemTest {
         assertEquals("景荣鲜配", GovernmentThemeDefaults.appName)
         assertTrue(GovernmentThemeDefaults.forceLightTheme)
 
-        assertEquals(0xFF1F5D8F.toInt(), GovernmentColors.GovernmentBlue.toArgb())
-        assertEquals(0xFFF4F6F8.toInt(), GovernmentColors.PageBackground.toArgb())
-        assertEquals(0xFF1F2329.toInt(), GovernmentColors.TextPrimary.toArgb())
+        assertEquals(0xFF123F82.toInt(), GovernmentColors.GovernmentBlue.toArgb())
+        assertEquals(0xFFF3F5F8.toInt(), GovernmentColors.PageBackground.toArgb())
+        assertEquals(0xFF172233.toInt(), GovernmentColors.TextPrimary.toArgb())
         assertEquals(0xFFC62828.toInt(), GovernmentColors.StatusError.toArgb())
 
         assertEquals(22f, GovernmentTypography.PageTitleSize.value)

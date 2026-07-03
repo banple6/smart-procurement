@@ -51,6 +51,9 @@ import com.smartprocurement.internal.ui.designsystem.GovernmentSecondaryButton
 import com.smartprocurement.internal.ui.designsystem.GovernmentShapes
 import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
 import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.product.AdminProductActionRow
 import com.smartprocurement.internal.ui.product.ProductPublishConfirmDialog
 import com.smartprocurement.internal.ui.product.QuickInventorySheet
@@ -89,7 +92,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             if (viewModel.canManageIngredients()) {
                 FloatingActionButton(
                     onClick = { viewModel.navigateTo(Screen.AddProduct) },
-                    containerColor = MaterialTheme.colorScheme.secondary,
+                    containerColor = PoliceColors.PolicePrimary,
                     contentColor = Color.White
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "添加食材")
@@ -97,39 +100,13 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             }
         },
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(if (viewModel.canManageIngredients()) "食材管理" else "食材申领", style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = GovernmentColors.TextPrimary)
-                        val subtitle = if (viewModel.canManageIngredients()) {
-                            "${viewModel.userName} · 系统管理员"
-                        } else {
-                            "${viewModel.currentUnitName}\n默认配送点：${viewModel.defaultDeliveryPoint}"
-                        }
-                        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
-                    }
-                    Text(
-                        text = roleLabel(viewModel.userRole),
-                        modifier = Modifier
-                            .background(GovernmentColors.GovernmentBlueLight, RoundedCornerShape(4.dp))
-                            .border(1.dp, GovernmentColors.GovernmentBlue.copy(alpha = 0.18f), RoundedCornerShape(4.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = GovernmentColors.GovernmentBlueDark,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+            val title = if (viewModel.canManageIngredients()) "食材管理" else "食材申领"
+            val subtitle = if (viewModel.canManageIngredients()) {
+                "系统管理员 · ${viewModel.userName.ifBlank { PoliceBrandConfig.logisticsSubtitle }}"
+            } else {
+                viewModel.currentUnitName.ifBlank { PoliceBrandConfig.logisticsSubtitle }
             }
+            PoliceBrandHeader(title = title, subtitle = subtitle)
         }
     ) { padding ->
         LazyColumn(
@@ -158,7 +135,14 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                     placeholder = { Text(if (viewModel.canManageIngredients()) "搜索食材名称或编码" else "搜索食材名称") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
-                    shape = RoundedCornerShape(6.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = PoliceColors.PolicePrimary,
+                        focusedLabelColor = PoliceColors.PolicePrimary,
+                        cursorColor = PoliceColors.PolicePrimary,
+                        focusedContainerColor = PoliceColors.SurfaceWhite,
+                        unfocusedContainerColor = PoliceColors.SurfaceWhite
+                    )
                 )
             }
             item {
@@ -250,7 +234,19 @@ private fun FilterRow(options: List<String>, selected: String, onSelected: (Stri
             FilterChip(
                 selected = selected == option,
                 onClick = { onSelected(option) },
-                label = { Text(option, style = MaterialTheme.typography.bodyMedium) }
+                label = { Text(option, style = MaterialTheme.typography.bodyMedium) },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = PoliceColors.PoliceLight,
+                    selectedLabelColor = PoliceColors.PoliceNavy,
+                    containerColor = PoliceColors.SurfaceWhite,
+                    labelColor = PoliceColors.TextSecondary
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = selected == option,
+                    borderColor = PoliceColors.BorderColor,
+                    selectedBorderColor = PoliceColors.PolicePrimary
+                )
             )
         }
     }
@@ -856,8 +852,3 @@ private fun ProductEntity.displayStatus(): String = when {
 
 private fun Double.clean(): String = if (this % 1.0 == 0.0) toInt().toString() else String.format(Locale.getDefault(), "%.1f", this)
 private fun Long.toTimeText(): String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))
-private fun roleLabel(role: String): String = when (role) {
-    "admin" -> "系统管理员"
-    "unit_user" -> "子单位"
-    else -> "未知角色"
-}

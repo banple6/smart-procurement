@@ -60,11 +60,24 @@ def add_column(conn: sqlite3.Connection, table: str, definition: str):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
 
 
+def table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return one(conn, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)) is not None
+
+
 def revoke_user_sessions(conn: sqlite3.Connection, user_id: str):
     conn.execute(
         "UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
         (user_id,),
     )
+    if table_exists(conn, "web_sessions"):
+        conn.execute(
+            """
+            UPDATE web_sessions
+            SET revoked_at = CURRENT_TIMESTAMP, revoked_reason = '账号会话已失效'
+            WHERE user_id = ? AND revoked_at IS NULL
+            """,
+            (user_id,),
+        )
 
 
 def revoke_unit_sessions(conn: sqlite3.Connection, unit_id: str):
@@ -77,6 +90,16 @@ def revoke_unit_sessions(conn: sqlite3.Connection, unit_id: str):
         """,
         (unit_id,),
     )
+    if table_exists(conn, "web_sessions"):
+        conn.execute(
+            """
+            UPDATE web_sessions
+            SET revoked_at = CURRENT_TIMESTAMP, revoked_reason = '所属单位已停用'
+            WHERE user_id IN (SELECT id FROM users WHERE unit_id = ?)
+              AND revoked_at IS NULL
+            """,
+            (unit_id,),
+        )
 
 
 def write_audit(
@@ -417,6 +440,70 @@ def apply_procurement_operations_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_receipt_issue_photos_issue_id ON receipt_issue_photos(issue_id)")
 
 
+def apply_web_qr_login_migration(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS web_login_challenges (
+          id TEXT PRIMARY KEY,
+          qr_token_hash TEXT NOT NULL UNIQUE,
+          browser_binding_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending', 'scanned', 'approved', 'rejected', 'consumed')) DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at TEXT NOT NULL,
+          scanned_at TEXT,
+          approved_at TEXT,
+          rejected_at TEXT,
+          consumed_at TEXT,
+          scanned_by_user_id TEXT REFERENCES users(id),
+          approved_by_user_id TEXT REFERENCES users(id),
+          app_session_id TEXT,
+          browser_user_agent TEXT NOT NULL DEFAULT '',
+          browser_name TEXT NOT NULL DEFAULT '',
+          browser_os TEXT NOT NULL DEFAULT '',
+          browser_ip TEXT NOT NULL DEFAULT '',
+          device_name TEXT NOT NULL DEFAULT '',
+          app_version TEXT NOT NULL DEFAULT '',
+          role_snapshot TEXT NOT NULL DEFAULT '',
+          unit_id_snapshot TEXT,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS web_sessions (
+          id TEXT PRIMARY KEY,
+          token_hash TEXT NOT NULL UNIQUE,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          role TEXT NOT NULL,
+          unit_id TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          idle_expires_at TEXT NOT NULL,
+          absolute_expires_at TEXT NOT NULL,
+          revoked_at TEXT,
+          revoked_reason TEXT NOT NULL DEFAULT '',
+          browser_user_agent TEXT NOT NULL DEFAULT '',
+          browser_name TEXT NOT NULL DEFAULT '',
+          browser_os TEXT NOT NULL DEFAULT '',
+          browser_ip TEXT NOT NULL DEFAULT '',
+          source_challenge_id TEXT REFERENCES web_login_challenges(id),
+          session_version INTEGER NOT NULL DEFAULT 1
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_login_challenges_token_hash ON web_login_challenges(qr_token_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_login_challenges_binding ON web_login_challenges(browser_binding_hash, status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_sessions_token_hash ON web_sessions(token_hash)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_sessions_user_active ON web_sessions(user_id, revoked_at)")
+
+
+def apply_dashboard_overview_indexes_migration(conn: sqlite3.Connection):
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_id ON orders(unit_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_receipt_issues_status ON receipt_issues(status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_supply_status ON products(supply_status)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -430,6 +517,8 @@ def migrate() -> list[str]:
             ("0003_product_management_tasks", apply_product_management_migration),
             ("0004_account_security", apply_account_security_migration),
             ("0005_procurement_operations", apply_procurement_operations_migration),
+            ("0006_web_qr_login", apply_web_qr_login_migration),
+            ("0007_dashboard_overview_indexes", apply_dashboard_overview_indexes_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -451,6 +540,8 @@ def migration_status() -> dict:
         "0003_product_management_tasks",
         "0004_account_security",
         "0005_procurement_operations",
+        "0006_web_qr_login",
+        "0007_dashboard_overview_indexes",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

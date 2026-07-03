@@ -39,6 +39,9 @@ import com.smartprocurement.internal.ui.designsystem.GovernmentInfoBanner
 import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
 import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
 import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.theme.*
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
@@ -64,10 +67,9 @@ fun CartScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            GovernmentTopBar(
+            PoliceBrandHeader(
                 title = "采购清单",
-                actionText = if (cartList.isNotEmpty()) "清空" else null,
-                onAction = if (cartList.isNotEmpty()) ({ viewModel.clearCart() }) else null
+                subtitle = viewModel.currentUnitName.ifBlank { PoliceBrandConfig.logisticsSubtitle }
             )
         }
     ) { innerPadding ->
@@ -308,7 +310,10 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            GovernmentTopBar(title = "订单记录", actionText = "刷新", actionIcon = Icons.Default.Refresh, onAction = { viewModel.refreshOrders() })
+            PoliceBrandHeader(
+                title = "订单记录",
+                subtitle = if (isAdmin) "系统管理员 · ${viewModel.userName}" else viewModel.currentUnitName.ifBlank { PoliceBrandConfig.logisticsSubtitle }
+            )
         }
     ) { innerPadding ->
         Box(
@@ -345,7 +350,19 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                     FilterChip(
                                         selected = selectedStatus == status,
                                         onClick = { selectedStatus = status },
-                                        label = { Text(status) }
+                                        label = { Text(status) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = PoliceColors.PoliceLight,
+                                            selectedLabelColor = PoliceColors.PoliceNavy,
+                                            containerColor = PoliceColors.SurfaceWhite,
+                                            labelColor = PoliceColors.TextSecondary
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = selectedStatus == status,
+                                            borderColor = PoliceColors.BorderColor,
+                                            selectedBorderColor = PoliceColors.PolicePrimary
+                                        )
                                     )
                                 }
                             }

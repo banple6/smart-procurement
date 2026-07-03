@@ -1,7 +1,6 @@
 package com.smartprocurement.internal.ui.designsystem
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -41,8 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,6 +54,7 @@ fun GovernmentTopBar(
     onAction: (() -> Unit)? = null,
     actionIcon: ImageVector? = null
 ) {
+    PoliceStatusBar(color = PoliceColors.SurfaceWhite, darkIcons = true)
     TopAppBar(
         title = {
             Text(
@@ -305,33 +303,5 @@ fun GovernmentBottomActionBar(content: @Composable () -> Unit) {
 fun GovernmentRefreshAction(onRefresh: () -> Unit) {
     IconButton(onClick = onRefresh, modifier = Modifier.size(GovernmentDimens.MinTouchTarget)) {
         Icon(Icons.Default.Refresh, contentDescription = "刷新")
-    }
-}
-
-@Composable
-fun GovernmentBrandMark(modifier: Modifier = Modifier, contentDescription: String? = GovernmentThemeDefaults.appName) {
-    Box(
-        modifier = modifier
-            .background(GovernmentColors.GovernmentBlue, RoundedCornerShape(GovernmentShapes.LargeRadius))
-            .padding(10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.size(44.dp)) {
-            val white = GovernmentColors.TextOnPrimary
-            val stroke = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-            val w = size.width
-            val h = size.height
-            drawRoundRect(
-                color = white,
-                topLeft = androidx.compose.ui.geometry.Offset(w * 0.14f, h * 0.28f),
-                size = androidx.compose.ui.geometry.Size(w * 0.72f, h * 0.52f),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(5.dp.toPx()),
-                style = stroke
-            )
-            drawLine(white, androidx.compose.ui.geometry.Offset(w * 0.28f, h * 0.28f), androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.12f), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(white, androidx.compose.ui.geometry.Offset(w * 0.72f, h * 0.28f), androidx.compose.ui.geometry.Offset(w * 0.64f, h * 0.12f), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(white, androidx.compose.ui.geometry.Offset(w * 0.30f, h * 0.48f), androidx.compose.ui.geometry.Offset(w * 0.70f, h * 0.48f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-            drawLine(white, androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.36f), androidx.compose.ui.geometry.Offset(w * 0.50f, h * 0.70f), strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-        }
     }
 }

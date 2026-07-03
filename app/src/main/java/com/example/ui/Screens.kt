@@ -28,11 +28,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smartprocurement.internal.R
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.ui.designsystem.GovernmentBottomActionBar
 import com.smartprocurement.internal.ui.designsystem.GovernmentCard
@@ -42,6 +45,9 @@ import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
 import com.smartprocurement.internal.ui.designsystem.GovernmentSecondaryButton
 import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
 import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceIdentityHeader
 
 @Composable
 fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
@@ -133,20 +139,18 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(GovernmentColors.SurfaceWhite)
-                .statusBarsPadding()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(viewModel.userName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = GovernmentColors.TextPrimary)
-            Text("账号：${viewModel.userId}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
-            if (!viewModel.canManageIngredients()) {
-                Text("所属单位：${viewModel.currentUnitName}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
-                Text("默认配送点：${viewModel.defaultDeliveryPoint}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
-            }
+        if (viewModel.canManageIngredients()) {
+            PoliceIdentityHeader(
+                title = "系统管理员",
+                line1 = "账号：${viewModel.userName.ifBlank { viewModel.userId }}",
+                line2 = PoliceBrandConfig.logisticsSubtitle
+            )
+        } else {
+            PoliceIdentityHeader(
+                title = viewModel.userName.ifBlank { "子单位采购账号" },
+                line1 = "所属单位：${viewModel.currentUnitName}",
+                line2 = "默认配送点：${viewModel.defaultDeliveryPoint}"
+            )
         }
 
         Column(
@@ -163,6 +167,10 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             ) {
                 Column {
                     if (viewModel.canManageIngredients()) {
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_qr_scan), title = "扫码登录网页版") { viewModel.openWebQrScanner() }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_web_session), title = "网页登录记录") { viewModel.navigateTo(Screen.WebSessions) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Home, title = "子单位管理") { viewModel.navigateTo(Screen.UnitManagement) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
@@ -181,17 +189,26 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "我的订单") { viewModel.currentTab = "orders" }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_qr_scan), title = "扫码登录网页版") { viewModel.openWebQrScanner() }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_web_session), title = "网页登录记录") { viewModel.navigateTo(Screen.WebSessions) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
                     }
                 }
             }
 
-            GovernmentSecondaryButton(
-                text = "退出登录",
+            OutlinedButton(
                 onClick = { viewModel.logout() },
-                modifier = Modifier
-                    .fillMaxWidth()
-            )
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, PoliceColors.StatusError.copy(alpha = 0.35f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = PoliceColors.StatusError)
+            ) {
+                Icon(imageVector = Icons.Default.ExitToApp, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("退出登录", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -208,7 +225,31 @@ fun ProfileMenuItem(icon: ImageVector, title: String, rightText: String = "", on
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.primary)
+            Icon(imageVector = icon, contentDescription = title, tint = PoliceColors.PolicePrimary)
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (rightText.isNotEmpty()) {
+                Text(rightText, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+            }
+            Text(">", fontSize = 14.sp, color = MaterialTheme.colorScheme.outlineVariant, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ProfileResourceMenuItem(icon: Painter, title: String, rightText: String = "", onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(painter = icon, contentDescription = title, tint = PoliceColors.PolicePrimary)
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
