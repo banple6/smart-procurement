@@ -16,16 +16,22 @@ object RemoteOrderMapper {
         val itemsArray = json.optJSONArray("items")
         val items = List(itemsArray?.length() ?: 0) { index ->
             val item = itemsArray!!.getJSONObject(index)
+            val requestedQty = item.optString("requested_quantity", item.optString("quantity", "0")).toDoubleOrNull() ?: 0.0
+            val actualQty = item.optString("actual_quantity", item.optString("quantity", "0")).toDoubleOrNull() ?: requestedQty
             OrderItemEntity(
+                remoteItemId = item.optString("id"),
                 orderId = orderId,
                 productId = item.optString("product_id"),
                 productName = item.optString("product_name_snapshot", "未知食材"),
                 productSpec = item.optString("spec_snapshot", "默认规格"),
                 productUnit = item.optString("unit_snapshot", ""),
                 productImageUrl = item.optString("image_path"),
-                requestedQty = item.optString("quantity", "0").toDoubleOrNull() ?: 0.0,
-                confirmedQty = item.optString("quantity", "0").toDoubleOrNull() ?: 0.0,
-                deliveredQty = if (status == "已完成") item.optString("quantity", "0").toDoubleOrNull() ?: 0.0 else 0.0,
+                requestedQty = requestedQty,
+                actualQty = actualQty,
+                adjustmentReason = item.optString("adjustment_reason"),
+                adjusted = item.optBooleanCompat("adjusted"),
+                confirmedQty = actualQty,
+                deliveredQty = if (status == "已完成") actualQty else 0.0,
                 price = item.optInt("price_cents_snapshot", 0) / 100.0,
                 isSubstitute = false
             )
@@ -36,6 +42,7 @@ object RemoteOrderMapper {
                 displayOrderNo = json.optString("order_no").ifBlank { "未生成订单号" },
                 submitTime = json.optString("created_at").toUiTime(),
                 createdAt = json.optString("created_at").toUiTime(),
+                serverUpdatedAt = json.optString("updated_at"),
                 acceptedAt = json.optString("accepted_at").toUiTime(),
                 preparingAt = json.optString("preparing_at").toUiTime(),
                 shippedAt = json.optString("shipped_at").toUiTime(),
@@ -49,9 +56,12 @@ object RemoteOrderMapper {
                 shippingNote = json.optString("shipping_note"),
                 shippingPhotoCount = json.optInt("shipping_photo_count", 0),
                 shippingPhotosJson = json.optJSONArray("shipping_photos")?.toString() ?: "[]",
+                openReceiptIssueCount = json.optInt("open_receipt_issue_count", 0),
+                receiptIssuesJson = json.optJSONArray("receipt_issues")?.toString() ?: "[]",
+                hasAdjustments = json.optBooleanCompat("has_adjustments"),
                 totalCents = json.optLong("total_cents", items.sumOf { item ->
                     BigDecimal.valueOf(item.price)
-                        .multiply(BigDecimal.valueOf(item.requestedQty))
+                        .multiply(BigDecimal.valueOf(item.actualQty))
                         .multiply(BigDecimal(100))
                         .setScale(0, RoundingMode.HALF_UP)
                         .longValueExact()
@@ -86,6 +96,16 @@ object RemoteOrderMapper {
     private fun String.toUiTime(): String {
         if (isBlank()) return ""
         return replace('T', ' ').take(16)
+    }
+
+    private fun JSONObject.optBooleanCompat(name: String): Boolean {
+        val value = opt(name)
+        return when (value) {
+            is Boolean -> value
+            is Number -> value.toInt() != 0
+            is String -> value == "1" || value.equals("true", ignoreCase = true)
+            else -> false
+        }
     }
 
 }

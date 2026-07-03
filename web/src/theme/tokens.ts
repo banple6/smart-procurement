@@ -1,0 +1,30 @@
+export const policeTokens = {
+  PoliceBadgeBlue: '#152584',
+  PoliceNavy: '#0B2864',
+  PolicePrimary: '#123F82',
+  PoliceActionBlue: '#175AA6',
+  PoliceLight: '#E8EFFA',
+  PolicePale: '#F3F6FB',
+  PageBackground: '#F3F5F8',
+  SurfaceWhite: '#FFFFFF',
+  SurfaceMuted: '#F7F9FC',
+  BorderColor: '#D4DCE7',
+  DividerColor: '#E4E9F0',
+  TextPrimary: '#172233',
+  TextSecondary: '#566273',
+  TextTertiary: '#7C8795',
+  StatusNormal: '#247548',
+  StatusPending: '#175AA6',
+  StatusPreparing: '#A56600',
+  StatusWarning: '#B16B00',
+  StatusError: '#C62828',
+  StatusCancelled: '#707985',
+} as const;
+
+export const brandConfig = {
+  appName: '景荣鲜配',
+  departmentName: import.meta.env.VITE_BRAND_DEPARTMENT || 'XX公安局',
+  systemName: `${import.meta.env.VITE_BRAND_DEPARTMENT || 'XX公安局'}后勤食材采购配送系统`,
+  internalUseLabel: '公安内部使用',
+  badgePath: '/brand/police-badge.svg',
+} as const;

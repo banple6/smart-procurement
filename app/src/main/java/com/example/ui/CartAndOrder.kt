@@ -32,6 +32,16 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.smartprocurement.internal.data.*
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentDataRow
+import com.smartprocurement.internal.ui.designsystem.GovernmentInfoBanner
+import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
+import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.theme.*
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
@@ -44,54 +54,23 @@ import java.util.*
 fun CartScreen(viewModel: SupplyViewModel) {
     val cartList by viewModel.cartItems.collectAsState()
     val products by viewModel.allProducts.collectAsState()
+    val cutoff = viewModel.cutoffInfo
     var note by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
     val rows = cartList.mapNotNull { item ->
         products.find { it.id == item.productId }?.let { product -> item to product }
     }
     val totalCents = rows.sumOf { (item, product) -> lineSubtotalCents(product.price, item.quantity) }
+    LaunchedEffect(Unit) {
+        viewModel.refreshCutoff()
+    }
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(imageVector = Icons.Default.Menu, contentDescription = "cart", tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "采购清单",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    if (cartList.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearCart() }) {
-                            Text("清空", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
+            PoliceBrandHeader(
+                title = "采购清单",
+                subtitle = viewModel.currentUnitName.ifBlank { PoliceBrandConfig.logisticsSubtitle }
+            )
         }
     ) { innerPadding ->
         Column(
@@ -137,15 +116,13 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                DetailRow("商品种类", "${rows.size} 种")
-                                DetailRow("订单金额", Money.formatCents(totalCents))
+                        CutoffCard(cutoff)
+                    }
+                    item {
+                        GovernmentCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                GovernmentDataRow("商品种类", "${rows.size} 种")
+                                GovernmentDataRow("订单金额", Money.formatCents(totalCents), valueColor = GovernmentColors.GovernmentBlueDark)
                             }
                         }
                     }
@@ -166,7 +143,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text("暂无图片", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("暂无图片", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                                         }
                                     } else {
                                         AsyncImage(
@@ -181,19 +158,19 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(p.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(p.spec, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(p.spec, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     IconButton(onClick = { viewModel.deleteCartItem(p.id) }, modifier = Modifier.size(48.dp)) {
                                         Icon(imageVector = Icons.Default.Delete, contentDescription = "删除", tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("单价", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("单价", color = GovernmentColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
                                     Text(Money.formatYuan(p.price), fontWeight = FontWeight.Bold)
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("小计", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(Money.formatCents(lineSubtotalCents(p.price, item.quantity)), fontWeight = FontWeight.Bold)
+                                    Text("小计", color = GovernmentColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                                    Text(Money.formatCents(lineSubtotalCents(p.price, item.quantity)), fontWeight = FontWeight.Bold, color = GovernmentColors.GovernmentBlueDark)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -237,16 +214,16 @@ fun CartScreen(viewModel: SupplyViewModel) {
                             Text("订单合计", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                             Text(Money.formatCents(totalCents), fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
-                        Button(
+                        GovernmentPrimaryButton(
+                            text = when {
+                                viewModel.isSubmittingOrder -> "正在提交"
+                                cutoff?.isClosed == true -> "今日已截止"
+                                else -> "提交订单"
+                            },
                             onClick = { showConfirm = true },
-                            enabled = !viewModel.isSubmittingOrder,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(52.dp),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(if (viewModel.isSubmittingOrder) "正在提交" else "提交订单", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
+                            enabled = !viewModel.isSubmittingOrder && cutoff?.isClosed != true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }
@@ -275,13 +252,23 @@ fun CartScreen(viewModel: SupplyViewModel) {
     }
 }
 
+@Composable
+private fun CutoffCard(cutoff: CutoffInfo?) {
+    val closed = cutoff?.isClosed == true
+    GovernmentInfoBanner(
+        title = if (closed) "今日采购已截止" else "今日下单截止",
+        message = if (cutoff == null) "正在读取服务端时间" else if (closed) "截止时间 ${cutoff.cutoffTime}，如有特殊情况请联系管理员" else "截止时间 ${cutoff.cutoffTime}，请在截止前提交",
+        danger = closed
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BasicTextFieldWithoutUnderline(value: String, onValueChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
     TextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = { Text(placeholder, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline) },
+        placeholder = { Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextTertiary) },
         colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent,
             unfocusedContainerColor = Color.Transparent,
@@ -289,7 +276,7 @@ fun BasicTextFieldWithoutUnderline(value: String, onValueChange: (String) -> Uni
             unfocusedIndicatorColor = Color.Transparent,
             disabledIndicatorColor = Color.Transparent
         ),
-        textStyle = LocalTextStyle.current.copy(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = GovernmentColors.TextPrimary),
         modifier = modifier
     )
 }
@@ -323,42 +310,10 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(imageVector = Icons.Default.Menu, contentDescription = "orders", tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "订单记录",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = { viewModel.refreshOrders() }) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "刷新订单", tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
+            PoliceBrandHeader(
+                title = "订单记录",
+                subtitle = if (isAdmin) "系统管理员 · ${viewModel.userName}" else viewModel.currentUnitName.ifBlank { PoliceBrandConfig.logisticsSubtitle }
+            )
         }
     ) { innerPadding ->
         Box(
@@ -395,7 +350,19 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                     FilterChip(
                                         selected = selectedStatus == status,
                                         onClick = { selectedStatus = status },
-                                        label = { Text(status) }
+                                        label = { Text(status) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = PoliceColors.PoliceLight,
+                                            selectedLabelColor = PoliceColors.PoliceNavy,
+                                            containerColor = PoliceColors.SurfaceWhite,
+                                            labelColor = PoliceColors.TextSecondary
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            enabled = true,
+                                            selected = selectedStatus == status,
+                                            borderColor = PoliceColors.BorderColor,
+                                            selectedBorderColor = PoliceColors.PolicePrimary
+                                        )
                                     )
                                 }
                             }
@@ -421,7 +388,7 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                 .clickable {
                                     viewModel.navigateTo(Screen.OrderDetails(order.orderId))
                                 },
-                            shape = RoundedCornerShape(24.dp),
+                            shape = RoundedCornerShape(8.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                         ) {
@@ -437,40 +404,14 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
-                                    Box(
-                                        modifier = Modifier
-                                            .background(
-                                                when (order.status) {
-                                                    "待接单" -> Color(0xFFEFF6FF)
-                                                    "备货中" -> Color(0xFFFEF3C7)
-                                                    "已发货" -> Color(0xFFECFDF5)
-                                                    "已接单", "已完成" -> Color(0xFFD1FAE5)
-                                                    else -> MaterialTheme.colorScheme.surfaceVariant
-                                                },
-                                                CircleShape
-                                            )
-                                            .padding(horizontal = 10.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(
-                                            text = order.status,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = when (order.status) {
-                                                "待接单" -> Color(0xFF1D4ED8)
-                                                "备货中" -> Color(0xFFB45309)
-                                                "已发货" -> Color(0xFF047857)
-                                                "已接单", "已完成" -> Color(0xFF065F46)
-                                                else -> MaterialTheme.colorScheme.outline
-                                            }
-                                        )
-                                    }
+                                    GovernmentStatusLabel(order.status)
                                 }
 
                                 if (isAdmin) {
                                     Spacer(modifier = Modifier.height(4.dp))
-                                    Text(order.displayOrderNo, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-                                    Text(order.deliveryPoint, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(order.displayOrderNo, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                                    Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextPrimary, fontWeight = FontWeight.Medium)
+                                    Text(order.deliveryPoint, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -478,22 +419,22 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("下单时间", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(order.submitTime, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("下单时间", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                                    Text(order.submitTime, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextPrimary)
                                 }
 
                                 Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("配送点", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(order.deliveryPoint, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(180.dp), textAlign = TextAlign.End)
+                                    Text("配送点", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                                    Text(order.deliveryPoint, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.width(180.dp), textAlign = TextAlign.End)
                                 }
 
                                 if (order.status == "备货中") {
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Text("订单正在备货", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("订单正在备货", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                                 }
                                 if (order.shippingPhotoCount > 0) {
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Text("发货凭证：${order.shippingPhotoCount} 张", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    Text("发货凭证：${order.shippingPhotoCount} 张", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                 }
 
                                 OrderActionButton(order = order, viewModel = viewModel, modifier = Modifier.padding(top = 12.dp))
@@ -523,35 +464,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    IconButton(onClick = { viewModel.navigateBack() }) {
-                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    Text(
-                        text = "订单详情",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            GovernmentTopBar(title = "订单详情", onBack = { viewModel.navigateBack() })
         }
     ) { innerPadding ->
         Column(
@@ -572,7 +485,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                 // Tracker timeline progress
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(8.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 ) {
@@ -582,8 +495,8 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("订单编号：${ord.displayOrderNo.ifBlank { "未生成订单号" }}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            Text(ord.status, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.secondary)
+                            Text("订单编号：${ord.displayOrderNo.ifBlank { "未生成订单号" }}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = GovernmentColors.GovernmentBlueDark)
+                            GovernmentStatusLabel(ord.status)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -595,12 +508,12 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                 // Submitter info card
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(8.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Text("订单信息", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("订单信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = GovernmentColors.TextPrimary)
                         Spacer(modifier = Modifier.height(12.dp))
 
                         DetailRow(label = "订单编号", value = ord.displayOrderNo)
@@ -615,12 +528,13 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                 }
 
                 // Order items list
-                Text("商品明细 (${orderItems.size} 种)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Text("商品明细 (${orderItems.size} 种)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = GovernmentColors.TextPrimary)
 
                 orderItems.forEach { item ->
+                    var showAdjust by remember(item.remoteItemId, item.actualQty) { mutableStateOf(false) }
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(8.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
                     ) {
@@ -634,28 +548,48 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                                 contentDescription = item.productName,
                                 modifier = Modifier
                                     .size(52.dp)
-                                    .clip(RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                                 contentScale = ContentScale.Crop
                             )
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(item.productName, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                Text(item.productSpec, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(item.productName, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = GovernmentColors.TextPrimary)
+                                Text(item.productSpec, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
 
                                 Spacer(modifier = Modifier.height(4.dp))
 
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("单价：${Money.formatYuan(item.price)} / ${item.productUnit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("数量：${item.requestedQty.cleanQty()} ${item.productUnit}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.requestedQty))}", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    Text("单价：${Money.formatYuan(item.price)} / ${item.productUnit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                                    Text("申请数量：${item.requestedQty.cleanQty()} ${item.productUnit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                                    Text("实际供应：${item.actualQty.cleanQty()} ${item.productUnit}", style = MaterialTheme.typography.bodyMedium, color = if (item.adjusted) GovernmentColors.StatusPreparing else GovernmentColors.TextSecondary, fontWeight = if (item.adjusted) FontWeight.Bold else FontWeight.Normal)
+                                    if (item.adjustmentReason.isNotBlank()) {
+                                        GovernmentInfoBanner(title = "数量已调整", message = "调整原因：${item.adjustmentReason}")
+                                    }
+                                    Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.actualQty))}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.GovernmentBlueDark, fontWeight = FontWeight.Bold)
+                                    if (viewModel.canManageIngredients() && ord.status in listOf("待接单", "已接单", "备货中")) {
+                                        TextButton(onClick = { showAdjust = true }, modifier = Modifier.height(48.dp)) {
+                                            Text("调整实发")
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
+                    if (showAdjust) {
+                        AdjustQuantityDialog(
+                            item = item,
+                            onDismiss = { showAdjust = false },
+                            onConfirm = { quantity, reason ->
+                                showAdjust = false
+                                viewModel.adjustOrderItem(ord, item, quantity, reason)
+                            }
+                        )
+                    }
                 }
 
                 ShippingProofSummary(order = ord, viewModel = viewModel)
+                ReceiptIssueSummary(order = ord, viewModel = viewModel)
 
                 Spacer(modifier = Modifier.height(24.dp))
             }
@@ -695,10 +629,10 @@ private fun ShippingProofSummary(order: OrderEntity, viewModel: SupplyViewModel)
                     }
                 }
                 val first = order.shippingPhotos.first()
-                Text("发货时间：${first.uploadedAt}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("发货账号：${first.uploadedByUsername}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("发货时间：${first.uploadedAt}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("发货账号：${first.uploadedByUsername}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                 if (order.shippingNote.isNotBlank()) {
-                    Text("发货备注：${order.shippingNote}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("发货备注：${order.shippingNote}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                 }
             }
         }
@@ -729,6 +663,119 @@ private fun ShippingProofSummary(order: OrderEntity, viewModel: SupplyViewModel)
             }
         }
     }
+}
+
+@Composable
+private fun ReceiptIssueSummary(order: OrderEntity, viewModel: SupplyViewModel) {
+    var showIssueDialog by remember(order.orderId) { mutableStateOf(false) }
+    val issues = order.receiptIssues
+    if (issues.isEmpty() && order.status !in listOf("已发货", "已完成")) return
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("收货异常", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            if (issues.isEmpty()) {
+                Text("暂无异常反馈", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                issues.forEach { issue ->
+                    Text(
+                        "${if (issue.status == "open") "待处理" else "已处理"}：${issue.description.ifBlank { issue.issueType }}",
+                        fontSize = 13.sp,
+                        color = if (issue.status == "open") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (viewModel.canManageIngredients() && issue.status == "open") {
+                        TextButton(onClick = { viewModel.resolveReceiptIssue(issue.id, order.orderId, "已处理") }, modifier = Modifier.height(48.dp)) {
+                            Text("标记已处理")
+                        }
+                    }
+                }
+            }
+            if (!viewModel.canManageIngredients() && order.status == "已发货" && order.openReceiptIssueCount == 0) {
+                OutlinedButton(onClick = { showIssueDialog = true }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(8.dp)) {
+                    Text("收货有问题")
+                }
+            }
+        }
+    }
+    if (showIssueDialog) {
+        ReceiptIssueDialog(
+            onDismiss = { showIssueDialog = false },
+            onConfirm = { type, description ->
+                showIssueDialog = false
+                viewModel.submitReceiptIssue(order.orderId, type, description, emptyList()) {}
+            }
+        )
+    }
+}
+
+@Composable
+private fun ReceiptIssueDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var type by remember { mutableStateOf("quantity_shortage") }
+    var description by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("反馈收货异常") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = type == "quantity_shortage", onClick = { type = "quantity_shortage" }, label = { Text("数量不符") })
+                    FilterChip(selected = type == "quality_issue", onClick = { type = "quality_issue" }, label = { Text("质量问题") })
+                }
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("说明") },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(type, description.ifBlank { if (type == "quantity_shortage") "数量不符" else "质量问题" }) },
+                enabled = description.isNotBlank()
+            ) { Text("提交异常") }
+        }
+    )
+}
+
+@Composable
+private fun AdjustQuantityDialog(item: OrderItemEntity, onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var quantity by remember { mutableStateOf(item.actualQty.cleanQty()) }
+    var reason by remember { mutableStateOf(item.adjustmentReason) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("调整实发数量") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("${item.productName}，申领 ${item.requestedQty.cleanQty()} ${item.productUnit}", fontSize = 13.sp)
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("实发数量") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("调整原因") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(quantity, reason) }, enabled = quantity.isNotBlank() && reason.isNotBlank()) {
+                Text("保存调整")
+            }
+        }
+    )
 }
 
 @Composable
@@ -765,6 +812,7 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
         "完成订单" -> "已完成"
         "取消订单" -> "已取消"
         "确认收货" -> "已完成"
+        "再次下单" -> "清单"
         else -> label
     }
     val loading = viewModel.activeOrderActionId == order.orderId
@@ -772,6 +820,8 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
         onClick = {
             if (label == "确认发货") {
                 viewModel.navigateTo(Screen.ShippingProof(order.orderId))
+            } else if (label == "再次下单") {
+                viewModel.reorder(order.orderId)
             } else {
                 showConfirm = true
             }
@@ -826,7 +876,7 @@ fun LogisticsTimelineItem(title: String, desc: String, isDone: Boolean) {
                 fontWeight = FontWeight.Bold,
                 color = if (isDone) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline
             )
-            Text(desc, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(desc, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
         }
     }
 }

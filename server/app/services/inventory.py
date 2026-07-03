@@ -7,7 +7,9 @@ from ..database import one
 
 
 def decimal_text(value) -> str:
-    return str(Decimal(str(value)).normalize())
+    normalized = Decimal(str(value)).normalize()
+    text = format(normalized, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
 
 
 def as_decimal(value) -> Decimal:

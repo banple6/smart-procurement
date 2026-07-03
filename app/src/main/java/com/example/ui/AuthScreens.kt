@@ -1,28 +1,32 @@
 package com.smartprocurement.internal.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.PoliceBadgeImage
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceDimens
+import com.smartprocurement.internal.ui.designsystem.PolicePrimaryButton
+import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 
 @Composable
 fun LoginScreen(viewModel: SupplyViewModel) {
+    PoliceStatusBar(color = PoliceColors.PoliceNavy, darkIcons = false)
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var showPassword by remember { mutableStateOf(false) }
@@ -32,90 +36,80 @@ fun LoginScreen(viewModel: SupplyViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(20.dp))
-        Box(
+        Column(
             modifier = Modifier
-                .size(76.dp)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp)),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .background(PoliceColors.PoliceNavy)
+                .statusBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.Home, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+            PoliceBadgeImage(size = 56.dp, contentDescription = "人民警察警徽")
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(PoliceBrandConfig.appName, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = PoliceColors.TextOnBlue)
+            Text(PoliceBrandConfig.systemName, style = MaterialTheme.typography.bodyMedium, color = PoliceColors.TextOnBlue.copy(alpha = 0.86f))
+            Text(PoliceBrandConfig.internalUseLabel, style = MaterialTheme.typography.bodySmall, color = PoliceColors.TextOnBlue.copy(alpha = 0.68f), modifier = Modifier.padding(top = 4.dp))
         }
-        Spacer(modifier = Modifier.height(18.dp))
-        Text("生鲜后勤", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Text("内部生鲜采购与配送管理系统", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("内部账号登录", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text("本系统仅限内部授权人员使用", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("内部账号登录", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = PoliceColors.TextPrimary)
 
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("账号或工号") },
-                    leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
-                    singleLine = true,
-                    isError = viewModel.loginErrors.containsKey("username"),
-                    supportingText = { viewModel.loginErrors["username"]?.let { Text(it) } }
-                )
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                        label = { Text("账号") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(6.dp),
+                        isError = viewModel.loginErrors.containsKey("username"),
+                        supportingText = { viewModel.loginErrors["username"]?.let { Text(it) } }
+                    )
 
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("密码") },
-                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                    trailingIcon = {
-                        Text(
-                            text = if (showPassword) "隐藏" else "显示",
-                            modifier = Modifier
-                                .clickable { showPassword = !showPassword }
-                                .padding(8.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 12.sp
-                        )
-                    },
-                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                    singleLine = true,
-                    isError = viewModel.loginErrors.containsKey("password"),
-                    supportingText = { viewModel.loginErrors["password"]?.let { Text(it) } }
-                )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                        label = { Text("密码") },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        trailingIcon = {
+                            TextButton(onClick = { showPassword = !showPassword }) {
+                                Text(if (showPassword) "隐藏" else "显示")
+                            }
+                        },
+                        visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(6.dp),
+                        isError = viewModel.loginErrors.containsKey("password"),
+                        supportingText = { viewModel.loginErrors["password"]?.let { Text(it) } }
+                    )
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = rememberLogin, onCheckedChange = { rememberLogin = it })
-                    Text("记住登录状态", fontSize = 14.sp)
-                }
-
-                Button(
-                    onClick = { viewModel.login(username, password, rememberLogin) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp),
-                    enabled = !viewModel.isAuthLoading,
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    if (viewModel.isAuthLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Text("登录", fontWeight = FontWeight.Bold)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = PoliceDimens.MinTouchTarget)) {
+                        Checkbox(checked = rememberLogin, onCheckedChange = { rememberLogin = it })
+                        Text("记住登录状态", style = MaterialTheme.typography.bodyMedium)
                     }
-                }
 
-                Text("账号由系统管理员创建。忘记密码请联系管理员", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+                    PolicePrimaryButton(
+                        text = if (viewModel.isAuthLoading) "正在登录" else "登录",
+                        onClick = { viewModel.login(username, password, rememberLogin) },
+                        enabled = !viewModel.isAuthLoading
+                    )
+
+                    Text(
+                        "本系统仅限内部授权账号使用。忘记密码请联系系统管理员。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PoliceColors.TextSecondary
+                    )
+                }
         }
-        Spacer(modifier = Modifier.height(24.dp))
     }
 }
 
@@ -123,24 +117,21 @@ fun LoginScreen(viewModel: SupplyViewModel) {
 fun ChangePasswordScreen(viewModel: SupplyViewModel) {
     var oldPassword by remember { mutableStateOf("") }
     var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp)
+            .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text("首次登录修改密码", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("新密码至少 8 位，必须包含字母和数字。修改成功后请重新登录。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        GovernmentCard {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("首次登录，请修改密码", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text("修改成功后需要使用新密码重新登录。", style = MaterialTheme.typography.bodyMedium, color = PoliceColors.TextSecondary)
                 PasswordField(
                     value = oldPassword,
                     onValueChange = { oldPassword = it },
@@ -153,36 +144,20 @@ fun ChangePasswordScreen(viewModel: SupplyViewModel) {
                     label = "新密码",
                     error = viewModel.passwordErrors["newPassword"]
                 )
-                Button(
-                    onClick = { viewModel.changePassword(oldPassword, newPassword) },
-                    enabled = !viewModel.isChangingPassword,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    if (viewModel.isChangingPassword) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                    } else {
-                        Text("修改密码", fontWeight = FontWeight.Bold)
-                    }
-                }
+                PasswordField(
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
+                    label = "确认新密码",
+                    error = viewModel.passwordErrors["confirmPassword"]
+                )
+                PolicePrimaryButton(
+                    text = if (viewModel.isChangingPassword) "正在修改" else "修改密码",
+                    onClick = { viewModel.changePassword(oldPassword, newPassword, confirmPassword) },
+                    enabled = !viewModel.isChangingPassword
+                )
             }
         }
     }
-}
-
-@Composable
-private fun FormField(value: String, onValueChange: (String) -> Unit, label: String, error: String?) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        isError = error != null,
-        supportingText = { error?.let { Text(it) } }
-    )
 }
 
 @Composable
@@ -192,8 +167,9 @@ private fun PasswordField(value: String, onValueChange: (String) -> Unit, label:
         onValueChange = onValueChange,
         label = { Text(label) },
         visualTransformation = PasswordVisualTransformation(),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         singleLine = true,
+        shape = RoundedCornerShape(6.dp),
         isError = error != null,
         supportingText = { error?.let { Text(it) } }
     )

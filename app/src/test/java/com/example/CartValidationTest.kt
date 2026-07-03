@@ -17,7 +17,7 @@ class CartValidationTest {
         val zeroPrice = product(priceCents = 0)
         assertFalse(CartValidator.canOrder(zeroPrice, 1.0).isValid)
         assertEquals("价格未设置", CartValidator.canOrder(zeroPrice, 1.0).message)
-
+//http://47.94.227.58/
         val paused = product(status = "暂停供应")
         assertFalse(CartValidator.canOrder(paused, 1.0).isValid)
         assertEquals("该食材暂停供应，不能加入清单", CartValidator.canOrder(paused, 1.0).message)

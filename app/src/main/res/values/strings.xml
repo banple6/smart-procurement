@@ -1,3 +1,7 @@
 <resources>
-    <string name="app_name">生鲜后勤</string>
+    <string name="app_name">景荣鲜配</string>
+    <string name="police_department_name">XX公安局</string>
+    <string name="system_full_name">XX公安局后勤食材采购配送系统</string>
+    <string name="system_short_name">后勤食材采购配送系统</string>
+    <string name="internal_use_label">公安内部使用</string>
 </resources>

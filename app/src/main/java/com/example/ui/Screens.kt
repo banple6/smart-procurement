@@ -28,12 +28,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.smartprocurement.internal.R
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.GovernmentBottomActionBar
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentDataRow
+import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentSecondaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
+import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandConfig
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceIdentityHeader
 
 @Composable
 fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
@@ -45,26 +59,32 @@ fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = "成功", tint = MaterialTheme.colorScheme.primary)
-                    Text("订单已提交", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+            GovernmentTopBar(title = "提交成功")
+        },
+        bottomBar = {
+            GovernmentBottomActionBar {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    GovernmentPrimaryButton(
+                        text = "查看订单",
+                        onClick = {
+                            viewModel.currentTab = "orders"
+                            viewModel.popToRootAndNavigate(Screen.Home)
+                            viewModel.navigateTo(Screen.OrderDetails(orderId))
+                        }
+                    )
+                    GovernmentSecondaryButton(
+                        text = "返回首页",
+                        onClick = {
+                            viewModel.currentTab = "home"
+                            viewModel.popToRootAndNavigate(Screen.Home)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -73,74 +93,30 @@ fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(MaterialTheme.colorScheme.background),
+                .background(GovernmentColors.PageBackground),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Column(
                 modifier = Modifier
-                    .weight(1f)
                     .padding(horizontal = 16.dp)
                     .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Spacer(modifier = Modifier.height(32.dp))
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f), CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.secondary, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = "成功", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(48.dp))
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-                Text("订单已提交", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                Text("订单已提交，等待管理员接单。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                 Spacer(modifier = Modifier.height(24.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                ) {
+                GovernmentCard {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SuccessRow("订单编号", displayOrderNo)
-                        SuccessRow("当前状态", "待接单")
-                        SuccessRow("配送点", deliveryPoint)
-                        SuccessRow("订单金额", Money.formatCents(totalCents))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GovernmentColors.StatusCompleted)
+                            Text("提交成功", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = GovernmentColors.TextPrimary)
+                        }
+                        GovernmentDataRow("订单编号", displayOrderNo)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("当前状态", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                            GovernmentStatusLabel("待接单")
+                        }
+                        GovernmentDataRow("配送点", deliveryPoint)
+                        GovernmentDataRow("订单金额", Money.formatCents(totalCents), valueColor = GovernmentColors.GovernmentBlue)
                     }
-                }
-            }
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = {
-                        viewModel.currentTab = "orders"
-                        viewModel.popToRootAndNavigate(Screen.Home)
-                        viewModel.navigateTo(Screen.OrderDetails(orderId))
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("查看订单", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
-                    onClick = {
-                        viewModel.currentTab = "home"
-                        viewModel.popToRootAndNavigate(Screen.Home)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("返回首页", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -163,20 +139,18 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.primary)
-                .statusBarsPadding()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(viewModel.userName, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("账号：${viewModel.userId}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-            if (!viewModel.canManageIngredients()) {
-                Text("所属单位：${viewModel.currentUnitName}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("默认配送点：${viewModel.defaultDeliveryPoint}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-            }
+        if (viewModel.canManageIngredients()) {
+            PoliceIdentityHeader(
+                title = "系统管理员",
+                line1 = "账号：${viewModel.userName.ifBlank { viewModel.userId }}",
+                line2 = PoliceBrandConfig.logisticsSubtitle
+            )
+        } else {
+            PoliceIdentityHeader(
+                title = viewModel.userName.ifBlank { "子单位采购账号" },
+                line1 = "所属单位：${viewModel.currentUnitName}",
+                line2 = "默认配送点：${viewModel.defaultDeliveryPoint}"
+            )
         }
 
         Column(
@@ -193,6 +167,10 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             ) {
                 Column {
                     if (viewModel.canManageIngredients()) {
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_qr_scan), title = "扫码登录网页版") { viewModel.openWebQrScanner() }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_web_session), title = "网页登录记录") { viewModel.navigateTo(Screen.WebSessions) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Home, title = "子单位管理") { viewModel.navigateTo(Screen.UnitManagement) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
@@ -211,23 +189,25 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "我的订单") { viewModel.currentTab = "orders" }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_qr_scan), title = "扫码登录网页版") { viewModel.openWebQrScanner() }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileResourceMenuItem(icon = painterResource(R.drawable.ic_web_session), title = "网页登录记录") { viewModel.navigateTo(Screen.WebSessions) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
                     }
                 }
             }
 
-            Button(
+            OutlinedButton(
                 onClick = { viewModel.logout() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surface, contentColor = MaterialTheme.colorScheme.error)
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, PoliceColors.StatusError.copy(alpha = 0.35f)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = PoliceColors.StatusError)
             ) {
-                Icon(imageVector = Icons.Default.ExitToApp, contentDescription = "退出登录")
+                Icon(imageVector = Icons.Default.ExitToApp, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("退出登录", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("退出登录", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -245,12 +225,36 @@ fun ProfileMenuItem(icon: ImageVector, title: String, rightText: String = "", on
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.primary)
+            Icon(imageVector = icon, contentDescription = title, tint = PoliceColors.PolicePrimary)
             Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (rightText.isNotEmpty()) {
-                Text(rightText, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+                Text(rightText, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+            }
+            Text(">", fontSize = 14.sp, color = MaterialTheme.colorScheme.outlineVariant, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ProfileResourceMenuItem(icon: Painter, title: String, rightText: String = "", onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(painter = icon, contentDescription = title, tint = PoliceColors.PolicePrimary)
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (rightText.isNotEmpty()) {
+                Text(rightText, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
             }
             Text(">", fontSize = 14.sp, color = MaterialTheme.colorScheme.outlineVariant, fontWeight = FontWeight.Bold)
         }

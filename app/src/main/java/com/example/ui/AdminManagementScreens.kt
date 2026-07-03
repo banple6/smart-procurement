@@ -22,6 +22,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.GovernmentCard
+import com.smartprocurement.internal.ui.designsystem.GovernmentColors
+import com.smartprocurement.internal.ui.designsystem.GovernmentPrimaryButton
+import com.smartprocurement.internal.ui.designsystem.GovernmentStatusLabel
+import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
 
 @Composable
 fun UnitManagementScreen(viewModel: SupplyViewModel) {
@@ -42,7 +47,8 @@ fun UnitManagementScreen(viewModel: SupplyViewModel) {
                 SimpleTextField("单位编码", code) { code = it }
                 SimpleTextField("单位名称", name) { name = it }
                 SimpleTextField("默认配送点", point) { point = it }
-                Button(
+                GovernmentPrimaryButton(
+                    text = "保存",
                     onClick = {
                         viewModel.saveUnit(editingId, code, name, point)
                         editingId = ""
@@ -50,9 +56,8 @@ fun UnitManagementScreen(viewModel: SupplyViewModel) {
                         name = ""
                         point = ""
                     },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("保存") }
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
         items(viewModel.adminUnits, key = { it.id }) { unit ->
@@ -60,12 +65,12 @@ fun UnitManagementScreen(viewModel: SupplyViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(unit.unitName, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("编码：${unit.unitCode}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("配送点：${unit.defaultDeliveryPoint}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("账号数量：${unit.accountCount} · 订单数量：${unit.orderCount}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("最近下单：${unit.lastOrderAt.ifBlank { "暂无" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("编码：${unit.unitCode}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                        Text("配送点：${unit.defaultDeliveryPoint}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                        Text("账号数量：${unit.accountCount} · 订单数量：${unit.orderCount}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                        Text("最近下单：${unit.lastOrderAt.ifBlank { "暂无" }}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                     }
-                    Text(if (unit.active) "启用" else "停用", color = if (unit.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    GovernmentStatusLabel(if (unit.active) "启用" else "停用")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
@@ -120,7 +125,12 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
-                Button(
+                OutlinedButton(
+                    onClick = { password = viewModel.generateInitialPassword(username) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("生成密码") }
+                GovernmentPrimaryButton(
+                    text = "创建账号",
                     onClick = {
                         viewModel.createUnitUser(username, displayName, unitId, password)
                         username = ""
@@ -128,9 +138,8 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
                         unitId = ""
                         password = ""
                     },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("创建账号") }
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
         items(viewModel.adminUsers, key = { it.id }) { user ->
@@ -138,11 +147,11 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(user.displayName, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("账号：${user.username}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("所属单位：${user.unitName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("最近登录：${user.lastLoginAt.ifBlank { "暂无" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("账号：${user.username}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                        Text("所属单位：${user.unitName}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                        Text("最近登录：${user.lastLoginAt.ifBlank { "暂无" }}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                     }
-                    Text(if (user.active) "启用" else "停用", color = if (user.active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    GovernmentStatusLabel(if (user.active) "启用" else "停用")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
@@ -158,6 +167,10 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
                         modifier = Modifier.weight(1f).height(48.dp)
                     ) { Text("重置密码") }
                 }
+                OutlinedButton(
+                    onClick = { viewModel.revokeUserSessions(user.id) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("强制退出") }
                 if (resetPasswordFor == user.id) {
                     OutlinedTextField(
                         value = resetPassword,
@@ -167,6 +180,10 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
+                    OutlinedButton(
+                        onClick = { resetPassword = viewModel.generateInitialPassword(user.username) },
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) { Text("生成密码") }
                     Button(
                         onClick = {
                             viewModel.resetUserPassword(user.id, resetPassword)
@@ -232,19 +249,19 @@ fun LedgerScreen(viewModel: SupplyViewModel) {
                         Text(row.orderNo, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(row.status, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
-                    Text(row.unitName, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("下单时间：${row.createdAt}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("${row.productName} ${row.productSpec}  ${row.quantity} ${row.productUnit}", fontSize = 13.sp)
-                    Text("小计 ${Money.formatCents(row.subtotalCents)} / 订单合计 ${Money.formatCents(row.totalCents)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(row.unitName, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                    Text("下单时间：${row.createdAt}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                    Text("${row.productName} ${row.productSpec}  ${row.quantity} ${row.productUnit}", style = MaterialTheme.typography.bodyMedium)
+                    Text("小计 ${Money.formatCents(row.subtotalCents)} / 订单合计 ${Money.formatCents(row.totalCents)}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                 }
             }
         } else {
             items(productSummaries) { item ->
                 AdminFormCard {
                     Text(item.name, fontWeight = FontWeight.Bold)
-                    Text("规格：${item.spec.ifBlank { "未填写" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("总订购数量：${item.quantity.cleanSummaryQty()} ${item.unit}", fontSize = 13.sp)
-                    Text("订单数：${item.orderCount}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("规格：${item.spec.ifBlank { "未填写" }}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                    Text("总订购数量：${item.quantity.cleanSummaryQty()} ${item.unit}", style = MaterialTheme.typography.bodyMedium)
+                    Text("订单数：${item.orderCount}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
                 }
             }
         }
@@ -269,15 +286,85 @@ fun InventoryRecordsScreen(viewModel: SupplyViewModel) {
         onRefresh = { viewModel.refreshProducts() }
     ) {
         item {
-            Text("库存流水和价格记录已由服务端记录。此页显示当前库存、预占库存和价格。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("库存流水和价格记录已由服务端记录。此页显示当前库存、预占库存和价格。", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
         }
         items(products, key = { it.id }) { product ->
             AdminFormCard {
                 Text(product.name, fontWeight = FontWeight.Bold)
-                Text("价格：${Money.formatYuan(product.price)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("总库存：${product.stockQuantity} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("预占库存：${product.reservedQuantity} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("可用库存：${product.availableQuantity.ifBlank { product.stockQuantity }} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("价格：${Money.formatYuan(product.price)}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("总库存：${product.stockQuantity} ${product.unit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("预占库存：${product.reservedQuantity} ${product.unit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("可用库存：${product.availableQuantity.ifBlank { product.stockQuantity }} ${product.unit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
+    val createDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        uri?.let { viewModel.exportPreparationSummary(it) }
+    }
+    LaunchedEffect(Unit) { viewModel.refreshPreparationSummary() }
+    AdminListScreen(
+        title = "今日备货单",
+        onBack = { viewModel.navigateBack() },
+        onRefresh = { viewModel.refreshPreparationSummary() }
+    ) {
+        item {
+            AdminFormCard {
+                Text("按商品汇总", fontWeight = FontWeight.Bold)
+                Text("用于备货称重和拣货，数量来自真实订单实发量。", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Button(
+                    onClick = { createDocument.launch("今日备货汇总.xlsx") },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("导出 Excel") }
+            }
+        }
+        items(viewModel.preparationSummaryItems) { item ->
+            AdminFormCard {
+                Text(item.productName, fontWeight = FontWeight.Bold)
+                Text("${item.spec} · ${item.unit}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("申领：${item.requestedQuantity} ${item.unit}", style = MaterialTheme.typography.bodyMedium)
+                Text("备货：${item.actualQuantity} ${item.unit}", fontSize = 15.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("单位数：${item.unitCount} · 订单数：${item.orderCount}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+fun DeliverySheetsScreen(viewModel: SupplyViewModel) {
+    val createDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        uri?.let { viewModel.exportDeliverySheets(it) }
+    }
+    LaunchedEffect(Unit) { viewModel.refreshDeliverySheets() }
+    AdminListScreen(
+        title = "单位配送单",
+        onBack = { viewModel.navigateBack() },
+        onRefresh = { viewModel.refreshDeliverySheets() }
+    ) {
+        item {
+            AdminFormCard {
+                Text("按单位查看", fontWeight = FontWeight.Bold)
+                Text("用于发货前核对每个单位的订单和配送点。", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Button(
+                    onClick = { createDocument.launch("单位配送单.xlsx") },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("导出 Excel") }
+            }
+        }
+        items(viewModel.deliverySheetUnits) { unit ->
+            AdminFormCard {
+                Text(unit.unitName, fontWeight = FontWeight.Bold)
+                Text("配送点：${unit.deliveryPoint}", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                Text("订单数：${unit.orderCount} · 明细数：${unit.itemCount}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -287,29 +374,20 @@ fun InventoryRecordsScreen(viewModel: SupplyViewModel) {
 private fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.ArrowBack, contentDescription = "返回")
-                }
-                Text(title, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                IconButton(onClick = onRefresh, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                }
-            }
+            GovernmentTopBar(
+                title = title,
+                onBack = onBack,
+                actionText = "刷新",
+                actionIcon = Icons.Default.Refresh,
+                onAction = onRefresh
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
+                .background(GovernmentColors.PageBackground),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             content = content
@@ -319,12 +397,7 @@ private fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> 
 
 @Composable
 private fun AdminFormCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
-    ) {
+    GovernmentCard(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
     }
 }

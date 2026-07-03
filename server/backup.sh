@@ -17,7 +17,7 @@ mkdir -p "$BACKUP_DIR"
   fi
   sqlite3 "$DATABASE_PATH" ".backup '${BACKUP_DIR}/smart_procurement_${STAMP}.db'"
   tar -C "$(dirname "$UPLOAD_DIR")" -czf "${BACKUP_DIR}/uploads_${STAMP}.tar.gz" "$(basename "$UPLOAD_DIR")"
-  mkdir -p "$PRIVATE_UPLOAD_DIR"
+  mkdir -p "$PRIVATE_UPLOAD_DIR/receipt_issues"
   tar -C "$(dirname "$PRIVATE_UPLOAD_DIR")" -czf "${BACKUP_DIR}/private_uploads_${STAMP}.tar.gz" "$(basename "$PRIVATE_UPLOAD_DIR")"
   find "$BACKUP_DIR" -type f \( -name 'smart_procurement_*.db' -o -name 'uploads_*.tar.gz' -o -name 'private_uploads_*.tar.gz' \) -mtime +14 -delete
   echo "[$(date -Iseconds)] backup finished"

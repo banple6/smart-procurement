@@ -55,6 +55,7 @@ data class AdminDashboard(
     val shipped: Int = 0,
     val todayTotalCents: Long = 0,
     val tightInventory: Int = 0,
+    val openReceiptIssues: Int = 0,
     val recentOrders: List<DashboardOrder> = emptyList(),
     val demandRank: List<DemandRankItem> = emptyList()
 )
@@ -78,7 +79,8 @@ data class RemoteAdminUser(
     val unitName: String,
     val active: Boolean,
     val mustChangePassword: Boolean,
-    val lastLoginAt: String = ""
+    val lastLoginAt: String = "",
+    val initialPassword: String = ""
 )
 
 data class LedgerRow(
@@ -93,6 +95,87 @@ data class LedgerRow(
     val quantity: String,
     val subtotalCents: Long,
     val totalCents: Long
+)
+
+data class InventoryAdjustRemoteResult(
+    val product: ProductEntity,
+    val beforeStockQuantity: String,
+    val afterStockQuantity: String,
+    val reservedQuantity: String,
+    val availableQuantity: String
+)
+
+data class CutoffInfo(
+    val businessDate: String,
+    val enabled: Boolean,
+    val cutoffTime: String,
+    val isClosed: Boolean,
+    val remainingSeconds: Long
+)
+
+data class ReorderPreviewItem(
+    val productId: String,
+    val productName: String,
+    val spec: String,
+    val unit: String,
+    val previousQuantity: String,
+    val previousPriceCents: Long,
+    val currentPriceCents: Long,
+    val availableQuantity: String,
+    val available: Boolean,
+    val message: String
+)
+
+data class PreparationSummaryItem(
+    val productName: String,
+    val spec: String,
+    val unit: String,
+    val requestedQuantity: String,
+    val actualQuantity: String,
+    val unitCount: Int,
+    val orderCount: Int
+)
+
+data class DeliverySheetUnit(
+    val unitName: String,
+    val deliveryPoint: String,
+    val orderCount: Int,
+    val itemCount: Int
+)
+
+data class NotificationBadges(
+    val pendingOrders: Int = 0,
+    val openReceiptIssues: Int = 0,
+    val shippedUnconfirmed: Int = 0,
+    val adjustedOrders: Int = 0,
+    val resolvedReceiptIssues: Int = 0
+)
+
+data class WebLoginBrowserInfo(
+    val name: String,
+    val os: String,
+    val ip: String,
+    val userAgent: String
+)
+
+data class WebLoginScanResult(
+    val challengeId: String,
+    val status: String,
+    val browser: WebLoginBrowserInfo,
+    val deviceName: String,
+    val appVersion: String
+)
+
+data class WebSessionRecord(
+    val id: String,
+    val browserName: String,
+    val browserOs: String,
+    val browserIp: String,
+    val deviceName: String,
+    val appVersion: String,
+    val lastSeenAt: String,
+    val absoluteExpiresAt: String,
+    val active: Boolean
 )
 
 class ProcurementApiClient(
@@ -142,14 +225,12 @@ class ProcurementApiClient(
     }
 
     fun saveProduct(token: String, form: ProductEntity): ProductEntity {
+        val isCreate = form.id.isBlank()
         val json = JSONObject()
-            .put("product_code", form.code.ifBlank { "P${System.currentTimeMillis()}" })
             .put("name", form.name)
             .put("category", form.category)
             .put("spec", form.spec)
             .put("unit", form.unit)
-            .put("price_cents", Money.yuanDoubleToCents(form.price))
-            .put("stock_quantity", form.stockQuantity.ifBlank { "0" })
             .put("min_order_quantity", form.minQty.toCleanString())
             .put("quantity_step", form.stepQty.toCleanString())
             .put("warning_quantity", form.warningQuantity.ifBlank { "0" })
@@ -158,10 +239,18 @@ class ProcurementApiClient(
             .put("shelf_life", form.shelfLife)
             .put("storage_method", form.storageMethod)
             .put("description", form.remark)
-            .put("supply_status", form.status.toApiStatus())
-            .put("active", form.isAvailable)
-        val path = if (form.id.isBlank()) "admin/products" else "admin/products/${form.id}"
-        val method = if (form.id.isBlank()) "POST" else "PUT"
+        if (form.code.isNotBlank()) json.put("product_code", form.code)
+        if (isCreate) {
+            json
+                .put("price_cents", Money.yuanDoubleToCents(form.price))
+                .put("stock_quantity", form.stockQuantity.ifBlank { "0" })
+                .put("supply_status", form.status.toApiStatus())
+                .put("active", form.isAvailable)
+        } else {
+            json.put("expected_updated_at", form.serverUpdatedAt)
+        }
+        val path = if (isCreate) "admin/products" else "admin/products/${form.id}"
+        val method = if (isCreate) "POST" else "PUT"
         return parseProduct(request(path, token = token, method = method, body = json.toString().toRequestBody(JSON)))
     }
 
@@ -188,6 +277,34 @@ class ProcurementApiClient(
         return parseProduct(request("admin/products/$productId/status", token = token, method = "PATCH", body = body))
     }
 
+    fun updateProductPrice(token: String, product: ProductEntity, priceCents: Long, reason: String): ProductEntity {
+        val body = JSONObject()
+            .put("price_cents", priceCents)
+            .put("reason", reason)
+            .put("expected_updated_at", product.serverUpdatedAt)
+            .toString()
+            .toRequestBody(JSON)
+        return parseProduct(request("admin/products/${product.id}/price", token = token, method = "PATCH", body = body))
+    }
+
+    fun adjustProductInventory(token: String, product: ProductEntity, mode: String, quantity: String, reason: String): InventoryAdjustRemoteResult {
+        val body = JSONObject()
+            .put("mode", mode)
+            .put("quantity", quantity)
+            .put("reason", reason)
+            .put("expected_updated_at", product.serverUpdatedAt)
+            .toString()
+            .toRequestBody(JSON)
+        val json = request("admin/products/${product.id}/inventory-adjust", token = token, method = "POST", body = body)
+        return InventoryAdjustRemoteResult(
+            product = parseProduct(json.getJSONObject("product")),
+            beforeStockQuantity = json.optString("before_stock_quantity"),
+            afterStockQuantity = json.optString("after_stock_quantity"),
+            reservedQuantity = json.optString("reserved_quantity"),
+            availableQuantity = json.optString("available_quantity")
+        )
+    }
+
     fun deleteProduct(token: String, productId: String) {
         request("admin/products/$productId", token = token, method = "DELETE")
     }
@@ -210,6 +327,171 @@ class ProcurementApiClient(
         return request("orders", token = token, method = "POST", body = body)
     }
 
+    fun cutoff(token: String): CutoffInfo {
+        val json = request("procurement/cutoff", token = token)
+        return CutoffInfo(
+            businessDate = json.optString("business_date"),
+            enabled = json.optBooleanCompat("enabled"),
+            cutoffTime = json.optString("cutoff_time"),
+            isClosed = json.optBooleanCompat("is_closed"),
+            remainingSeconds = json.optLong("remaining_seconds", 0)
+        )
+    }
+
+    fun setCutoff(token: String, enabled: Boolean, cutoffTime: String): CutoffInfo {
+        val body = JSONObject().put("enabled", enabled).put("cutoff_time", cutoffTime).toString().toRequestBody(JSON)
+        val json = request("admin/procurement/cutoff", token = token, method = "PATCH", body = body)
+        return CutoffInfo(
+            businessDate = json.optString("business_date"),
+            enabled = json.optBooleanCompat("enabled"),
+            cutoffTime = json.optString("cutoff_time"),
+            isClosed = json.optBooleanCompat("is_closed"),
+            remainingSeconds = json.optLong("remaining_seconds", 0)
+        )
+    }
+
+    fun reorderPreview(token: String, orderId: String): List<ReorderPreviewItem> {
+        val array = request("orders/$orderId/reorder-preview", token = token).getJSONArray("items")
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            ReorderPreviewItem(
+                productId = item.optString("product_id"),
+                productName = item.optString("product_name"),
+                spec = item.optString("spec"),
+                unit = item.optString("unit"),
+                previousQuantity = item.optString("previous_quantity"),
+                previousPriceCents = item.optLong("previous_price_cents", 0),
+                currentPriceCents = item.optLong("current_price_cents", 0),
+                availableQuantity = item.optString("available_quantity"),
+                available = item.optBooleanCompat("available"),
+                message = item.optString("message")
+            )
+        }
+    }
+
+    fun preparationSummary(token: String): List<PreparationSummaryItem> {
+        val array = request("admin/preparation-summary", token = token).getJSONArray("items")
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            PreparationSummaryItem(
+                productName = item.optString("product_name"),
+                spec = item.optString("spec"),
+                unit = item.optString("unit"),
+                requestedQuantity = item.optString("requested_quantity"),
+                actualQuantity = item.optString("actual_quantity"),
+                unitCount = item.optInt("unit_count", 0),
+                orderCount = item.optInt("order_count", 0)
+            )
+        }
+    }
+
+    fun deliverySheets(token: String): List<DeliverySheetUnit> {
+        val units = request("admin/delivery-sheets", token = token).getJSONArray("units")
+        return List(units.length()) { index ->
+            val unit = units.getJSONObject(index)
+            val orders = unit.optJSONArray("orders")
+            var itemCount = 0
+            for (orderIndex in 0 until (orders?.length() ?: 0)) {
+                itemCount += orders!!.getJSONObject(orderIndex).optJSONArray("items")?.length() ?: 0
+            }
+            DeliverySheetUnit(
+                unitName = unit.optString("unit_name"),
+                deliveryPoint = unit.optString("delivery_point"),
+                orderCount = orders?.length() ?: 0,
+                itemCount = itemCount
+            )
+        }
+    }
+
+    fun exportPreparationSummary(token: String): ByteArray = executeBytes("admin/preparation-summary/export.xlsx", token)
+
+    fun exportDeliverySheets(token: String): ByteArray = executeBytes("admin/delivery-sheets/export.xlsx", token)
+
+    fun adjustOrderItemActualQuantity(token: String, orderId: String, itemId: String, actualQuantity: String, reason: String, expectedUpdatedAt: String): RemoteOrderBundle {
+        val body = JSONObject()
+            .put("actual_quantity", actualQuantity)
+            .put("reason", reason)
+            .put("expected_updated_at", expectedUpdatedAt)
+            .toString()
+            .toRequestBody(JSON)
+        return RemoteOrderMapper.mapOrder(request("admin/orders/$orderId/items/$itemId/actual-quantity", token = token, method = "PATCH", body = body))
+    }
+
+    fun submitReceiptIssue(token: String, orderId: String, issueType: String, description: String, photoFiles: List<File>): JSONObject {
+        val imageType = "image/jpeg".toMediaType()
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("issue_type", issueType)
+            .addFormDataPart("description", description)
+            .apply {
+                photoFiles.forEachIndexed { index, file ->
+                    addFormDataPart("photos", "receipt_issue_${index + 1}.jpg", file.asRequestBody(imageType))
+                }
+            }
+            .build()
+        return request("orders/$orderId/receipt-issues", token = token, method = "POST", body = body)
+    }
+
+    fun resolveReceiptIssue(token: String, issueId: String, note: String): JSONObject {
+        val body = JSONObject().put("resolution_note", note).toString().toRequestBody(JSON)
+        return request("admin/receipt-issues/$issueId/resolve", token = token, method = "POST", body = body)
+    }
+
+    fun notificationBadges(token: String): NotificationBadges {
+        val json = request("notifications/badges", token = token)
+        return NotificationBadges(
+            pendingOrders = json.optInt("pending_orders", 0),
+            openReceiptIssues = json.optInt("open_receipt_issues", 0),
+            shippedUnconfirmed = json.optInt("shipped_unconfirmed", 0),
+            adjustedOrders = json.optInt("adjusted_orders", 0),
+            resolvedReceiptIssues = json.optInt("resolved_receipt_issues", 0)
+        )
+    }
+
+    fun scanWebLoginQr(token: String, qrToken: String, deviceName: String, appVersion: String): WebLoginScanResult {
+        val body = JSONObject()
+            .put("qr_token", qrToken)
+            .put("device_name", deviceName)
+            .put("app_version", appVersion)
+            .toString()
+            .toRequestBody(JSON)
+        return parseWebLoginScanResult(request("mobile/web-auth/qr/scan", token = token, method = "POST", body = body))
+    }
+
+    fun approveWebLoginQr(token: String, challengeId: String): String {
+        return request("mobile/web-auth/qr/$challengeId/approve", token = token, method = "POST").optString("status")
+    }
+
+    fun rejectWebLoginQr(token: String, challengeId: String): String {
+        return request("mobile/web-auth/qr/$challengeId/reject", token = token, method = "POST").optString("status")
+    }
+
+    fun webSessions(token: String): List<WebSessionRecord> {
+        val array = request("mobile/web-sessions", token = token).optJSONArray("items") ?: JSONArray()
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            WebSessionRecord(
+                id = item.optString("id"),
+                browserName = item.optString("browser_name"),
+                browserOs = item.optString("browser_os"),
+                browserIp = item.optString("browser_ip"),
+                deviceName = item.optString("device_name"),
+                appVersion = item.optString("app_version"),
+                lastSeenAt = item.optString("last_seen_at").replace('T', ' ').take(16),
+                absoluteExpiresAt = item.optString("absolute_expires_at").replace('T', ' ').take(16),
+                active = item.optBooleanCompat("active")
+            )
+        }
+    }
+
+    fun revokeWebSession(token: String, sessionId: String) {
+        request("mobile/web-sessions/$sessionId", token = token, method = "DELETE")
+    }
+
+    fun revokeAllWebSessions(token: String) {
+        request("mobile/web-sessions/revoke-all", token = token, method = "POST")
+    }
+
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> {
         val path = if (isAdmin) "admin/orders?include_items=true" else "orders?include_items=true"
         val json = request(path, token = token)
@@ -230,6 +512,7 @@ class ProcurementApiClient(
             shipped = json.optInt("shipped", 0),
             todayTotalCents = json.optLong("today_total_cents", 0),
             tightInventory = json.optInt("tight_inventory", 0),
+            openReceiptIssues = json.optInt("open_receipt_issues", 0),
             recentOrders = List(recent?.length() ?: 0) { index ->
                 val item = recent!!.getJSONObject(index)
                 DashboardOrder(
@@ -318,7 +601,16 @@ class ProcurementApiClient(
             .toString()
             .toRequestBody(JSON)
         val json = request("admin/users", token = token, method = "POST", body = body)
-        return RemoteAdminUser(json.getString("id"), json.optString("username"), json.optString("display_name"), json.optString("unit_id"), "", json.optBooleanCompat("active"), json.optBooleanCompat("must_change_password"))
+        return RemoteAdminUser(
+            id = json.getString("id"),
+            username = json.optString("username"),
+            displayName = json.optString("display_name"),
+            unitId = json.optString("unit_id"),
+            unitName = json.optString("unit_name"),
+            active = json.optBooleanCompat("active"),
+            mustChangePassword = json.optBooleanCompat("must_change_password"),
+            initialPassword = json.optString("initial_password")
+        )
     }
 
     fun setUserStatus(token: String, id: String, active: Boolean): RemoteAdminUser {
@@ -327,13 +619,17 @@ class ProcurementApiClient(
         return RemoteAdminUser(json.getString("id"), json.optString("username"), json.optString("display_name"), json.optString("unit_id"), json.optString("unit_name"), json.optBooleanCompat("active"), json.optBooleanCompat("must_change_password"))
     }
 
-    fun resetPassword(token: String, id: String, newPassword: String) {
+    fun resetPassword(token: String, id: String, newPassword: String): String {
         val body = JSONObject()
             .put("new_password", newPassword)
             .put("must_change_password", true)
             .toString()
             .toRequestBody(JSON)
-        request("admin/users/$id/reset-password", token = token, method = "POST", body = body)
+        return request("admin/users/$id/reset-password", token = token, method = "POST", body = body).optString("initial_password")
+    }
+
+    fun revokeUserSessions(token: String, id: String) {
+        request("admin/users/$id/revoke-sessions", token = token, method = "POST")
     }
 
     fun ledger(token: String): List<LedgerRow> {
@@ -458,6 +754,22 @@ class ProcurementApiClient(
         mustChangePassword = json.optBoolean("must_change_password", false)
     )
 
+    private fun parseWebLoginScanResult(json: JSONObject): WebLoginScanResult {
+        val browser = json.optJSONObject("browser") ?: JSONObject()
+        return WebLoginScanResult(
+            challengeId = json.optString("challenge_id"),
+            status = json.optString("status"),
+            browser = WebLoginBrowserInfo(
+                name = browser.optString("name"),
+                os = browser.optString("os"),
+                ip = browser.optString("ip"),
+                userAgent = browser.optString("user_agent")
+            ),
+            deviceName = json.optString("device_name"),
+            appVersion = json.optString("app_version")
+        )
+    }
+
     private fun parseProduct(json: JSONObject): ProductEntity {
         val status = json.optString("supply_status", "normal")
         val active = json.optBoolean("active", true)
@@ -488,6 +800,7 @@ class ProcurementApiClient(
             remark = json.optString("description"),
             isDeleted = json.optBoolean("is_deleted", false),
             createdBy = json.optString("created_by"),
+            serverUpdatedAt = json.optString("updated_at"),
         )
     }
 
@@ -533,6 +846,7 @@ class ProcurementApiClient(
 
     private fun Int.toChineseError(): String = when (this) {
         401 -> "登录已过期，请重新登录"
+        423 -> "尝试次数过多，请稍后再试"
         403 -> "账号已停用，请联系管理员"
         409 -> "订单状态已变化，请刷新后重试"
         else -> "网络连接失败，请稍后重试"
