@@ -19,6 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
 
 @Composable
 fun AdminDashboardScreen(viewModel: SupplyViewModel) {
@@ -30,23 +31,7 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("工作台", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    Text("今日采购处理情况", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                IconButton(onClick = { viewModel.refreshDashboard() }) {
-                    Icon(Icons.Default.Refresh, contentDescription = "刷新")
-                }
-            }
+            PoliceBrandHeader(title = "工作台", subtitle = "系统管理员 · ${viewModel.userName}")
         }
     ) { padding ->
         LazyColumn(

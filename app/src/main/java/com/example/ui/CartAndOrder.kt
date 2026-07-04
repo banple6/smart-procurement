@@ -32,6 +32,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.smartprocurement.internal.data.*
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
 import com.smartprocurement.internal.ui.theme.*
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
@@ -53,45 +54,10 @@ fun CartScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(imageVector = Icons.Default.Menu, contentDescription = "cart", tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "采购清单",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    if (cartList.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearCart() }) {
-                            Text("清空", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
+            PoliceBrandHeader(
+                title = "采购清单",
+                subtitle = "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}",
+            )
         }
     ) { innerPadding ->
         Column(
@@ -323,42 +289,8 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         topBar = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .height(56.dp)
-                    .background(MaterialTheme.colorScheme.background)
-                    .drawBehind {
-                        drawLine(
-                            color = Color(0xFFCAC4D0),
-                            start = Offset(0f, size.height),
-                            end = Offset(size.width, size.height),
-                            strokeWidth = 1f
-                        )
-                    }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(imageVector = Icons.Default.Menu, contentDescription = "orders", tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "订单记录",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = { viewModel.refreshOrders() }) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "刷新订单", tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-            }
+            val subtitle = if (isAdmin) "系统管理员 · ${viewModel.userName}" else "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}"
+            PoliceBrandHeader(title = "订单记录", subtitle = subtitle)
         }
     ) { innerPadding ->
         Box(

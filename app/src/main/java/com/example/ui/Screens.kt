@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.PoliceIdentityHeader
 
 @Composable
 fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
@@ -163,20 +164,18 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.primary)
-                .statusBarsPadding()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(viewModel.userName, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("账号：${viewModel.userId}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-            if (!viewModel.canManageIngredients()) {
-                Text("所属单位：${viewModel.currentUnitName}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("默认配送点：${viewModel.defaultDeliveryPoint}", fontSize = 13.sp, color = Color.White.copy(alpha = 0.85f))
-            }
+        if (viewModel.canManageIngredients()) {
+            PoliceIdentityHeader(
+                title = "系统管理员",
+                line1 = "账号：${viewModel.userId}",
+                line2 = "XX公安局后勤保障",
+            )
+        } else {
+            PoliceIdentityHeader(
+                title = viewModel.userName.ifBlank { "子单位采购账号" },
+                line1 = "所属单位：${viewModel.currentUnitName}",
+                line2 = "默认配送点：${viewModel.defaultDeliveryPoint}",
+            )
         }
 
         Column(

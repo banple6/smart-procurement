@@ -2,15 +2,15 @@ package com.smartprocurement.internal.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val LogiPrimary = Color(0xFF24567A)
-val LogiSecondary = Color(0xFF2F8F68)
+val LogiPrimary = Color(0xFF123F82)
+val LogiSecondary = Color(0xFF175AA6)
 val LogiTertiary = Color(0xFFE69532)
 
-val LogiBackground = Color(0xFFF5F7F9)
+val LogiBackground = Color(0xFFF3F5F8)
 val LogiSurface = Color(0xFFFFFFFF)
-val LogiSurfaceVariant = Color(0xFFE8EEF2)
-val LogiSurfaceContainerLow = Color(0xFFF5F7F9)
-val LogiSurfaceContainerHigh = Color(0xFFE8EEF2)
+val LogiSurfaceVariant = Color(0xFFE8EFFA)
+val LogiSurfaceContainerLow = Color(0xFFF3F6FB)
+val LogiSurfaceContainerHigh = Color(0xFFE8EFFA)
 val LogiSurfaceContainerHighest = Color(0xFFD7E4EA)
 
 val LogiOnPrimary = Color(0xFFFFFFFF)
@@ -23,7 +23,7 @@ val LogiOutlineVariant = Color(0xFFD7E0E7)
 val LogiError = Color(0xFFC93C37)
 val LogiErrorContainer = Color(0xFFFFE5E2)
 val LogiOnErrorContainer = Color(0xFF5B1411)
-val LogiSecondaryContainer = Color(0xFFDDF1E9)
-val LogiOnSecondaryContainer = Color(0xFF123A2B)
-val LogiPrimaryContainer = Color(0xFFDDEAF1)
-val LogiOnPrimaryContainer = Color(0xFF153448)
+val LogiSecondaryContainer = Color(0xFFE8EFFA)
+val LogiOnSecondaryContainer = Color(0xFF0B2864)
+val LogiPrimaryContainer = Color(0xFFE8EFFA)
+val LogiOnPrimaryContainer = Color(0xFF0B2864)

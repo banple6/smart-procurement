@@ -39,6 +39,8 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -70,7 +72,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             if (viewModel.canManageIngredients()) {
                 FloatingActionButton(
                     onClick = { viewModel.navigateTo(Screen.AddProduct) },
-                    containerColor = MaterialTheme.colorScheme.secondary,
+                    containerColor = PoliceColors.Primary,
                     contentColor = Color.White
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "添加食材")
@@ -78,38 +80,13 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             }
         },
         topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .background(MaterialTheme.colorScheme.background)
-                    .padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(if (viewModel.canManageIngredients()) "食材管理" else "食材申领", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                        val subtitle = if (viewModel.canManageIngredients()) {
-                            "${viewModel.userName} · 系统管理员"
-                        } else {
-                            "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}"
-                        }
-                        Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Text(
-                        text = roleLabel(viewModel.userRole),
-                        modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+            val title = if (viewModel.canManageIngredients()) "食材管理" else "食材申领"
+            val subtitle = if (viewModel.canManageIngredients()) {
+                "系统管理员 · ${viewModel.userName}"
+            } else {
+                "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}"
             }
+            PoliceBrandHeader(title = title, subtitle = subtitle)
         }
     ) { padding ->
         LazyColumn(
@@ -775,8 +752,3 @@ private fun ProductEntity.displayStatus(): String = when {
 
 private fun Double.clean(): String = if (this % 1.0 == 0.0) toInt().toString() else String.format(Locale.getDefault(), "%.1f", this)
 private fun Long.toTimeText(): String = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(this))
-private fun roleLabel(role: String): String = when (role) {
-    "admin" -> "系统管理员"
-    "unit_user" -> "子单位"
-    else -> "未知角色"
-}

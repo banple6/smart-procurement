@@ -26,6 +26,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
+import com.smartprocurement.internal.ui.designsystem.PoliceBadgeImage
+import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import kotlinx.coroutines.delay
 
 fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
@@ -128,45 +131,40 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
 @Composable
 fun SplashScreen(onFinish: () -> Unit) {
     LaunchedEffect(Unit) {
-        delay(1500)
+        delay(1000)
         onFinish()
     }
 
+    PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.primary),
+            .background(PoliceColors.Navy),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .background(Color.White.copy(alpha = 0.1f), CircleShape)
-                    .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = "splash_logo",
-                    tint = Color.White,
-                    modifier = Modifier.size(36.dp)
-                )
-            }
+            PoliceBadgeImage(size = 88.dp, contentDescription = "人民警察警徽")
             Spacer(modifier = Modifier.height(20.dp))
             Text(
-                text = "生鲜后勤",
+                text = "景荣鲜配",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                letterSpacing = 2.sp
+                letterSpacing = 0.sp
             )
             Text(
-                text = "内部食材申领配送终端",
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.7f),
+                text = "XX公安局后勤食材采购配送系统",
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.82f),
                 modifier = Modifier.padding(top = 4.dp),
-                letterSpacing = 1.sp
+                letterSpacing = 0.sp
+            )
+            Text(
+                text = "公安内部使用",
+                fontSize = 13.sp,
+                color = Color.White.copy(alpha = 0.68f),
+                modifier = Modifier.padding(top = 4.dp),
+                letterSpacing = 0.sp
             )
         }
     }
@@ -185,11 +183,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                containerColor = Color.White,
                 tonalElevation = 8.dp,
                 modifier = Modifier.drawBehind {
                     drawLine(
-                        color = Color(0xFFCAC4D0),
+                        color = PoliceColors.Divider,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f
@@ -202,11 +200,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else Icons.Default.Home, contentDescription = "home") },
                     label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedIconColor = PoliceColors.Primary,
+                        selectedTextColor = PoliceColors.Primary,
                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        indicatorColor = PoliceColors.Light
                     )
                 )
 
@@ -243,11 +241,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     },
                     label = { Text(if (isAdmin) "食材" else "清单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedIconColor = PoliceColors.Primary,
+                        selectedTextColor = PoliceColors.Primary,
                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        indicatorColor = PoliceColors.Light
                     )
                 )
 
@@ -257,11 +255,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = Icons.Default.Menu, contentDescription = "orders") },
                     label = { Text("订单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedIconColor = PoliceColors.Primary,
+                        selectedTextColor = PoliceColors.Primary,
                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        indicatorColor = PoliceColors.Light
                     )
                 )
 
@@ -271,11 +269,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
                     label = { Text("我的", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        selectedIconColor = PoliceColors.Primary,
+                        selectedTextColor = PoliceColors.Primary,
                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = MaterialTheme.colorScheme.secondaryContainer
+                        indicatorColor = PoliceColors.Light
                     )
                 )
             }
