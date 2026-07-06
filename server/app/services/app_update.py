@@ -231,7 +231,7 @@ def parse_apk_metadata(path: Path) -> dict:
         badging = subprocess.run([aapt, "dump", "badging", str(path)], check=False, capture_output=True, text=True)
         if badging.returncode != 0:
             raise HTTPException(status_code=400, detail="APK 无法解析")
-        return {**parse_aapt_output(badging.stdout), "signer_sha256": signer}
+        return {**parse_aapt_output(badging.stdout), "signer_sha256": signer.lower()}
 
     allow_test_metadata = env_name() in {"test", "development", "staging"} or os.getenv("APP_UPDATE_ALLOW_TEST_APK_METADATA", "").lower() == "true"
     if allow_test_metadata:
@@ -240,7 +240,7 @@ def parse_apk_metadata(path: Path) -> dict:
                 metadata = json.loads(archive.read("META-INF/JRXP-APK-METADATA.json").decode("utf-8"))
         except Exception as exc:
             raise HTTPException(status_code=400, detail="APK 无法解析") from exc
-        signer = str(metadata.get("signer_sha256", "")).replace(" ", "").upper()
+        signer = str(metadata.get("signer_sha256", "")).replace(" ", "")
         if not HEX_SHA256.fullmatch(signer):
             raise HTTPException(status_code=400, detail="APK 签名证书无法识别")
         return {
@@ -248,7 +248,7 @@ def parse_apk_metadata(path: Path) -> dict:
             "version_code": int(metadata.get("version_code", 0)),
             "version_name": str(metadata.get("version_name", "")),
             "channel": str(metadata.get("channel", "")),
-            "signer_sha256": signer,
+            "signer_sha256": signer.lower(),
             "min_sdk": int(metadata.get("min_sdk", 0)),
         }
 

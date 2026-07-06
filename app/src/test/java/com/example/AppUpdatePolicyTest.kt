@@ -34,8 +34,8 @@ class AppUpdatePolicyTest {
             versionCode = 8,
             versionName = "1.2.0",
             channel = "production",
-            apkSha256 = "abc123",
-            signerSha256 = "signer",
+            apkSha256 = "ABC123",
+            signerSha256 = "ABCDEF",
             sizeBytes = 512
         )
         val validApk = DownloadedApkInfo(
@@ -43,7 +43,7 @@ class AppUpdatePolicyTest {
             versionCode = 8,
             versionName = "1.2.0",
             sha256 = "abc123",
-            signerSha256 = "signer",
+            signerSha256 = "abcdef",
             sizeBytes = 512,
             minSdk = 24
         )

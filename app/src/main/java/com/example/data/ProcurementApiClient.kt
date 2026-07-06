@@ -868,9 +868,9 @@ class ProcurementApiClient(
         )
     }
 
-    fun downloadAppRelease(token: String, release: AppUpdateRelease): ByteArray {
+    fun downloadAppRelease(token: String, release: AppUpdateRelease, onProgress: (Int) -> Unit = {}): ByteArray {
         val ticket = release.downloadTicket
-        return executeBytes("app-update/releases/${release.releaseId}/download?download_ticket=$ticket", token)
+        return executeBytes("app-update/releases/${release.releaseId}/download?download_ticket=$ticket", token, onProgress)
     }
 
     fun orderDetail(token: String, orderId: String, isAdmin: Boolean): RemoteOrderBundle {
@@ -949,15 +949,32 @@ class ProcurementApiClient(
         }
     }
 
-    private fun executeBytes(path: String, token: String = ""): ByteArray {
+    private fun executeBytes(path: String, token: String = "", onProgress: (Int) -> Unit = {}): ByteArray {
         val builder = Request.Builder().url(baseUrl.trimEnd('/') + "/" + path.trimStart('/'))
         if (token.isNotBlank()) builder.header("Authorization", "Bearer $token")
         client.newCall(builder.get().build()).execute().use { response ->
-            val responseBody = response.body?.bytes() ?: ByteArray(0)
             if (!response.isSuccessful) {
                 throw IllegalStateException(response.code.toChineseError())
             }
-            return responseBody
+            val body = response.body ?: return ByteArray(0)
+            val total = body.contentLength()
+            if (total <= 0) {
+                onProgress(15)
+                return body.bytes()
+            }
+            val out = java.io.ByteArrayOutputStream()
+            body.byteStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var readTotal = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    out.write(buffer, 0, read)
+                    readTotal += read
+                    onProgress(((readTotal * 60 / total).toInt()).coerceIn(1, 60))
+                }
+            }
+            return out.toByteArray()
         }
     }
 

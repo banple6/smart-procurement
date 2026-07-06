@@ -705,18 +705,24 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         val release = appUpdateCheckResult.release ?: return
         if (authToken.isBlank() || isDownloadingAppUpdate) return
         isDownloadingAppUpdate = true
-        appUpdateDownloadProgress = 0
+        appUpdateDownloadProgress = 5
         viewModelScope.launch {
             val result = runCatching {
                 val file = appUpdateInstaller.targetFile(release)
-                val bytes = withContext(Dispatchers.IO) { apiClient.downloadAppRelease(authToken, release) }
-                appUpdateDownloadProgress = 60
+                val bytes = withContext(Dispatchers.IO) {
+                    apiClient.downloadAppRelease(authToken, release) { progress ->
+                        appUpdateDownloadProgress = progress.coerceIn(1, 60)
+                    }
+                }
+                appUpdateDownloadProgress = 70
                 withContext(Dispatchers.IO) {
                     file.parentFile?.mkdirs()
                     file.writeBytes(bytes)
+                    appUpdateDownloadProgress = 80
                     val apk = appUpdateInstaller.inspect(file)
                     val verify = AppUpdateVerifier.verify(apk, release, BuildConfig.VERSION_CODE, android.os.Build.VERSION.SDK_INT)
                     if (!verify.isValid) throw IllegalStateException(AppUpdatePolicy.userFacingError(verify.failureCode))
+                    appUpdateDownloadProgress = 90
                     appUpdateInstaller.openSystemInstaller(file)
                 }
                 appUpdateDownloadProgress = 100

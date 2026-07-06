@@ -1,7 +1,9 @@
 import os
 import sqlite3
 import base64
+import json
 import secrets
+import zipfile
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -186,6 +188,26 @@ def sample_image_bytes(size=(32, 24), color=(180, 40, 30)) -> bytes:
     return out.getvalue()
 
 
+def sample_apk_bytes(version_code: int = 10, signer: str = "ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890") -> BytesIO:
+    out = BytesIO()
+    with zipfile.ZipFile(out, "w") as archive:
+        archive.writestr(
+            "META-INF/JRXP-APK-METADATA.json",
+            json.dumps(
+                {
+                    "package_name": "com.smartprocurement.internal",
+                    "version_code": version_code,
+                    "version_name": f"1.1-test{version_code}",
+                    "channel": "staging",
+                    "signer_sha256": signer,
+                    "min_sdk": 24,
+                }
+            ),
+        )
+    out.seek(0)
+    return out
+
+
 def advance_to_preparing(client, admin_headers, order_id):
     accepted = client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "accepted"})
     assert accepted.status_code == 200, accepted.text
@@ -300,6 +322,52 @@ def test_role_permissions_and_unit_order_isolation(tmp_path):
     assert order.json()["total_cents"] == 900
     assert client.get("/api/v1/orders", headers=unit_headers).json()["total"] == 1
     assert client.get("/api/v1/admin/orders", headers=admin_headers).json()["total"] == 1
+
+
+def test_unit_web_pages_recover_missing_root_csrf_cookie(tmp_path):
+    client = make_client(tmp_path)
+    _, _, unit_id, product_id = create_unit_user_product_order(client)
+    from app.database import connect, one
+
+    with connect() as conn:
+        user = one(conn, "SELECT id FROM users WHERE username = ?", ("unit001",))
+    set_web_session(client, user["id"], role="unit_user", unit_id=unit_id)
+    client.cookies.delete("csrf_token")
+
+    page = client.get("/unit/products")
+    assert page.status_code == 200, page.text
+    csrf = page.cookies.get("csrf_token")
+    assert csrf
+
+    added = client.post(
+        "/unit/cart/items",
+        headers={"X-CSRF-Token": csrf},
+        json={"product_id": product_id, "quantity": "1"},
+    )
+    assert added.status_code == 200, added.text
+    assert added.json()["item_count"] == 1
+
+
+def test_app_release_stores_signer_digest_lowercase_for_old_clients(tmp_path):
+    client = make_client(tmp_path)
+    from fastapi import UploadFile
+    from app.database import connect, one
+    from app.services import app_update
+
+    with connect() as conn:
+        admin = one(conn, "SELECT id, role FROM users WHERE username = ?", ("root_admin",))
+    release = app_update.create_release(
+        admin=admin,
+        apk=UploadFile(file=sample_apk_bytes(), filename="app-test.apk"),
+        channel="staging",
+        package_name="com.smartprocurement.internal",
+        update_type="recommended",
+        title="测试版本",
+        release_notes="签名大小写兼容",
+        minimum_supported_version_code=0,
+        rollout_percent=100,
+    )
+    assert release["signer_sha256"] == "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 
 
 def test_inventory_reservation_price_snapshot_and_status_flow(tmp_path):

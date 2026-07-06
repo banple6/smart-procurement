@@ -60,6 +60,24 @@
     }
     return response.json();
   }
+  async function action(button, task, busyText = "提交中") {
+    const oldText = button?.textContent || "";
+    if (button) {
+      button.disabled = true;
+      button.textContent = busyText;
+    }
+    try {
+      return await task();
+    } catch (error) {
+      toast(error.message || "操作失败，请稍后重试");
+      return null;
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = oldText;
+      }
+    }
+  }
   function activateNav() {
     const route = window.location.pathname;
     document.querySelectorAll(".unit-nav a").forEach((item) => {
@@ -95,9 +113,11 @@
     `).join("") || '<div class="row-sub">暂无可申领食材</div>';
     document.querySelectorAll("[data-add]").forEach((button) => {
       button.addEventListener("click", async () => {
-        const quantity = document.querySelector(`[data-qty="${button.dataset.add}"]`).value;
-        await api("/unit/cart/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: button.dataset.add, quantity }) });
-        toast("已加入清单");
+        await action(button, async () => {
+          const quantity = document.querySelector(`[data-qty="${button.dataset.add}"]`).value;
+          await api("/unit/cart/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_id: button.dataset.add, quantity }) });
+          toast("已加入清单");
+        }, "加入中");
       });
     });
   }
@@ -113,15 +133,19 @@
       </div>
     `).join("") || '<div class="row-sub">清单为空</div>';
     document.querySelectorAll("[data-cart-update]").forEach((button) => button.addEventListener("click", async () => {
-      const quantity = document.querySelector(`[data-cart-qty="${button.dataset.cartUpdate}"]`).value;
-      await api(`/unit/cart/items/${button.dataset.cartUpdate}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quantity }) });
-      toast("数量已保存");
-      loadCart();
+      await action(button, async () => {
+        const quantity = document.querySelector(`[data-cart-qty="${button.dataset.cartUpdate}"]`).value;
+        await api(`/unit/cart/items/${button.dataset.cartUpdate}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ quantity }) });
+        toast("数量已保存");
+        loadCart();
+      }, "保存中");
     }));
     document.querySelectorAll("[data-cart-delete]").forEach((button) => button.addEventListener("click", async () => {
-      await api(`/unit/cart/items/${button.dataset.cartDelete}`, { method: "DELETE" });
-      toast("已删除");
-      loadCart();
+      await action(button, async () => {
+        await api(`/unit/cart/items/${button.dataset.cartDelete}`, { method: "DELETE" });
+        toast("已删除");
+        loadCart();
+      }, "删除中");
     }));
   }
   async function submitOrder() {
@@ -175,9 +199,15 @@
   activateNav();
   $("logoutButton")?.addEventListener("click", logout);
   $("productSearchButton")?.addEventListener("click", loadProducts);
-  $("clearCartButton")?.addEventListener("click", async () => { await api("/unit/cart/items", { method: "DELETE" }); loadCart(); });
-  $("submitOrderButton")?.addEventListener("click", submitOrder);
-  $("confirmReceiptButton")?.addEventListener("click", confirmReceipt);
+  $("clearCartButton")?.addEventListener("click", async (event) => {
+    await action(event.currentTarget, async () => { await api("/unit/cart/items", { method: "DELETE" }); loadCart(); }, "清空中");
+  });
+  $("submitOrderButton")?.addEventListener("click", async (event) => {
+    await action(event.currentTarget, submitOrder, "提交中");
+  });
+  $("confirmReceiptButton")?.addEventListener("click", async (event) => {
+    await action(event.currentTarget, confirmReceipt, "确认中");
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) loadCurrent().catch(() => {});
   });

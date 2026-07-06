@@ -130,16 +130,18 @@ object AppUpdateVerifier {
         deviceSdk: Int
     ): AppUpdateVerificationResult {
         return when {
-            apk.sha256 != expected.apkSha256 -> AppUpdateVerificationResult(false, "UPDATE_HASH_MISMATCH")
+            apk.sha256.normalizeHex() != expected.apkSha256.normalizeHex() -> AppUpdateVerificationResult(false, "UPDATE_HASH_MISMATCH")
             expected.sizeBytes > 0 && apk.sizeBytes != expected.sizeBytes -> AppUpdateVerificationResult(false, "UPDATE_SIZE_MISMATCH")
             apk.packageName != expected.packageName -> AppUpdateVerificationResult(false, "UPDATE_PACKAGE_MISMATCH")
             apk.versionCode != expected.versionCode || apk.versionCode <= currentVersionCode -> AppUpdateVerificationResult(false, "UPDATE_NOT_NEWER")
             expected.versionName.isNotBlank() && apk.versionName != expected.versionName -> AppUpdateVerificationResult(false, "UPDATE_NOT_NEWER")
-            expected.signerSha256.isNotBlank() && apk.signerSha256 != expected.signerSha256 -> AppUpdateVerificationResult(false, "UPDATE_SIGNER_MISMATCH")
+            expected.signerSha256.isNotBlank() && apk.signerSha256.normalizeHex() != expected.signerSha256.normalizeHex() -> AppUpdateVerificationResult(false, "UPDATE_SIGNER_MISMATCH")
             apk.minSdk > deviceSdk -> AppUpdateVerificationResult(false, "UPDATE_SDK_UNSUPPORTED")
             else -> AppUpdateVerificationResult(true)
         }
     }
+
+    private fun String.normalizeHex(): String = trim().lowercase()
 
     private fun String.json(): String {
         val out = StringBuilder(length + 2)

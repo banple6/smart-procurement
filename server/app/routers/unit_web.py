@@ -12,6 +12,7 @@ from ..routers.orders import fetch_order_for_user, order_items, order_out
 from ..schemas import OrderCreate, OrderItemRequest
 from ..services.inventory import as_decimal, complete_product, decimal_text
 from ..services.procurement import cutoff_payload
+from ..web_session import CSRF_COOKIE, secure_cookie_enabled, web_absolute_seconds
 
 router = APIRouter(tags=["unit-web"])
 
@@ -47,7 +48,23 @@ def no_store(response: HTMLResponse) -> HTMLResponse:
     return response
 
 
-def render_unit_page(template_name: str, title: str, user: dict) -> HTMLResponse:
+def ensure_csrf_cookie(response: HTMLResponse, request: Request):
+    if request.cookies.get(CSRF_COOKIE):
+        return
+    import secrets
+
+    response.set_cookie(
+        CSRF_COOKIE,
+        secrets.token_urlsafe(32),
+        max_age=web_absolute_seconds(),
+        httponly=False,
+        secure=secure_cookie_enabled(request),
+        samesite="strict",
+        path="/",
+    )
+
+
+def render_unit_page(template_name: str, title: str, user: dict, request: Request) -> HTMLResponse:
     content = html_file(template_name)
     base = html_file("base.html")
     html = (
@@ -55,7 +72,9 @@ def render_unit_page(template_name: str, title: str, user: dict) -> HTMLResponse
         .replace("{{content}}", content)
         .replace("{{username}}", user["display_name"] or user["username"])
     )
-    return no_store(HTMLResponse(html))
+    response = no_store(HTMLResponse(html))
+    ensure_csrf_cookie(response, request)
+    return response
 
 
 def product_out(row: dict) -> dict:
@@ -142,28 +161,28 @@ def cart_payload(conn, user: dict) -> dict:
 
 
 @router.get("/unit/home", include_in_schema=False)
-def unit_home(user=Depends(require_unit_web_session)):
-    return render_unit_page("home.html", "单位首页", user)
+def unit_home(request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("home.html", "单位首页", user, request)
 
 
 @router.get("/unit/products", include_in_schema=False)
-def unit_products_page(user=Depends(require_unit_web_session)):
-    return render_unit_page("products.html", "食材申领", user)
+def unit_products_page(request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("products.html", "食材申领", user, request)
 
 
 @router.get("/unit/cart", include_in_schema=False)
-def unit_cart_page(user=Depends(require_unit_web_session)):
-    return render_unit_page("cart.html", "采购清单", user)
+def unit_cart_page(request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("cart.html", "采购清单", user, request)
 
 
 @router.get("/unit/orders", include_in_schema=False)
-def unit_orders_page(user=Depends(require_unit_web_session)):
-    return render_unit_page("orders.html", "我的订单", user)
+def unit_orders_page(request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("orders.html", "我的订单", user, request)
 
 
 @router.get("/unit/profile", include_in_schema=False)
-def unit_profile_page(user=Depends(require_unit_web_session)):
-    return render_unit_page("profile.html", "我的", user)
+def unit_profile_page(request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("profile.html", "我的", user, request)
 
 
 @router.get("/unit/home/data")
@@ -289,8 +308,8 @@ def unit_orders_data(status: str | None = None, user=Depends(require_unit_web_se
 
 
 @router.get("/unit/orders/{order_id}", include_in_schema=False)
-def unit_order_detail_page(order_id: str, user=Depends(require_unit_web_session)):
-    return render_unit_page("order_detail.html", "订单详情", user)
+def unit_order_detail_page(order_id: str, request: Request, user=Depends(require_unit_web_session)):
+    return render_unit_page("order_detail.html", "订单详情", user, request)
 
 
 @router.get("/unit/orders/{order_id}/data")
