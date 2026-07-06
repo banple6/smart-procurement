@@ -594,9 +594,11 @@ def check_update(
             (str(uuid4()), installation_id_hash, user["id"] if user else None, release["id"]),
         )
         conn.commit()
-    return {
-        "update_available": True,
+    release_payload = {
         "release_id": release["id"],
+        "id": release["id"],
+        "package_name": release["package_name"],
+        "channel": release["channel"],
         "version_code": release["version_code"],
         "version_name": release["version_name"],
         "minimum_supported_version_code": release["minimum_supported_version_code"],
@@ -605,17 +607,24 @@ def check_update(
         "title": release["title"],
         "release_notes": [line for line in release["release_notes"].splitlines() if line.strip()],
         "apk_size_bytes": release["apk_size_bytes"],
+        "size_bytes": release["apk_size_bytes"],
         "apk_sha256": release["apk_sha256"],
         "signer_sha256": release["signer_sha256"],
         "min_sdk": release["min_sdk"],
         "published_at": release["published_at"],
         "download_ticket": ticket,
         "download_ticket_expires_at": expires_at,
-        "server_now": utc_now(),
         "manifest_signature": release["manifest_signature"],
         "manifest_public_key": release["manifest_public_key"],
         "manifest_key_id": release["manifest_key_id"],
         "manifest_signature_algorithm": release["manifest_signature_algorithm"],
+    }
+    return {
+        "update_available": True,
+        "mandatory": mandatory,
+        "server_now": utc_now(),
+        "release": release_payload,
+        **release_payload,
     }
 
 
@@ -773,4 +782,3 @@ def update_required_for_client(package_name: str, channel: str, version_code: in
             "release_id": release["id"],
         },
     }
-
