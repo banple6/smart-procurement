@@ -83,7 +83,8 @@
   }
 
   function cookie(name) {
-    return document.cookie.split("; ").find((item) => item.startsWith(name + "="))?.split("=")[1] || "";
+    const found = document.cookie.split("; ").find((item) => item.startsWith(name + "="));
+    return found ? found.split("=").slice(1).join("=") : "";
   }
 
   function toast(message) {
@@ -111,9 +112,11 @@
   }
 
   async function api(path, options = {}) {
+    const method = String(options.method || "GET").toUpperCase();
+    const csrfHeaders = ["POST", "PUT", "PATCH", "DELETE"].includes(method) ? { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) } : {};
     const response = await fetch(path, {
       credentials: "same-origin",
-      headers: { "Accept": "application/json", ...(options.headers || {}) },
+      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
       ...options,
     });
     if (response.status === 401) {

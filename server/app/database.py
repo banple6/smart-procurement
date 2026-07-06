@@ -95,6 +95,8 @@ def write_audit(
 
 
 def revoke_user_sessions(conn: sqlite3.Connection, user_id: str):
+    if table_exists(conn, "users") and "session_version" in column_names(conn, "users"):
+        conn.execute("UPDATE users SET session_version = session_version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (user_id,))
     conn.execute(
         "UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = ? AND revoked_at IS NULL",
         (user_id,),
@@ -159,6 +161,7 @@ def ensure_core_schema(conn: sqlite3.Connection):
           unit_id TEXT REFERENCES units(id),
           active INTEGER NOT NULL DEFAULT 1,
           must_change_password INTEGER NOT NULL DEFAULT 0,
+          session_version INTEGER NOT NULL DEFAULT 1,
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -826,6 +829,25 @@ def apply_manager_registration_requests_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_manager_requests_username ON manager_registration_requests(username, status)")
 
 
+def apply_unit_web_portal_migration(conn: sqlite3.Connection):
+    add_column(conn, "users", "session_version INTEGER NOT NULL DEFAULT 1")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS web_cart_items (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          product_id TEXT NOT NULL REFERENCES products(id),
+          quantity TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, product_id)
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cart_items_user ON web_cart_items(user_id, unit_id)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -845,6 +867,7 @@ def migrate() -> list[str]:
             ("0007_system_safety", apply_system_safety_migration),
             ("0008_registration_safety", apply_registration_safety_migration),
             ("0009_manager_registration_requests", apply_manager_registration_requests_migration),
+            ("0010_unit_web_portal", apply_unit_web_portal_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -870,6 +893,7 @@ def migration_status() -> dict:
         "0007_system_safety",
         "0008_registration_safety",
         "0009_manager_registration_requests",
+        "0010_unit_web_portal",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

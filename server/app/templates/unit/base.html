@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>{{title}} - 景荣鲜配</title>
+    <link rel="stylesheet" href="/unit-assets/unit.css" />
+  </head>
+  <body class="unit-page">
+    <aside class="unit-sidebar" aria-label="单位导航">
+      <div class="unit-brand">
+        <div class="unit-brand-mark">鲜</div>
+        <div>
+          <strong>景荣鲜配</strong>
+          <span>单位采购网页版</span>
+        </div>
+      </div>
+      <nav class="unit-nav">
+        <a href="/unit/home" data-route="/unit/home">首页</a>
+        <a href="/unit/products" data-route="/unit/products">食材申领</a>
+        <a href="/unit/cart" data-route="/unit/cart">采购清单</a>
+        <a href="/unit/orders" data-route="/unit/orders">我的订单</a>
+        <a href="/unit/profile" data-route="/unit/profile">我的</a>
+      </nav>
+    </aside>
+    <div class="unit-frame">
+      <header class="unit-topbar">
+        <div>
+          <h1>{{title}}</h1>
+          <p id="unitSubtitle">真实服务端数据</p>
+        </div>
+        <div class="unit-account">
+          <span>{{username}}</span>
+          <button id="logoutButton" type="button">退出登录</button>
+        </div>
+      </header>
+      <main class="unit-content">{{content}}</main>
+    </div>
+    <div id="toast" class="unit-toast" hidden></div>
+    <script src="/unit-assets/unit.js" defer></script>
+  </body>
+</html>

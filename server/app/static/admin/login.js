@@ -53,8 +53,7 @@
   async function checkExistingSession() {
     const response = await fetch("/api/v1/web-auth/me", { credentials: "same-origin" }).catch(() => null);
     if (response && response.ok) {
-      const user = await response.json();
-      if (user.role === "admin") window.location.replace("/admin/dashboard");
+      window.location.replace("/web/entry");
     }
   }
 
@@ -141,12 +140,8 @@
       setStatus("登录状态确认失败，请刷新二维码", "error");
       return;
     }
-    const data = await response.json();
-    if (data.user && data.user.role === "admin") {
-      window.location.replace("/admin/dashboard");
-    } else {
-      setStatus("当前账号无管理平台访问权限", "rejected");
-    }
+    await response.json();
+    window.location.replace("/web/entry");
   }
 
   $("refreshQr").addEventListener("click", createChallenge);

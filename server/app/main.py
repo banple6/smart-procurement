@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .database import connect, init_db, one, private_upload_dir, transaction, upload_dir
 from .metrics import record_request
-from .routers import app_update, auth, dashboard, ledger, orders, procurement, products, system, units, web_auth
+from .routers import app_update, auth, dashboard, ledger, orders, procurement, products, system, unit_web, units, web_auth
 from .security import hash_password
 from .web import router as web_router
 
@@ -119,8 +119,10 @@ def ready_head():
 
 
 app.mount("/api/v1", api)
+app.include_router(unit_web.router)
 app.include_router(web_router)
 Path(upload_dir()).mkdir(parents=True, exist_ok=True)
 Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=upload_dir()), name="uploads")
 app.mount("/admin-assets", StaticFiles(directory=str((Path(__file__).resolve().parent / "static" / "admin"))), name="admin-assets")
+app.mount("/unit-assets", StaticFiles(directory=str((Path(__file__).resolve().parent / "static" / "unit"))), name="unit-assets")

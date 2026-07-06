@@ -30,6 +30,19 @@ def login_page():
     return no_store(HTMLResponse(html_file("login.html")))
 
 
+@router.get("/web/entry", include_in_schema=False)
+def web_entry(request: Request):
+    try:
+        user = current_web_user(request)
+    except HTTPException:
+        return RedirectResponse("/login?expired=1", status_code=302)
+    if user["role"] == "admin":
+        return RedirectResponse("/admin/dashboard", status_code=302)
+    if user["role"] == "unit_user":
+        return RedirectResponse("/unit/home", status_code=302)
+    raise HTTPException(status_code=403, detail="当前账号无权访问网页版")
+
+
 def web_admin_user_or_response(request: Request):
     try:
         user = current_web_user(request)

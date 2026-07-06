@@ -4,7 +4,17 @@ from fastapi import Depends, Header, HTTPException, Request
 
 from .database import connect, one
 from .security import hash_token
-from .web_session import web_idle_seconds, web_session_cookie_name
+from .web_session import CSRF_COOKIE, web_idle_seconds, web_session_cookie_name
+
+
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def require_csrf(request: Request):
+    csrf_cookie = request.cookies.get(CSRF_COOKIE, "")
+    csrf_header = request.headers.get("x-csrf-token", "")
+    if request.method in UNSAFE_METHODS and (not csrf_cookie or csrf_cookie != csrf_header):
+        raise HTTPException(status_code=403, detail="页面已过期，请刷新后重试")
 
 
 def current_user(request: Request, authorization: str | None = Header(default=None)):
@@ -12,6 +22,7 @@ def current_user(request: Request, authorization: str | None = Header(default=No
     # 这里同时兼容两种认证方式，避免重复建设一套 admin API。
     if not authorization or not authorization.startswith("Bearer "):
         if request.cookies.get(web_session_cookie_name(), "").strip():
+            require_csrf(request)
             return current_web_user(request)
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     token = authorization.removeprefix("Bearer ").strip()
@@ -61,6 +72,10 @@ def current_web_user(request: Request):
             raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
         if user["must_change_password"]:
             raise HTTPException(status_code=403, detail="请先在 App 修改初始密码")
+        if int(session.get("session_version") or 1) != int(user.get("session_version") or 1):
+            raise HTTPException(status_code=401, detail="登录状态已失效，请重新扫码登录")
+        if session["role"] != user["role"] or (session.get("unit_id") or "") != (user.get("unit_id") or ""):
+            raise HTTPException(status_code=401, detail="登录状态已失效，请重新扫码登录")
         if user["role"] == "unit_user":
             unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
             if not unit or not unit["active"]:
@@ -81,6 +96,24 @@ def current_web_user(request: Request):
 def require_web_admin_user(user=Depends(current_web_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="当前账号无管理员权限")
+    return user
+
+
+def require_authenticated_web_session(user=Depends(current_web_user)):
+    return user
+
+
+def require_admin_web_session(user=Depends(current_web_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="当前账号无管理员权限")
+    return user
+
+
+def require_unit_web_session(user=Depends(current_web_user)):
+    if user["role"] != "unit_user":
+        raise HTTPException(status_code=403, detail="当前账号不能访问单位网页版")
+    if not user.get("unit_id"):
+        raise HTTPException(status_code=403, detail="账号未绑定所属单位")
     return user
 
 

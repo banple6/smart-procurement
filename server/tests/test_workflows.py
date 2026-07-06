@@ -903,9 +903,9 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "includes(staleSuffix)" in dashboard_js
 
 
-def test_web_qr_login_is_bound_one_time_and_admin_only(tmp_path):
+def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):
     client = make_client(tmp_path)
-    admin_headers, unit_headers, _, _ = create_unit_user_product_order(client)
+    admin_headers, unit_headers, unit_id, _ = create_unit_user_product_order(client)
 
     from app.database import connect
     from app.main import app
@@ -915,18 +915,29 @@ def test_web_qr_login_is_bound_one_time_and_admin_only(tmp_path):
         conn.execute("UPDATE users SET must_change_password = 0 WHERE username = 'root_admin'")
         conn.commit()
 
-    denied_challenge = client.post("/api/v1/web-auth/qr/challenges")
-    assert denied_challenge.status_code == 200, denied_challenge.text
-    denied_payload = denied_challenge.json()["qr_payload"]
-    denied_token = denied_payload.split("token=", 1)[1]
-    denied = client.post(
+    unit_challenge = client.post("/api/v1/web-auth/qr/challenges")
+    assert unit_challenge.status_code == 200, unit_challenge.text
+    unit_payload = unit_challenge.json()["qr_payload"]
+    unit_token = unit_payload.split("token=", 1)[1]
+    unit_scan = client.post(
         "/api/v1/mobile/web-auth/qr/scan",
         headers=unit_headers,
-        json={"qr_token": denied_token, "device_name": "Pixel", "app_version": "1.0"},
+        json={"qr_token": unit_token, "device_name": "Pixel", "app_version": "1.0"},
     )
-    assert denied.status_code == 403
-    assert "管理平台访问权限" in denied.json()["detail"]
-    assert client.get(f"/api/v1/web-auth/qr/challenges/{denied_challenge.json()['challenge_id']}/status").json()["status"] == "pending"
+    assert unit_scan.status_code == 200, unit_scan.text
+    assert unit_scan.json()["website_name"] == "景荣鲜配单位网页版"
+    assert unit_scan.json()["user"]["role"] == "unit_user"
+    assert unit_scan.json()["user"]["unit_id"] == unit_id
+    approved_unit = client.post(f"/api/v1/mobile/web-auth/qr/{unit_challenge.json()['challenge_id']}/approve", headers=unit_headers)
+    assert approved_unit.status_code == 200, approved_unit.text
+    consumed_unit = client.post(f"/api/v1/web-auth/qr/challenges/{unit_challenge.json()['challenge_id']}/consume")
+    assert consumed_unit.status_code == 200, consumed_unit.text
+    assert consumed_unit.json()["entry_url"] == "/web/entry"
+    unit_entry = client.get("/web/entry", follow_redirects=False)
+    assert unit_entry.status_code == 302
+    assert unit_entry.headers["location"] == "/unit/home"
+    assert client.get("/unit/home").status_code == 200
+    assert client.get("/admin/dashboard").status_code == 403
 
     challenge = client.post("/api/v1/web-auth/qr/challenges", headers={"User-Agent": "Mozilla/5.0 Chrome/120 Windows"})
     assert challenge.status_code == 200, challenge.text
@@ -952,7 +963,7 @@ def test_web_qr_login_is_bound_one_time_and_admin_only(tmp_path):
     assert scan.status_code == 200, scan.text
     scan_data = scan.json()
     assert scan_data["challenge_id"] == challenge_data["challenge_id"]
-    assert scan_data["website_name"] == "景荣鲜配管理平台"
+    assert scan_data["website_name"] == "景荣鲜配管理后台"
     assert scan_data["browser_name"] == "Chrome"
     assert scan_data["operating_system"] == "Windows"
     assert scan_data["ip_display"]
@@ -971,13 +982,101 @@ def test_web_qr_login_is_bound_one_time_and_admin_only(tmp_path):
 
     consumed = client.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
     assert consumed.status_code == 200, consumed.text
+    assert consumed.json()["entry_url"] == "/web/entry"
     assert "token" not in consumed.json()
     assert "__Host-jrxp_session" not in consumed.headers.get("set-cookie", "")
     assert "httponly" in consumed.headers.get("set-cookie", "").lower()
     assert "samesite=strict" in consumed.headers.get("set-cookie", "").lower()
+    admin_entry = client.get("/web/entry", follow_redirects=False)
+    assert admin_entry.status_code == 302
+    assert admin_entry.headers["location"] == "/admin/dashboard"
 
     replay = client.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
     assert replay.status_code != 200
+
+
+def test_unit_web_portal_cart_orders_and_isolation(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)
+    unit_user = client.get("/api/v1/auth/me", headers=unit_headers).json()
+    csrf = set_web_session(client, unit_user["id"], "unit_user", unit_id)
+
+    assert client.get("/unit/home").status_code == 200
+    assert client.get("/unit/products").status_code == 200
+    assert client.get("/unit/cart").status_code == 200
+    assert client.get("/unit/orders").status_code == 200
+    assert client.get("/unit/profile").status_code == 200
+    assert client.get("/admin/dashboard").status_code == 403
+    assert client.get("/api/v1/admin/dashboard/overview").status_code == 403
+
+    products = client.get("/unit/products/data")
+    assert products.status_code == 200, products.text
+    assert products.json()["items"][0]["id"] == product_id
+
+    no_csrf = client.post("/unit/cart/items", json={"product_id": product_id, "quantity": "1"})
+    assert no_csrf.status_code == 403
+
+    added = client.post("/unit/cart/items", headers=csrf, json={"product_id": product_id, "quantity": "1"})
+    assert added.status_code == 200, added.text
+    cart = client.get("/unit/cart/data")
+    assert cart.status_code == 200
+    assert cart.json()["total_cents"] == 450
+    item_id = cart.json()["items"][0]["id"]
+    assert cart.json()["items"][0]["unit_id"] == unit_id
+
+    updated = client.patch(f"/unit/cart/items/{item_id}", headers=csrf, json={"quantity": "1.5", "unit_id": "forged"})
+    assert updated.status_code == 200, updated.text
+    assert client.get("/unit/cart/data").json()["total_cents"] == 675
+
+    submitted = client.post("/unit/orders", headers=csrf, json={"note": "网页下单", "unit_id": "forged"})
+    assert submitted.status_code == 200, submitted.text
+    order_id = submitted.json()["id"]
+    assert submitted.json()["unit_id"] == unit_id
+    assert submitted.json()["created_by_username"] == "unit001"
+    assert client.get("/unit/cart/data").json()["items"] == []
+
+    own_detail = client.get(f"/unit/orders/{order_id}/data")
+    assert own_detail.status_code == 200
+    assert own_detail.json()["id"] == order_id
+
+    other_unit = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "WEB-U2", "unit_name": "其他单位", "default_delivery_point": "其他点"},
+    ).json()
+    other_user = client.post(
+        "/api/v1/admin/users",
+        headers=admin_headers,
+        json={
+            "username": "web_other",
+            "password": "OtherPassword123",
+            "display_name": "其他账号",
+            "role": "unit_user",
+            "unit_id": other_unit["id"],
+            "must_change_password": False,
+        },
+    ).json()
+    other_client = make_client(tmp_path)
+    other_csrf = set_web_session(other_client, other_user["id"], "unit_user", other_unit["id"])
+    assert other_client.get(f"/unit/orders/{order_id}/data").status_code == 404
+    assert other_client.post(f"/unit/orders/{order_id}/confirm-receipt", headers=other_csrf).status_code == 404
+
+    client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "accepted"})
+    client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "preparing"})
+    shipped = client.post(
+        f"/api/v1/admin/orders/{order_id}/ship",
+        headers=admin_headers,
+        files=[("photos", ("proof.jpg", sample_image_bytes(), "image/jpeg"))],
+        data={"note": "已发货", "client_request_id": "web-unit-ship-1"},
+    )
+    assert shipped.status_code == 200, shipped.text
+    photo_url = shipped.json()["shipping_photos"][0]["thumbnail_url"]
+    assert client.get(photo_url).status_code == 200
+    assert other_client.get(photo_url).status_code == 404
+
+    completed = client.post(f"/unit/orders/{order_id}/confirm-receipt", headers=csrf)
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "completed"
 
 
 def test_cleanup_web_auth_records_revokes_expired_and_prunes_old_records(tmp_path):

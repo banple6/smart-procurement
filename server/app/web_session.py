@@ -72,12 +72,13 @@ def set_web_cookies(response: Response, request: Request, token: str):
         httponly=False,
         secure=secure,
         samesite="strict",
-        path="/api/v1",
+        path="/",
     )
 
 
 def clear_web_cookies(response: Response):
     response.delete_cookie(web_session_cookie_name(), path="/", samesite="strict")
+    response.delete_cookie(CSRF_COOKIE, path="/", samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/api/v1", samesite="strict")
 
 

@@ -240,6 +240,10 @@ data class WebLoginScanResult(
     val websiteName: String = "景荣鲜配管理平台",
     val websiteHost: String = "",
     val browser: WebLoginBrowserInfo,
+    val targetRole: String = "",
+    val username: String = "",
+    val displayName: String = "",
+    val unitName: String = "",
     val createdAt: String = "",
     val expiresAt: String = ""
 ) {
@@ -798,6 +802,7 @@ class ProcurementApiClient(
             .toRequestBody(JSON)
         val json = request("mobile/web-auth/qr/scan", token = token, method = "POST", body = body)
         val browser = json.optJSONObject("browser") ?: json
+        val user = json.optJSONObject("user") ?: JSONObject()
         return WebLoginScanResult(
             loginToken = json.optString("login_token", json.optString("challenge_id", json.optString("token"))),
             websiteName = json.optString("website_name", "景荣鲜配管理平台"),
@@ -808,6 +813,10 @@ class ProcurementApiClient(
                 browserIp = json.optString("ip_display", browser.optString("browser_ip", browser.optString("ip"))),
                 deviceName = json.optString("device_name", browser.optString("device_name", browser.optString("device")))
             ),
+            targetRole = json.optString("target_role", user.optString("role")),
+            username = user.optString("username"),
+            displayName = user.optString("display_name"),
+            unitName = user.optString("unit_name"),
             createdAt = json.optString("created_at"),
             expiresAt = json.optString("expires_at")
         )

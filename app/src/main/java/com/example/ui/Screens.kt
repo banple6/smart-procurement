@@ -35,6 +35,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.ui.designsystem.PoliceIdentityHeader
+import com.smartprocurement.internal.ui.theme.JrxpColors
+import com.smartprocurement.internal.ui.theme.JrxpTheme
+import com.smartprocurement.internal.ui.theme.JrxpDimensions
+import com.smartprocurement.internal.ui.components.JrxpPrimaryButton
+import com.smartprocurement.internal.ui.components.JrxpSecondaryButton
+import com.smartprocurement.internal.ui.components.DocumentSection
+import com.smartprocurement.internal.ui.components.LedgerRow
+import com.smartprocurement.internal.ui.components.MenuActionRow
 
 @Composable
 fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
@@ -50,7 +58,7 @@ fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .height(56.dp)
+                    .heightIn(min = 56.dp)
                     .background(MaterialTheme.colorScheme.background)
                     .drawBehind {
                         drawLine(
@@ -98,18 +106,12 @@ fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
                 Text("订单已提交", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Text("订单已提交，等待管理员接单。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
                 Spacer(modifier = Modifier.height(24.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SuccessRow("订单编号", displayOrderNo)
-                        SuccessRow("当前状态", "待接单")
-                        SuccessRow("配送点", deliveryPoint)
-                        SuccessRow("订单金额", Money.formatCents(totalCents))
-                    }
+                Spacer(modifier = Modifier.height(24.dp))
+                DocumentSection(title = "订单信息") {
+                    SuccessRow("订单编号", displayOrderNo)
+                    SuccessRow("当前状态", "待接单")
+                    SuccessRow("配送点", deliveryPoint)
+                    SuccessRow("订单金额", Money.formatCents(totalCents))
                 }
             }
             Column(
@@ -118,31 +120,21 @@ fun SubmitSuccessScreen(orderId: String, viewModel: SupplyViewModel) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
+                JrxpPrimaryButton(
+                    text = "查看订单",
                     onClick = {
                         viewModel.currentTab = "orders"
                         viewModel.popToRootAndNavigate(Screen.Home)
                         viewModel.navigateTo(Screen.OrderDetails(orderId))
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("查看订单", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                OutlinedButton(
+                    }
+                )
+                JrxpSecondaryButton(
+                    text = "返回首页",
                     onClick = {
                         viewModel.currentTab = "home"
                         viewModel.popToRootAndNavigate(Screen.Home)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("返回首页", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
+                    }
+                )
             }
         }
     }
@@ -184,46 +176,30 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(JrxpColors.PureSurface)
             ) {
                 Column {
                     if (viewModel.canManageIngredients()) {
                         ProfileMenuItem(icon = Icons.Default.Home, title = "子单位管理") { viewModel.navigateTo(Screen.UnitManagement) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "采购台账") { viewModel.navigateTo(Screen.Ledger) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "关于与更新") { viewModel.navigateTo(Screen.AboutUpdate) }
                     } else {
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号", rightText = viewModel.userId) {}
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Home, title = "所属单位", rightText = viewModel.currentUnitName) {}
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.LocationOn, title = "默认配送点", rightText = viewModel.defaultDeliveryPoint) {}
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "我的订单") { viewModel.currentTab = "orders" }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
-                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "关于与更新") { viewModel.navigateTo(Screen.AboutUpdate) }
                     }
                 }
@@ -246,26 +222,14 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
     }
 }
 
+
+
 @Composable
 fun ProfileMenuItem(icon: ImageVector, title: String, rightText: String = "", onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(imageVector = icon, contentDescription = title, tint = MaterialTheme.colorScheme.primary)
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (rightText.isNotEmpty()) {
-                Text(rightText, fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
-            }
-            Text(">", fontSize = 14.sp, color = MaterialTheme.colorScheme.outlineVariant, fontWeight = FontWeight.Bold)
-        }
-    }
+    MenuActionRow(
+        icon = icon,
+        title = title,
+        trailingText = rightText,
+        onClick = onClick
+    )
 }

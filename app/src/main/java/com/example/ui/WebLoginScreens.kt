@@ -239,7 +239,7 @@ fun WebLoginConfirmScreen(viewModel: SupplyViewModel) {
         AlertDialog(
             onDismissRequest = { showAdminConfirm = false },
             title = { Text("确认登录网页版？", fontWeight = FontWeight.Bold) },
-            text = { Text("请再次确认是你本人正在操作的电脑。确认后，当前账号会在该浏览器登录管理平台。") },
+            text = { Text("请再次确认是你本人正在操作的电脑。确认后，当前账号会在该浏览器登录对应网页版。") },
             confirmButton = {
                 TextButton(onClick = {
                     showAdminConfirm = false
@@ -261,7 +261,7 @@ fun WebLoginConfirmScreen(viewModel: SupplyViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     GovernmentSecondaryButton(
-                        text = "取消",
+                        text = "拒绝登录",
                         enabled = scan != null && !viewModel.webLoginActionLoading,
                         onClick = { viewModel.rejectWebLogin() },
                         modifier = Modifier.weight(1f)
@@ -295,13 +295,19 @@ fun WebLoginConfirmScreen(viewModel: SupplyViewModel) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GovernmentColors.GovernmentBlue)
-                            Text("请核对网页登录信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (scan.targetRole == "admin") "即将登录景荣鲜配管理后台" else "即将登录景荣鲜配单位网页版",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
-                        GovernmentDataRow("平台", scan.websiteName)
+                        GovernmentDataRow("账号", scan.displayName.ifBlank { scan.username.ifBlank { "当前账号" } })
+                        GovernmentDataRow("所属单位", scan.unitName.ifBlank { if (scan.targetRole == "admin") "管理员" else "所属单位" })
                         GovernmentDataRow("浏览器", scan.browser.name.ifBlank { "浏览器" })
                         GovernmentDataRow("操作系统", scan.browser.os.ifBlank { "未知系统" })
                         GovernmentDataRow("登录地址", scan.browser.ip.ifBlank { "未知" })
-                        GovernmentDataRow("申请时间", scan.createdAt.toDisplayTime())
+                        GovernmentDataRow("登录时间", scan.createdAt.toDisplayTime())
+                        GovernmentDataRow("有效期至", scan.expiresAt.toDisplayTime())
                     }
                 }
                 Text(

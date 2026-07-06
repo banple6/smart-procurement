@@ -15,6 +15,31 @@
   --warning-amber: #A66817;
   --critical-red: #B93636;
   --cancel: #737980;
+
+  /* Jrxp Typography Tokens */
+  --font-size-page-title: 24px;
+  --line-height-page-title: 34px;
+
+  --font-size-section-title: 18px;
+  --line-height-section-title: 28px;
+
+  --font-size-list-title: 15px;
+  --line-height-list-title: 24px;
+
+  --font-size-body: 15px;
+  --line-height-body: 24px;
+
+  --font-size-table: 14px;
+  --line-height-table: 22px;
+
+  --font-size-label: 13px;
+  --line-height-label: 20px;
+
+  --font-size-supporting: 13px;
+  --line-height-supporting: 20px;
+
+  --font-size-metric: 26px;
+  --line-height-metric: 36px;
 }
 
 * {
@@ -26,6 +51,9 @@ body {
   color: var(--ink-primary);
   background: var(--ledger-paper);
   font-family: "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
   letter-spacing: 0;
 }
 
@@ -77,7 +105,7 @@ button {
   border-radius: 4px;
   color: var(--command-navy);
   background: #fff;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .brand strong, .brand span {
@@ -86,8 +114,9 @@ button {
 
 .brand span {
   margin-top: 4px;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 12px;
+  color: #E9F0F7; /* pale-blue */
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .nav-menu {
@@ -100,8 +129,9 @@ button {
 
 .nav-section-title {
   margin: 14px 10px 8px;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 12px;
+  color: #D9DEE2; /* rule-line equivalent */
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .nav-item {
@@ -111,8 +141,9 @@ button {
   min-height: 40px;
   padding: 0 12px;
   border-radius: 4px;
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 14px;
+  color: #FFFFFF;
+  font-size: var(--font-size-table);
+  line-height: var(--line-height-table);
 }
 
 .nav-item:hover, .nav-item.active {
@@ -145,7 +176,8 @@ button {
 
 .topbar h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--font-size-section-title);
+  line-height: var(--line-height-section-title);
   line-height: 1.25;
   color: var(--command-navy);
 }
@@ -153,7 +185,8 @@ button {
 .topbar p {
   margin: 3px 0 0;
   color: var(--ink-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 .top-actions {
@@ -161,7 +194,8 @@ button {
   align-items: center;
   gap: 12px;
   color: var(--ink-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 .account-name {
@@ -200,16 +234,17 @@ button {
 
 .metric-title {
   color: var(--ink-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-table);
+  line-height: var(--line-height-table);
 }
 
 .metric-value {
   margin-top: 10px;
   color: var(--command-navy);
-  font-size: 26px;
-  font-weight: 800;
-  font-family: monospace;
-}
+  font-size: var(--font-size-metric);
+  line-height: var(--line-height-metric);
+  font-weight: 600;
+  }
 
 .metric-value.warning {
   color: var(--warning-amber);
@@ -222,7 +257,8 @@ button {
 .metric-note, .metric-link {
   margin-top: 8px;
   color: var(--ink-tertiary);
-  font-size: 12px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .metric-link {
@@ -273,14 +309,16 @@ button {
 
 .panel-header h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--font-size-list-title);
+  line-height: var(--line-height-list-title);
   color: var(--command-navy);
 }
 
 .panel-header p {
   margin: 5px 0 0;
   color: var(--ink-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .panel-header select {
@@ -321,15 +359,16 @@ button {
 .task-desc {
   margin-top: 4px;
   color: var(--ink-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 .task-count {
   color: var(--duty-blue);
-  font-size: 20px;
-  font-weight: 800;
-  font-family: monospace;
-}
+  font-size: var(--font-size-section-title);
+  line-height: var(--line-height-section-title);
+  font-weight: 600;
+  }
 
 .task-count.urgent {
   color: var(--critical-red);
@@ -386,7 +425,8 @@ button {
 
 .chart-label {
   fill: var(--ink-tertiary);
-  font-size: 11px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .table-wrap {
@@ -397,7 +437,8 @@ table {
   width: 100%;
   min-width: 760px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 th, td {
@@ -427,7 +468,8 @@ tbody tr:hover {
   padding: 0 6px;
   border-radius: 2px;
   border: 1px solid var(--rule-line);
-  font-size: 12px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
   font-weight: 600;
 }
 
@@ -486,14 +528,14 @@ tbody tr:hover {
 .cell-label {
   display: block;
   color: var(--ink-tertiary);
-  font-size: 11px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .cell-value {
   font-weight: 600;
   color: var(--ink-primary);
-  font-family: monospace;
-}
+  }
 
 .quick-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -517,7 +559,8 @@ tbody tr:hover {
   display: block;
   margin-top: 6px;
   color: var(--ink-secondary);
-  font-size: 12px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .status-list {
@@ -526,7 +569,8 @@ tbody tr:hover {
   gap: 12px 16px;
   margin: 0;
   padding: 16px 20px;
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 .status-list dt {
@@ -560,7 +604,7 @@ tbody tr:hover {
   border: 1px solid var(--duty-blue);
   background: var(--duty-blue);
   color: #fff;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 button.primary-link {
@@ -585,7 +629,8 @@ button.primary-link {
 
 .notice-row span {
   color: var(--ink-secondary);
-  font-size: 13px;
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
 }
 
 .empty-state, .error-inline {
@@ -682,13 +727,15 @@ button.primary-link {
 
 .login-brand h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--font-size-page-title);
+  line-height: var(--line-height-page-title);
 }
 
 .login-brand p {
   margin: 0;
   color: var(--ink-secondary);
-  font-size: 14px;
+  font-size: var(--font-size-table);
+  line-height: var(--line-height-table);
 }
 
 .login-panel {
@@ -709,7 +756,8 @@ button.primary-link {
 
 .login-panel h2 {
   margin: 0 0 16px;
-  font-size: 18px;
+  font-size: var(--font-size-section-title);
+  line-height: var(--line-height-section-title);
   color: var(--ink-primary);
 }
 
@@ -725,9 +773,9 @@ button.primary-link {
 
 .qr-timer {
   margin: 0 0 24px;
-  font-size: 13px;
-  font-family: monospace;
-}
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  }
 
 .qr-box {
   display: grid;
@@ -761,7 +809,8 @@ button.primary-link {
   gap: 4px;
   margin-top: 24px;
   color: var(--ink-tertiary);
-  font-size: 12px;
+  font-size: var(--font-size-supporting);
+  line-height: var(--line-height-supporting);
 }
 
 .plain-state {

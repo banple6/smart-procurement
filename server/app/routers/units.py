@@ -298,6 +298,8 @@ def update_user(user_id: str, body: UserUpdate, admin=Depends(require_admin_user
     values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
     with connect() as conn:
         conn.execute(f"UPDATE users SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*values, user_id))
+        if {"unit_id", "must_change_password"} & set(fields):
+            revoke_user_sessions(conn, user_id)
         conn.commit()
         return one(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password FROM users WHERE id = ?", (user_id,))
 

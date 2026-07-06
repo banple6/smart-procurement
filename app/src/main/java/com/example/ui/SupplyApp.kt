@@ -26,9 +26,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
-import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.designsystem.PoliceOpeningBadge
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
+import com.smartprocurement.internal.ui.theme.JrxpColors
+import com.smartprocurement.internal.ui.theme.JrxpTheme
+import com.smartprocurement.internal.ui.components.JrxpIcons
 import kotlinx.coroutines.delay
 
 fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
@@ -66,86 +68,100 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        when (currentScreen) {
-            is Screen.Splash -> {
-                SplashScreen {
-                    viewModel.finishSplash()
+        androidx.compose.animation.AnimatedContent(
+            targetState = currentScreen,
+            transitionSpec = {
+                androidx.compose.animation.fadeIn(
+                    animationSpec = androidx.compose.animation.core.tween(220)
+                ).togetherWith(
+                    androidx.compose.animation.fadeOut(
+                        animationSpec = androidx.compose.animation.core.tween(220)
+                    )
+                )
+            },
+            label = "screen_transition"
+        ) { screen ->
+            when (screen) {
+                is Screen.Splash -> {
+                    SplashScreen {
+                        viewModel.finishSplash()
+                    }
                 }
-            }
-            is Screen.Login -> {
-                LoginScreen(viewModel)
-            }
-            is Screen.ChangePassword -> {
-                ChangePasswordScreen(viewModel)
-            }
-            is Screen.Home -> {
-                MainTabFrame(viewModel)
-            }
-            is Screen.AddProduct -> {
-                IngredientFormScreen(productId = null, viewModel = viewModel)
-            }
-            is Screen.EditProduct -> {
-                IngredientFormScreen(productId = currentScreen.productId, viewModel = viewModel)
-            }
-            is Screen.DeletedProducts -> {
-                DeletedIngredientsScreen(viewModel)
-            }
-            is Screen.ProductDetail -> {
-                ProductDetailScreen(productId = currentScreen.productId, viewModel = viewModel)
-            }
-            is Screen.SubmitSuccess -> {
-                SubmitSuccessScreen(orderId = currentScreen.orderId, viewModel = viewModel)
-            }
-            is Screen.OrderDetails -> {
-                OrderDetailsScreen(orderId = currentScreen.orderId, viewModel = viewModel)
-            }
-            is Screen.ShippingProof -> {
-                ShippingProofScreen(orderId = currentScreen.orderId, viewModel = viewModel)
-            }
-            is Screen.UnitManagement -> {
-                UnitManagementScreen(viewModel)
-            }
-            is Screen.AccountManagement -> {
-                AccountManagementScreen(viewModel)
-            }
-            is Screen.Ledger -> {
-                LedgerScreen(viewModel)
-            }
-            is Screen.InventoryRecords -> {
-                InventoryRecordsScreen(viewModel)
-            }
-            is Screen.SystemStatus -> {
-                SystemStatusScreen(viewModel)
-            }
-            is Screen.PreparationSummary -> {
-                PreparationSummaryScreen(viewModel)
-            }
-            is Screen.DeliverySheets -> {
-                DeliverySheetsScreen(viewModel)
-            }
-            is Screen.InviteEntry -> {
-                InviteEntryScreen(viewModel)
-            }
-            is Screen.WebQrScanner -> {
-                WebQrScannerScreen(viewModel)
-            }
-            is Screen.WebLoginConfirm -> {
-                WebLoginConfirmScreen(viewModel)
-            }
-            is Screen.WebLoginResult -> {
-                WebLoginResultScreen(viewModel)
-            }
-            is Screen.WebSessions -> {
-                WebSessionsScreen(viewModel)
-            }
-            is Screen.AboutUpdate -> {
-                AboutUpdateScreen(viewModel)
-            }
-            is Screen.OnboardingGuide -> {
-                OnboardingWelcomeScreen(viewModel)
-            }
-            else -> {
-                MainTabFrame(viewModel)
+                is Screen.Login -> {
+                    LoginScreen(viewModel)
+                }
+                is Screen.ChangePassword -> {
+                    ChangePasswordScreen(viewModel)
+                }
+                is Screen.Home -> {
+                    MainTabFrame(viewModel)
+                }
+                is Screen.AddProduct -> {
+                    IngredientFormScreen(productId = null, viewModel = viewModel)
+                }
+                is Screen.EditProduct -> {
+                    IngredientFormScreen(productId = (screen as Screen.EditProduct).productId, viewModel = viewModel)
+                }
+                is Screen.DeletedProducts -> {
+                    DeletedIngredientsScreen(viewModel)
+                }
+                is Screen.ProductDetail -> {
+                    ProductDetailScreen(productId = (screen as Screen.ProductDetail).productId, viewModel = viewModel)
+                }
+                is Screen.SubmitSuccess -> {
+                    SubmitSuccessScreen(orderId = (screen as Screen.SubmitSuccess).orderId, viewModel = viewModel)
+                }
+                is Screen.OrderDetails -> {
+                    OrderDetailsScreen(orderId = (screen as Screen.OrderDetails).orderId, viewModel = viewModel)
+                }
+                is Screen.ShippingProof -> {
+                    ShippingProofScreen(orderId = (screen as Screen.ShippingProof).orderId, viewModel = viewModel)
+                }
+                is Screen.UnitManagement -> {
+                    UnitManagementScreen(viewModel)
+                }
+                is Screen.AccountManagement -> {
+                    AccountManagementScreen(viewModel)
+                }
+                is Screen.Ledger -> {
+                    LedgerScreen(viewModel)
+                }
+                is Screen.InventoryRecords -> {
+                    InventoryRecordsScreen(viewModel)
+                }
+                is Screen.SystemStatus -> {
+                    SystemStatusScreen(viewModel)
+                }
+                is Screen.PreparationSummary -> {
+                    PreparationSummaryScreen(viewModel)
+                }
+                is Screen.DeliverySheets -> {
+                    DeliverySheetsScreen(viewModel)
+                }
+                is Screen.InviteEntry -> {
+                    InviteEntryScreen(viewModel)
+                }
+                is Screen.WebQrScanner -> {
+                    WebQrScannerScreen(viewModel)
+                }
+                is Screen.WebLoginConfirm -> {
+                    WebLoginConfirmScreen(viewModel)
+                }
+                is Screen.WebLoginResult -> {
+                    WebLoginResultScreen(viewModel)
+                }
+                is Screen.WebSessions -> {
+                    WebSessionsScreen(viewModel)
+                }
+                is Screen.AboutUpdate -> {
+                    AboutUpdateScreen(viewModel)
+                }
+                is Screen.OnboardingGuide -> {
+                    OnboardingWelcomeScreen(viewModel)
+                }
+                else -> {
+                    MainTabFrame(viewModel)
+                }
             }
         }
         SnackbarHost(
@@ -165,36 +181,29 @@ fun SplashScreen(onFinish: () -> Unit) {
         onFinish()
     }
 
-    PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
+    PoliceStatusBar(JrxpColors.CommandNavy, darkIcons = false)
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PoliceColors.Navy),
+            .background(JrxpColors.CommandNavy),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            PoliceOpeningBadge(size = 96.dp)
-            Spacer(modifier = Modifier.height(20.dp))
+            PoliceOpeningBadge(size = 80.dp)
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "景荣鲜配",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                letterSpacing = 0.sp
+                letterSpacing = 2.sp
             )
             Text(
-                text = "XX公安局后勤食材采购配送系统",
+                text = "机构后勤物资采购台账系统",
                 fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.82f),
-                modifier = Modifier.padding(top = 4.dp),
-                letterSpacing = 0.sp
-            )
-            Text(
-                text = "公安内部使用",
-                fontSize = 13.sp,
-                color = Color.White.copy(alpha = 0.68f),
-                modifier = Modifier.padding(top = 4.dp),
-                letterSpacing = 0.sp
+                color = Color.White,
+                modifier = Modifier.padding(top = 8.dp),
+                letterSpacing = 1.sp
             )
         }
     }
@@ -213,11 +222,11 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = Color.White,
-                tonalElevation = 8.dp,
+                containerColor = JrxpColors.PureSurface,
+                tonalElevation = 0.dp,
                 modifier = Modifier.drawBehind {
                     drawLine(
-                        color = PoliceColors.Divider,
+                        color = JrxpColors.RuleLine,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f
@@ -227,14 +236,14 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                 NavigationBarItem(
                     selected = viewModel.currentTab == if (isAdmin) "dashboard" else "home",
                     onClick = { viewModel.currentTab = if (isAdmin) "dashboard" else "home" },
-                    icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else Icons.Default.Home, contentDescription = "home") },
-                    label = { Text(if (isAdmin) "工作台" else "首页", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else JrxpIcons.UnitBuilding, contentDescription = "home") },
+                    label = { Text(if (isAdmin) "工作台" else "调度台", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = PoliceColors.Primary,
-                        selectedTextColor = PoliceColors.Primary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = PoliceColors.Light
+                        selectedIconColor = JrxpColors.DutyBlue,
+                        selectedTextColor = JrxpColors.DutyBlue,
+                        unselectedIconColor = JrxpColors.InkTertiary,
+                        unselectedTextColor = JrxpColors.InkTertiary,
+                        indicatorColor = JrxpColors.PaleBlue
                     )
                 )
 
@@ -246,7 +255,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                             Icon(imageVector = Icons.Default.List, contentDescription = "ingredients")
                         } else {
                             Box {
-                                Icon(imageVector = Icons.Default.ShoppingCart, contentDescription = "cart")
+                                Icon(imageVector = JrxpIcons.SupplyBox, contentDescription = "cart")
                                 if (totalCartCount > 0) {
                                     Box(
                                         modifier = Modifier
@@ -259,7 +268,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                                         val countText = if (totalCartCount > 9) "9+" else totalCartCount.toString()
                                         Text(
                                             text = countText,
-                                            fontSize = 9.sp,
+                                            fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = Color.White,
                                             textAlign = TextAlign.Center
@@ -269,27 +278,27 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                             }
                         }
                     },
-                    label = { Text(if (isAdmin) "食材" else "清单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "食材台账" else "申领单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = PoliceColors.Primary,
-                        selectedTextColor = PoliceColors.Primary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = PoliceColors.Light
+                        selectedIconColor = JrxpColors.DutyBlue,
+                        selectedTextColor = JrxpColors.DutyBlue,
+                        unselectedIconColor = JrxpColors.InkTertiary,
+                        unselectedTextColor = JrxpColors.InkTertiary,
+                        indicatorColor = JrxpColors.PaleBlue
                     )
                 )
 
                 NavigationBarItem(
                     selected = viewModel.currentTab == "orders",
                     onClick = { viewModel.currentTab = "orders" },
-                    icon = { Icon(imageVector = Icons.Default.Menu, contentDescription = "orders") },
-                    label = { Text("订单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    icon = { Icon(imageVector = JrxpIcons.OrderDocument, contentDescription = "orders") },
+                    label = { Text("履约单据", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = PoliceColors.Primary,
-                        selectedTextColor = PoliceColors.Primary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = PoliceColors.Light
+                        selectedIconColor = JrxpColors.DutyBlue,
+                        selectedTextColor = JrxpColors.DutyBlue,
+                        unselectedIconColor = JrxpColors.InkTertiary,
+                        unselectedTextColor = JrxpColors.InkTertiary,
+                        indicatorColor = JrxpColors.PaleBlue
                     )
                 )
 
@@ -297,13 +306,13 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     selected = viewModel.currentTab == "profile",
                     onClick = { viewModel.currentTab = "profile" },
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
-                    label = { Text("我的", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text("身份", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = PoliceColors.Primary,
-                        selectedTextColor = PoliceColors.Primary,
-                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        indicatorColor = PoliceColors.Light
+                        selectedIconColor = JrxpColors.DutyBlue,
+                        selectedTextColor = JrxpColors.DutyBlue,
+                        unselectedIconColor = JrxpColors.InkTertiary,
+                        unselectedTextColor = JrxpColors.InkTertiary,
+                        indicatorColor = JrxpColors.PaleBlue
                     )
                 )
             }

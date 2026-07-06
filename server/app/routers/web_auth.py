@@ -46,9 +46,17 @@ def website_host() -> str:
 
 
 def ensure_web_platform_allowed(conn, user: dict, challenge_id: str = ""):
+    if user["role"] == "unit_user":
+        unit = one(conn, "SELECT * FROM units WHERE id = ? AND active = 1", (user["unit_id"],))
+        if unit:
+            return
     if user["role"] != "admin":
         write_audit(conn, user["id"], user["role"], "WEB_QR_ACCESS_DENIED", "web_login_challenge", challenge_id, result="denied")
         raise HTTPException(status_code=403, detail="当前账号没有管理平台访问权限")
+
+
+def web_target_name(user: dict) -> str:
+    return "景荣鲜配管理后台" if user["role"] == "admin" else "景荣鲜配单位网页版"
 
 
 def version_key(value: str) -> tuple[int, ...]:
@@ -270,8 +278,9 @@ def consume_challenge(challenge_id: str, request: Request, response: Response):
             INSERT INTO web_sessions(
               id, token_hash, user_id, role, unit_id, idle_expires_at, absolute_expires_at,
               browser_user_agent, browser_name, browser_os, browser_ip, source_challenge_id
+              , session_version
             )
-            VALUES (?, ?, ?, ?, ?, datetime('now', ?), datetime('now', ?), ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, datetime('now', ?), datetime('now', ?), ?, ?, ?, ?, ?, ?)
             """,
             (
                 session_id,
@@ -286,6 +295,7 @@ def consume_challenge(challenge_id: str, request: Request, response: Response):
                 challenge["browser_os"],
                 challenge["browser_ip"],
                 challenge_id,
+                int(user.get("session_version") or 1),
             ),
         )
         write_audit(conn, user["id"], user["role"], "WEB_QR_LOGIN_CONSUMED", "web_login_challenge", challenge_id)
@@ -296,6 +306,7 @@ def consume_challenge(challenge_id: str, request: Request, response: Response):
     return {
         "ok": True,
         "user": public_user(user, unit),
+        "entry_url": "/web/entry",
         "idle_expires_in": web_idle_seconds(),
         "absolute_expires_in": web_absolute_seconds(),
     }
@@ -410,7 +421,7 @@ def mobile_scan_qr(
         return {
             "challenge_id": challenge["id"],
             "status": "scanned",
-            "website_name": "景荣鲜配管理平台",
+            "website_name": web_target_name(user),
             "website_host": website_host(),
             "browser_name": info["browser_name"],
             "operating_system": info["browser_os"],
@@ -418,6 +429,7 @@ def mobile_scan_qr(
             "created_at": challenge["created_at"],
             "expires_at": challenge["expires_at"],
             "allowed": True,
+            "target_role": user["role"],
             "browser": info,
             "device_name": challenge["device_name"],
             "app_version": challenge["app_version"],
