@@ -332,6 +332,29 @@ def web_logout(request: Request, response: Response, user=Depends(current_web_us
     return {"ok": True}
 
 
+@router.get("/sessions")
+def web_sessions(user=Depends(current_web_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="当前账号没有管理平台访问权限")
+    with connect() as conn:
+        return {
+            "items": all_rows(
+                conn,
+                """
+                SELECT s.id, s.user_id, u.username, u.display_name, s.role, s.unit_id,
+                       units.unit_name, s.browser_name, s.browser_os, s.browser_ip,
+                       s.created_at, s.last_seen_at, s.idle_expires_at, s.absolute_expires_at,
+                       s.revoked_at, s.revoked_reason
+                FROM web_sessions s
+                LEFT JOIN users u ON u.id = s.user_id
+                LEFT JOIN units ON units.id = s.unit_id
+                ORDER BY COALESCE(s.last_seen_at, s.created_at) DESC
+                LIMIT 200
+                """,
+            )
+        }
+
+
 @mobile_router.post("/web-auth/qr/scan")
 def mobile_scan_qr(
     body: WebQrScanRequest,

@@ -7,8 +7,12 @@ from .security import hash_token
 from .web_session import web_idle_seconds, web_session_cookie_name
 
 
-def current_user(authorization: str | None = Header(default=None)):
+def current_user(request: Request, authorization: str | None = Header(default=None)):
+    # Web 管理后台使用 httpOnly cookie 登录；App 使用 Bearer Token。
+    # 这里同时兼容两种认证方式，避免重复建设一套 admin API。
     if not authorization or not authorization.startswith("Bearer "):
+        if request.cookies.get(web_session_cookie_name(), "").strip():
+            return current_web_user(request)
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     token = authorization.removeprefix("Bearer ").strip()
     if not token:

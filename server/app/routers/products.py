@@ -43,6 +43,21 @@ def list_products(user=Depends(current_user), category: str | None = None, q: st
     return [product_out(row) for row in rows]
 
 
+@router.get("/admin/products")
+def admin_list_products(category: str | None = None, q: str | None = None, admin=Depends(require_admin_user)):
+    where = ["is_deleted = 0"]
+    params = []
+    if category:
+        where.append("category = ?")
+        params.append(category)
+    if q:
+        where.append("(name LIKE ? OR product_code LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    with connect() as conn:
+        rows = all_rows(conn, f"SELECT * FROM products WHERE {' AND '.join(where)} ORDER BY created_at DESC", params)
+    return [product_out(row) for row in rows]
+
+
 @router.get("/products/{product_id}")
 def product_detail(product_id: str, user=Depends(current_user)):
     with connect() as conn:
