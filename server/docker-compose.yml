@@ -9,6 +9,7 @@ services:
       - ../uploads:/app/uploads
       - ../private_uploads:/app/private_uploads
       - ../backups:/app/backups
+      - ../releases:/app/releases
     expose:
       - "8000"
 

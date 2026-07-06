@@ -4,7 +4,7 @@ set -euo pipefail
 REMOTE="${REMOTE:-aliyun-procurement}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/smart-procurement}"
 
-ssh "$REMOTE" "mkdir -p ${REMOTE_DIR}/{app,data,uploads,private_uploads,backups,logs} ${REMOTE_DIR}/private_uploads/shipping"
+ssh "$REMOTE" "mkdir -p ${REMOTE_DIR}/{app,data,uploads,private_uploads,backups,logs,releases} ${REMOTE_DIR}/private_uploads/shipping"
 if command -v rsync >/dev/null 2>&1 && ssh "$REMOTE" "command -v rsync >/dev/null 2>&1"; then
   rsync -az --delete \
     --exclude '.env' \
@@ -14,6 +14,7 @@ if command -v rsync >/dev/null 2>&1 && ssh "$REMOTE" "command -v rsync >/dev/nul
     --exclude 'private_uploads' \
     --exclude 'backups' \
     --exclude 'logs' \
+    --exclude 'releases' \
     --exclude '__pycache__' \
     --exclude '.pytest_cache' \
     "$(dirname "$0")/" "$REMOTE:${REMOTE_DIR}/app/"
@@ -26,6 +27,7 @@ else
     --exclude './private_uploads' \
     --exclude './backups' \
     --exclude './logs' \
+    --exclude './releases' \
     --exclude './__pycache__' \
     --exclude './.pytest_cache' \
     -czf - . | ssh "$REMOTE" "tar -xzf - -C ${REMOTE_DIR}/app"
