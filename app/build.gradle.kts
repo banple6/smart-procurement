@@ -17,8 +17,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 4
-    versionName = "1.1-test3"
+    versionCode = 5
+    versionName = "1.1-test4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
