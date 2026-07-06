@@ -669,25 +669,7 @@ private fun authenticatedImageRequest(path: String, viewModel: SupplyViewModel):
 
 @Composable
 private fun OrderTimeline(order: OrderEntity) {
-    val steps = mutableListOf<StatusStep>()
-    steps.add(StatusStep("订单已提交", StepState.COMPLETED, order.createdAt.ifBlank { order.submitTime }))
-
-    if (order.status == "已取消") {
-        steps.add(StatusStep("订单已取消", StepState.CURRENT))
-    } else {
-        steps.add(StatusStep("管理员已接单", if (order.acceptedAt.isNotBlank()) StepState.COMPLETED else StepState.UPCOMING, order.acceptedAt.takeIf { it.isNotBlank() }))
-        steps.add(StatusStep("开始备货", if (order.preparingAt.isNotBlank()) StepState.COMPLETED else StepState.UPCOMING, order.preparingAt.takeIf { it.isNotBlank() }))
-        steps.add(StatusStep("已发货", if (order.shippedAt.isNotBlank()) StepState.COMPLETED else StepState.UPCOMING, order.shippedAt.takeIf { it.isNotBlank() }))
-        steps.add(StatusStep("已完成", if (order.completedAt.isNotBlank()) StepState.COMPLETED else StepState.UPCOMING, order.completedAt.takeIf { it.isNotBlank() }))
-
-        // Find current step to mark as CURRENT
-        val currentIdx = steps.indexOfLast { it.state == StepState.COMPLETED }
-        if (currentIdx != -1 && currentIdx < steps.size - 1 && order.status != "已完成") {
-            steps[currentIdx] = steps[currentIdx].copy(state = StepState.CURRENT)
-        }
-    }
-
-    OrderStatusRail(steps = steps)
+    OrderStatusRail(steps = orderTimelineNodes(order))
 }
 
 @Composable

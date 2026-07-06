@@ -368,6 +368,62 @@ def test_inventory_reservation_price_snapshot_and_status_flow(tmp_path):
     assert completed_product["reserved_quantity"] == "0"
 
 
+def test_order_responses_include_unified_status_metadata_and_version(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "1"}]},
+    )
+    assert order.status_code == 200, order.text
+    body = order.json()
+    assert body["status"] == "pending"
+    assert body["status_label"] == "待接单"
+    assert body["status_stage"] == 1
+    assert body["is_terminal"] is False
+    assert body["version"] == 1
+    assert body["cancelled_at"] == ""
+
+    accepted = client.patch(
+        f"/api/v1/admin/orders/{body['id']}/status",
+        headers=admin_headers,
+        json={"status": "accepted", "expected_status": "pending", "expected_version": 1},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["status_label"] == "已接单"
+    assert accepted.json()["status_stage"] == 2
+    assert accepted.json()["version"] == 2
+
+    stale = client.patch(
+        f"/api/v1/admin/orders/{body['id']}/status",
+        headers=admin_headers,
+        json={"status": "preparing", "expected_status": "pending", "expected_version": 1},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == "订单状态已被其他操作员更新，页面已刷新"
+
+
+def test_cancelled_order_records_cancel_time_and_terminal_status(tmp_path):
+    client = make_client(tmp_path)
+    _, unit_headers, _, product_id = create_unit_user_product_order(client)
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "1"}]},
+    ).json()
+
+    cancelled = client.post(f"/api/v1/orders/{order['id']}/cancel", headers=unit_headers)
+    assert cancelled.status_code == 200, cancelled.text
+    body = cancelled.json()
+    assert body["status"] == "cancelled"
+    assert body["status_label"] == "已取消"
+    assert body["status_stage"] == 0
+    assert body["is_terminal"] is True
+    assert body["cancelled_at"]
+    assert body["version"] == 2
+
+
 def test_ship_order_requires_private_photos_and_returns_authorized_views(tmp_path):
     client = make_client(tmp_path)
     admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)

@@ -52,12 +52,18 @@
   }
 
   function html(value) {
-    return String(value ?? "")
+    return String(display(value, ""))
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function display(value, fallback = "未填写") {
+    const text = String(value ?? "").trim();
+    if (!text || text === "null" || text === "undefined" || text === "None" || text === "NaN") return fallback;
+    return text;
   }
 
   function money(cents) {
@@ -73,12 +79,12 @@
   }
 
   function dateTime(value) {
-    if (!value) return "--";
+    if (!display(value, "")) return "时间未记录";
     return String(value).replace("T", " ").slice(0, 19);
   }
 
   function shortTime(value) {
-    if (!value) return "--";
+    if (!display(value, "")) return "时间未记录";
     return String(value).replace("T", " ").slice(5, 16);
   }
 
@@ -265,11 +271,11 @@
   }
 
   function statusTag(status) {
-    return `<span class="status-tag status-${html(status)}">${statusText[status] || status || "--"}</span>`;
+    return `<span class="status-tag status-${html(status || "unknown")}">${html(statusText[status] || "未知状态")}</span>`;
   }
 
   function supplyTag(status, active) {
-    const text = active ? (supplyText[status] || status || "--") : "已停用";
+    const text = active ? (supplyText[status] || "未知状态") : "已停用";
     return `<span class="status-tag status-${active ? html(status) : "cancelled"}">${html(text)}</span>`;
   }
 
@@ -288,7 +294,7 @@
     }
     $("recentOrders").innerHTML = rows.map((order) => {
       const action = primaryAction(order);
-      return `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot || "--")}</td><td>${shortTime(order.created_at)}</td><td>${num(order.item_count)} 种</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${Number(order.open_issue_count || 0) > 0 ? "有异常" : "—"}</td><td><a class="table-action primary" href="/admin/orders/${order.id}">${action[0]}</a></td></tr>`;
+      return `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot || "未填写")}</td><td>${shortTime(order.created_at)}</td><td>${num(order.item_count)} 种</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${Number(order.open_issue_count || 0) > 0 ? "有异常" : "—"}</td><td><a class="table-action primary" href="/admin/orders/${order.id}">${action[0]}</a></td></tr>`;
     }).join("");
   }
 

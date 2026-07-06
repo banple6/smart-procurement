@@ -228,8 +228,10 @@ def ensure_core_schema(conn: sqlite3.Connection):
           preparing_at TEXT,
           shipped_at TEXT,
           completed_at TEXT,
+          cancelled_at TEXT,
           shipping_note TEXT,
           ship_request_id TEXT,
+          version INTEGER NOT NULL DEFAULT 1,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -310,6 +312,8 @@ def ensure_core_schema(conn: sqlite3.Connection):
     add_column(conn, "orders", "client_request_id TEXT")
     add_column(conn, "orders", "shipping_note TEXT")
     add_column(conn, "orders", "ship_request_id TEXT")
+    add_column(conn, "orders", "cancelled_at TEXT")
+    add_column(conn, "orders", "version INTEGER NOT NULL DEFAULT 1")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_request_id ON orders(client_request_id) WHERE client_request_id IS NOT NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_ship_request_id ON orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
@@ -848,6 +852,11 @@ def apply_unit_web_portal_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_web_cart_items_user ON web_cart_items(user_id, unit_id)")
 
 
+def apply_order_consistency_migration(conn: sqlite3.Connection):
+    add_column(conn, "orders", "cancelled_at TEXT")
+    add_column(conn, "orders", "version INTEGER NOT NULL DEFAULT 1")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -868,6 +877,7 @@ def migrate() -> list[str]:
             ("0008_registration_safety", apply_registration_safety_migration),
             ("0009_manager_registration_requests", apply_manager_registration_requests_migration),
             ("0010_unit_web_portal", apply_unit_web_portal_migration),
+            ("0011_order_consistency", apply_order_consistency_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -894,6 +904,7 @@ def migration_status() -> dict:
         "0008_registration_safety",
         "0009_manager_registration_requests",
         "0010_unit_web_portal",
+        "0011_order_consistency",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

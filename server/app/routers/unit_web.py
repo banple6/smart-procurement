@@ -309,7 +309,7 @@ def unit_confirm_receipt(order_id: str, request: Request, user=Depends(require_u
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
-        conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 

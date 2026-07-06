@@ -2,6 +2,8 @@ package com.smartprocurement.internal.data
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 
@@ -81,11 +83,14 @@ data class OrderEntity(
     val preparingAt: String = "",
     val shippedAt: String = "",
     val completedAt: String = "",
+    val cancelledAt: String = "",
+    val remoteUpdatedAt: String = "",
+    val version: Int = 1,
     val deliveryPoint: String,
     val status: String, // "待接单", "已接单", "备货中", "已发货", "已完成", "已取消"
     val requesterName: String,
     val department: String,
-    val phone: String,
+    val phone: String = "",
     val remarks: String = "",
     val shippingNote: String = "",
     val shippingPhotoCount: Int = 0,
@@ -234,7 +239,7 @@ interface SupplyDao {
 
 @Database(
     entities = [ProductEntity::class, UserEntity::class, CartItemEntity::class, OrderEntity::class, OrderItemEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -251,10 +256,18 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "supply_procurement_database"
                 )
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_7_8)
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE orders ADD COLUMN cancelledAt TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN remoteUpdatedAt TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE orders ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

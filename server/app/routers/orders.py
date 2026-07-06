@@ -11,6 +11,7 @@ from ..dependencies import current_user, require_admin_user, require_unit_user
 from ..models import ADMIN_TRANSITIONS
 from ..schemas import OrderCreate, OrderStatusPatch
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
+from ..services.order_status import order_status_payload
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 
 router = APIRouter(tags=["orders"])
@@ -67,6 +68,13 @@ def order_out(conn, order: dict, include_items: bool = True, include_shipping_ph
     photo_count = one(conn, "SELECT COUNT(*) AS c FROM order_shipping_photos WHERE order_id = ?", (order["id"],))["c"]
     payload = {
         **order,
+        **order_status_payload(order.get("status", "")),
+        "accepted_at": order.get("accepted_at") or "",
+        "preparing_at": order.get("preparing_at") or "",
+        "shipped_at": order.get("shipped_at") or "",
+        "completed_at": order.get("completed_at") or "",
+        "cancelled_at": order.get("cancelled_at") or "",
+        "version": int(order.get("version") or 1),
         "created_by_username": username["username"] if username else "",
         "item_count": item_count,
         "shipping_note": order.get("shipping_note") or "",
@@ -78,6 +86,13 @@ def order_out(conn, order: dict, include_items: bool = True, include_shipping_ph
     if include_shipping_photos:
         payload["shipping_photos"] = [shipping_photo_out(order["id"], row) for row in shipping_photo_rows(conn, order["id"])]
     return payload
+
+
+def ensure_expected_order_state(order: dict, expected_status: str | None = None, expected_version: int | None = None):
+    if expected_status and order.get("status") != expected_status:
+        raise HTTPException(status_code=409, detail="订单状态已被其他操作员更新，页面已刷新")
+    if expected_version is not None and int(order.get("version") or 1) != expected_version:
+        raise HTTPException(status_code=409, detail="订单状态已被其他操作员更新，页面已刷新")
 
 
 def order_list(conn, sql: str, params: list, include_items: bool, page: int, page_size: int) -> dict:
@@ -122,7 +137,7 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
     if existing_order_id:
         conn.execute("DELETE FROM order_items WHERE order_id = ?", (existing_order_id,))
         conn.execute(
-            "UPDATE orders SET total_cents = ?, note = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE orders SET total_cents = ?, note = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (total, body.note, existing_order_id),
         )
     else:
@@ -229,7 +244,7 @@ def cancel_order(order_id: str, user=Depends(require_unit_user)):
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
-        conn.execute("UPDATE orders SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET status = 'cancelled', cancelled_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'cancel', ?, 'cancelled')",
             (str(uuid4()), order_id, user["id"], order["status"]),
@@ -245,7 +260,7 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
-        conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
+        conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'confirm_receipt', 'shipped', 'completed')",
             (str(uuid4()), order_id, user["id"]),
@@ -285,6 +300,7 @@ def admin_order_detail(order_id: str, admin=Depends(require_admin_user)):
 def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(require_admin_user)):
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, admin)
+        ensure_expected_order_state(order, body.expected_status, body.expected_version)
         if body.status == "shipped":
             raise HTTPException(status_code=409, detail="请先拍摄并上传发货照片")
         allowed = ADMIN_TRANSITIONS.get(order["status"], set())
@@ -293,6 +309,7 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
         if body.status == "cancelled":
             for item in order_items(conn, order_id):
                 release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, admin["id"])
+            conn.execute("UPDATE orders SET cancelled_at = COALESCE(cancelled_at, CURRENT_TIMESTAMP) WHERE id = ?", (order_id,))
         elif body.status == "completed":
             for item in order_items(conn, order_id):
                 complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, admin["id"])
@@ -303,9 +320,9 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             "completed": "completed_at",
         }.get(body.status)
         if time_field:
-            conn.execute(f"UPDATE orders SET status = ?, {time_field} = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (body.status, order_id))
+            conn.execute(f"UPDATE orders SET status = ?, {time_field} = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (body.status, order_id))
         else:
-            conn.execute("UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (body.status, order_id))
+            conn.execute("UPDATE orders SET status = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (body.status, order_id))
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'status', ?, ?)",
             (str(uuid4()), order_id, admin["id"], order["status"], body.status),
@@ -378,6 +395,7 @@ async def ship_order(
                 UPDATE orders
                 SET status = 'shipped',
                     shipped_at = CURRENT_TIMESTAMP,
+                    version = version + 1,
                     updated_at = CURRENT_TIMESTAMP,
                     shipping_note = ?,
                     ship_request_id = ?

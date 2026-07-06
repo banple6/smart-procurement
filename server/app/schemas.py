@@ -167,6 +167,8 @@ class OrderCreate(BaseModel):
 
 class OrderStatusPatch(BaseModel):
     status: str
+    expected_status: Optional[str] = None
+    expected_version: Optional[int] = None
 
 
 class WebQrScanRequest(BaseModel):

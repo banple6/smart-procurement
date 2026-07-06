@@ -254,6 +254,7 @@ fun OrderStatusRail(
                                 when (step.state) {
                                     StepState.COMPLETED -> ext.supplyGreen
                                     StepState.CURRENT -> ext.dutyBlue
+                                    StepState.CANCELLED -> ext.criticalRed
                                     StepState.UPCOMING -> ext.ruleLine
                                 },
                                 CircleShape
@@ -287,6 +288,7 @@ fun OrderStatusRail(
                         color = when (step.state) {
                             StepState.COMPLETED -> ext.inkSecondary
                             StepState.CURRENT -> ext.inkPrimary
+                            StepState.CANCELLED -> ext.criticalRed
                             StepState.UPCOMING -> ext.inkTertiary
                         },
                         fontWeight = if (step.state == StepState.CURRENT) FontWeight.SemiBold else FontWeight.Normal
@@ -312,9 +314,11 @@ data class StatusStep(
     val title: String,
     val state: StepState,
     val timestamp: String? = null
-)
+) {
+    val label: String get() = title
+}
 
-enum class StepState { COMPLETED, CURRENT, UPCOMING }
+enum class StepState { COMPLETED, CURRENT, UPCOMING, CANCELLED }
 
 // ── ProcurementDeadlineStrip ────────────────────────────────
 // 采购截止时间条：窄条显示今日截止和配送时间

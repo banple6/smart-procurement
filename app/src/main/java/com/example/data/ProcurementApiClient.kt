@@ -878,13 +878,15 @@ class ProcurementApiClient(
         return RemoteOrderMapper.mapOrder(request(path, token = token))
     }
 
-    fun setAdminOrderStatus(token: String, orderId: String, status: String): RemoteOrderBundle {
+    fun setAdminOrderStatus(token: String, order: OrderEntity, status: String): RemoteOrderBundle {
         val body = JSONObject()
             .put("status", status)
+            .put("expected_status", order.status.toApiOrderStatus())
+            .put("expected_version", order.version)
             .toString()
             .toRequestBody(JSON)
         return RemoteOrderMapper.mapOrder(
-            request("admin/orders/$orderId/status", token = token, method = "PATCH", body = body)
+            request("admin/orders/${order.orderId}/status", token = token, method = "PATCH", body = body)
         )
     }
 
@@ -1056,6 +1058,15 @@ class ProcurementApiClient(
         "completed" -> "已完成"
         "cancelled" -> "已取消"
         else -> "待接单"
+    }
+
+    private fun String.toApiOrderStatus(): String = when (this) {
+        "已接单" -> "accepted"
+        "备货中" -> "preparing"
+        "已发货" -> "shipped"
+        "已完成" -> "completed"
+        "已取消" -> "cancelled"
+        else -> "pending"
     }
 
     private fun Double.toCleanString(): String = BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()

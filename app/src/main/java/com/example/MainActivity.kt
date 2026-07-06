@@ -12,6 +12,8 @@ import com.smartprocurement.internal.ui.SupplyViewModel
 import com.smartprocurement.internal.ui.theme.MyApplicationTheme
 
 class MainActivity : ComponentActivity() {
+  private lateinit var viewModel: SupplyViewModel
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge(
@@ -19,12 +21,19 @@ class MainActivity : ComponentActivity() {
       navigationBarStyle = SystemBarStyle.light(Color.WHITE, Color.WHITE)
     )
 
-    val viewModel = ViewModelProvider(this)[SupplyViewModel::class.java]
+    viewModel = ViewModelProvider(this)[SupplyViewModel::class.java]
 
     setContent {
       MyApplicationTheme {
         SupplyAppContent(viewModel)
       }
+    }
+  }
+
+  override fun onResume() {
+    super.onResume()
+    if (::viewModel.isInitialized) {
+      viewModel.refreshActiveData()
     }
   }
 }

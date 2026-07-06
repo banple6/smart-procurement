@@ -1,9 +1,11 @@
 package com.smartprocurement.internal.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import java.math.BigDecimal
 
-class SupplyRepository(private val supplyDao: SupplyDao) {
+class SupplyRepository(private val database: AppDatabase) {
+    private val supplyDao = database.supplyDao()
 
     val allProducts: Flow<List<ProductEntity>> = supplyDao.getAllProductsFlow()
     val deletedProducts: Flow<List<ProductEntity>> = supplyDao.getDeletedProductsFlow()
@@ -16,8 +18,11 @@ class SupplyRepository(private val supplyDao: SupplyDao) {
     suspend fun getProductById(id: String): ProductEntity? = supplyDao.getProductById(id)
     suspend fun updateProduct(product: ProductEntity) = supplyDao.updateProduct(product)
     suspend fun replaceProducts(products: List<ProductEntity>) {
-        supplyDao.clearProducts()
-        supplyDao.insertProducts(products)
+        if (products.isNotEmpty()) {
+            database.withTransaction {
+                supplyDao.insertProducts(products)
+            }
+        }
     }
     suspend fun saveProduct(product: ProductEntity) = supplyDao.insertProduct(product.withComputedSupplyStatus())
     suspend fun setProductAvailable(id: String, available: Boolean) {
@@ -66,11 +71,17 @@ class SupplyRepository(private val supplyDao: SupplyDao) {
     suspend fun insertOrder(order: OrderEntity) = supplyDao.insertOrder(order)
     suspend fun insertOrderItems(items: List<OrderItemEntity>) = supplyDao.insertOrderItems(items)
     suspend fun replaceOrders(orderBundles: List<RemoteOrderBundle>) {
-        supplyDao.clearOrderItems()
-        supplyDao.clearOrders()
         if (orderBundles.isNotEmpty()) {
-            supplyDao.insertOrders(orderBundles.map { it.order })
-            supplyDao.insertOrderItems(orderBundles.flatMap { it.items })
+            database.withTransaction {
+                orderBundles.forEach { bundle ->
+                    val existing = supplyDao.getOrderById(bundle.order.orderId)
+                    if (existing == null || bundle.order.isSameOrNewerThan(existing)) {
+                        supplyDao.insertOrder(bundle.order)
+                        supplyDao.clearOrderItems(bundle.order.orderId)
+                        if (bundle.items.isNotEmpty()) supplyDao.insertOrderItems(bundle.items)
+                    }
+                }
+            }
         }
     }
     suspend fun clearOrderCache() {
@@ -78,9 +89,14 @@ class SupplyRepository(private val supplyDao: SupplyDao) {
         supplyDao.clearOrders()
     }
     suspend fun upsertOrder(orderBundle: RemoteOrderBundle) {
-        supplyDao.insertOrder(orderBundle.order)
-        supplyDao.clearOrderItems(orderBundle.order.orderId)
-        if (orderBundle.items.isNotEmpty()) supplyDao.insertOrderItems(orderBundle.items)
+        database.withTransaction {
+            val existing = supplyDao.getOrderById(orderBundle.order.orderId)
+            if (existing == null || orderBundle.order.isSameOrNewerThan(existing)) {
+                supplyDao.insertOrder(orderBundle.order)
+                supplyDao.clearOrderItems(orderBundle.order.orderId)
+                if (orderBundle.items.isNotEmpty()) supplyDao.insertOrderItems(orderBundle.items)
+            }
+        }
     }
 
     suspend fun updateOrderStatus(orderId: String, status: String) {
@@ -110,4 +126,12 @@ class SupplyRepository(private val supplyDao: SupplyDao) {
     private fun String.toBigDecimalOrNullCompat(): BigDecimal? = runCatching {
         if (isBlank()) null else BigDecimal(trim())
     }.getOrNull()
+
+    private fun OrderEntity.isSameOrNewerThan(existing: OrderEntity): Boolean {
+        if (version != existing.version) return version > existing.version
+        if (remoteUpdatedAt.isNotBlank() && existing.remoteUpdatedAt.isNotBlank()) {
+            return remoteUpdatedAt >= existing.remoteUpdatedAt
+        }
+        return true
+    }
 }

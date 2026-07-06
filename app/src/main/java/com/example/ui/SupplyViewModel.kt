@@ -98,8 +98,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
 
     init {
         val database = AppDatabase.getDatabase(application)
-        val dao = database.supplyDao()
-        repository = SupplyRepository(dao)
+        repository = SupplyRepository(database)
 
         viewModelScope.launch {
             sessionStore.sessionFlow.first()?.let { session ->
@@ -393,6 +392,13 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 alertMessage = it.toUserMessage("工作台同步失败")
             }
         }
+    }
+
+    fun refreshActiveData() {
+        if (authToken.isBlank() || mustChangePassword) return
+        refreshProducts()
+        refreshOrders()
+        refreshDashboard()
     }
 
     fun refreshUnits() {
@@ -1106,7 +1112,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     if (currentUser?.role == "admin") {
                         val nextStatus = RemoteOrderMapper.apiStatusForNextUiAction(order.status, isAdmin = true)
                             ?: throw IllegalStateException("当前状态不可推进")
-                        apiClient.setAdminOrderStatus(authToken, order.orderId, nextStatus)
+                        apiClient.setAdminOrderStatus(authToken, order, nextStatus)
                     } else {
                         when (order.status) {
                             "待接单" -> apiClient.cancelOrder(authToken, order.orderId)
