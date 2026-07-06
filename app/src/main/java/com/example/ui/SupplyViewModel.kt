@@ -30,6 +30,8 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
+private const val PREFERRED_ENTRY_METHOD_KEY = "preferred_entry_method"
+
 sealed interface Screen {
     object Splash : Screen
     object Login : Screen
@@ -48,6 +50,16 @@ sealed interface Screen {
     object AccountManagement : Screen
     object Ledger : Screen
     object InventoryRecords : Screen
+    object SystemStatus : Screen
+    object PreparationSummary : Screen
+    object DeliverySheets : Screen
+    object InviteEntry : Screen
+    object WebQrScanner : Screen
+    object WebLoginConfirm : Screen
+    object WebLoginResult : Screen
+    object WebSessions : Screen
+    object AboutUpdate : Screen
+    object OnboardingGuide : Screen
 }
 
 data class IngredientFormState(
@@ -80,6 +92,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     private val repository: SupplyRepository
     private val sessionStore = SessionStore(application)
     private val imageStorage = IngredientImageStorage(application)
+    private val appUpdateInstaller = AppUpdateInstaller(application)
     private val apiClient = ProcurementApiClient()
     private var authToken by mutableStateOf("")
 
@@ -155,6 +168,22 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
     var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
     var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
+    var preparationSummaryItems by mutableStateOf<List<PreparationSummaryItem>>(emptyList())
+    var deliverySheetUnits by mutableStateOf<List<DeliverySheetUnit>>(emptyList())
+    var systemOverview by mutableStateOf(SystemOverview())
+    var appUpdateCheckResult by mutableStateOf(AppUpdateCheckResult())
+    var isCheckingAppUpdate by mutableStateOf(false)
+    var isDownloadingAppUpdate by mutableStateOf(false)
+    var appUpdateDownloadProgress by mutableStateOf(0)
+    var selectedOnboardingPath by mutableStateOf("")
+    var inviteInspectResult by mutableStateOf<InviteInspectResult?>(null)
+    var inviteRegistrationLoading by mutableStateOf(false)
+    var phoneVerificationTicket by mutableStateOf("")
+    var pendingWebLogin by mutableStateOf<WebLoginScanResult?>(null)
+    var webLoginActionLoading by mutableStateOf(false)
+    var webLoginResultTitle by mutableStateOf("")
+    var webLoginResultMessage by mutableStateOf("")
+    var webSessionRecords by mutableStateOf<List<WebSessionRecord>>(emptyList())
     var pendingCameraUri by mutableStateOf<Uri?>(null)
 
     // Alert dialog message helper
@@ -465,6 +494,318 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             }.onFailure {
                 alertMessage = it.toUserMessage("Excel 保存失败")
             }
+        }
+    }
+
+    fun refreshPreparationSummary() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.preparationSummary(authToken) } }
+                .onSuccess { preparationSummaryItems = it }
+                .onFailure { alertMessage = it.toUserMessage("备货汇总同步失败") }
+        }
+    }
+
+    fun exportPreparationSummary(uri: Uri) {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) { apiClient.exportPreparationSummary(authToken) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            }.onSuccess {
+                snackbarMessage = "Excel 已保存"
+            }.onFailure {
+                alertMessage = it.toUserMessage("Excel 保存失败")
+            }
+        }
+    }
+
+    fun refreshDeliverySheets() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.deliverySheets(authToken) } }
+                .onSuccess { deliverySheetUnits = it }
+                .onFailure { alertMessage = it.toUserMessage("配送单同步失败") }
+        }
+    }
+
+    fun exportDeliverySheets(uri: Uri) {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) { apiClient.exportDeliverySheets(authToken) }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+            }.onSuccess {
+                snackbarMessage = "Excel 已保存"
+            }.onFailure {
+                alertMessage = it.toUserMessage("Excel 保存失败")
+            }
+        }
+    }
+
+    fun refreshSystemOverview() {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.systemOverview(authToken) } }
+                .onSuccess { systemOverview = it }
+                .onFailure { alertMessage = it.toUserMessage("系统状态同步失败") }
+        }
+    }
+
+    fun startOnboarding() {
+        selectedOnboardingPath = ""
+        navigateTo(Screen.Login)
+    }
+
+    fun chooseOnboardingPath(path: String) {
+        selectedOnboardingPath = path.ifBlank { PREFERRED_ENTRY_METHOD_KEY }
+        if (path == "scan_invite") {
+            navigateTo(Screen.InviteEntry)
+        } else {
+            navigateTo(Screen.InviteEntry)
+        }
+    }
+
+    fun openLoginFromOnboarding(path: String = "login") {
+        selectedOnboardingPath = path
+        popToRootAndNavigate(Screen.Login)
+    }
+
+    fun inspectInvite(inviteToken: String) {
+        if (inviteToken.isBlank()) {
+            alertMessage = "请填写邀请码"
+            return
+        }
+        inviteRegistrationLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.inspectInvite(inviteToken) } }
+                .onSuccess { inviteInspectResult = it }
+                .onFailure { alertMessage = it.toUserMessage("邀请码验证失败") }
+            inviteRegistrationLoading = false
+        }
+    }
+
+    fun sendRegisterPhoneCode(phone: String) {
+        val inviteToken = inviteInspectResult?.token.orEmpty()
+        if (phone.isBlank() || inviteToken.isBlank()) {
+            alertMessage = "请先填写手机号并验证邀请码"
+            return
+        }
+        inviteRegistrationLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.sendRegisterPhoneCode(phone, inviteToken) } }
+                .onSuccess { snackbarMessage = "验证码已发送" }
+                .onFailure { alertMessage = it.toUserMessage("验证码发送失败") }
+            inviteRegistrationLoading = false
+        }
+    }
+
+    fun verifyRegisterPhoneCode(phone: String, code: String) {
+        val inviteToken = inviteInspectResult?.token.orEmpty()
+        if (phone.isBlank() || code.isBlank() || inviteToken.isBlank()) {
+            alertMessage = "请填写手机号和验证码"
+            return
+        }
+        inviteRegistrationLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.verifyRegisterPhoneCode(phone, code, inviteToken) } }
+                .onSuccess {
+                    phoneVerificationTicket = it
+                    snackbarMessage = "手机号已验证"
+                }
+                .onFailure { alertMessage = it.toUserMessage("手机号验证失败") }
+            inviteRegistrationLoading = false
+        }
+    }
+
+    fun registerWithInvite(username: String, displayName: String, password: String, confirmPassword: String, phone: String) {
+        val invite = inviteInspectResult
+        if (invite == null || !invite.valid) {
+            alertMessage = "请先验证邀请码"
+            return
+        }
+        if (username.isBlank() || displayName.isBlank() || password.isBlank()) {
+            alertMessage = "请填写账号、显示名称和密码"
+            return
+        }
+        if (password != confirmPassword) {
+            alertMessage = "两次密码不一致"
+            return
+        }
+        if (invite.phoneRequired && phoneVerificationTicket.isBlank()) {
+            alertMessage = "请先验证手机号"
+            return
+        }
+        inviteRegistrationLoading = true
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.registerWithInvite(invite.token, username, displayName, password, phone, phoneVerificationTicket)
+                }
+            }
+            inviteRegistrationLoading = false
+            result.onSuccess { login ->
+                if (login.pendingApproval) {
+                    alertMessage = login.message.ifBlank { "管理者申请已提交" }
+                    popToRootAndNavigate(Screen.Login)
+                    return@onSuccess
+                }
+                authToken = login.token
+                applyRemoteUser(login.user)
+                sessionStore.saveSession(
+                    LoginSession(
+                        userId = login.user.id,
+                        rememberLogin = true,
+                        token = login.token,
+                        expiresAt = login.expiresAt,
+                        username = login.user.username,
+                        displayName = login.user.displayName,
+                        role = login.user.role,
+                        unitId = login.user.unitId,
+                        unitCode = login.user.unitCode,
+                        unitName = login.user.unitName,
+                        defaultDeliveryPoint = login.user.defaultDeliveryPoint,
+                        mustChangePassword = login.user.mustChangePassword
+                    )
+                )
+                refreshProducts()
+                refreshOrders()
+                popToRootAndNavigate(if (login.user.mustChangePassword) Screen.ChangePassword else Screen.Home)
+            }.onFailure {
+                alertMessage = it.toUserMessage("注册失败")
+            }
+        }
+    }
+
+    fun checkForAppUpdate(showNoUpdate: Boolean = false) {
+        if (authToken.isBlank()) return
+        isCheckingAppUpdate = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.checkAppUpdate(authToken, AppUpdatePolicy.channelForVariant(BuildConfig.APP_VARIANT_LABEL))
+                }
+            }.onSuccess {
+                appUpdateCheckResult = it
+                if (showNoUpdate && it.release == null) snackbarMessage = "当前已是最新版本"
+            }.onFailure {
+                alertMessage = it.toUserMessage("检查更新失败")
+            }
+            isCheckingAppUpdate = false
+        }
+    }
+
+    fun downloadAndInstallUpdate() {
+        val release = appUpdateCheckResult.release ?: return
+        if (authToken.isBlank() || isDownloadingAppUpdate) return
+        isDownloadingAppUpdate = true
+        appUpdateDownloadProgress = 0
+        viewModelScope.launch {
+            val result = runCatching {
+                val file = appUpdateInstaller.targetFile(release)
+                val bytes = withContext(Dispatchers.IO) { apiClient.downloadAppRelease(authToken, release) }
+                appUpdateDownloadProgress = 60
+                withContext(Dispatchers.IO) {
+                    file.parentFile?.mkdirs()
+                    file.writeBytes(bytes)
+                    val apk = appUpdateInstaller.inspect(file)
+                    val verify = AppUpdateVerifier.verify(apk, release, BuildConfig.VERSION_CODE, android.os.Build.VERSION.SDK_INT)
+                    if (!verify.isValid) throw IllegalStateException(AppUpdatePolicy.userFacingError(verify.failureCode))
+                    appUpdateInstaller.openSystemInstaller(file)
+                }
+                appUpdateDownloadProgress = 100
+            }
+            isDownloadingAppUpdate = false
+            result.onFailure { alertMessage = it.toUserMessage("更新下载失败") }
+        }
+    }
+
+    fun viewOnboardingGuide() {
+        alertMessage = "请按页面提示完成登录、下单、接单和发货流程。"
+    }
+
+    fun scanWebLoginQr(qrToken: String) {
+        if (authToken.isBlank() || webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.scanWebLoginQr(authToken, qrToken) } }
+                .onSuccess {
+                    pendingWebLogin = it
+                    navigateTo(Screen.WebLoginConfirm)
+                }
+                .onFailure { alertMessage = it.toUserMessage("扫码失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun approveWebLogin() {
+        val login = pendingWebLogin ?: return
+        if (authToken.isBlank() || webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.approveWebLogin(authToken, login.loginToken) } }
+                .onSuccess {
+                    webLoginResultTitle = "网页登录已确认"
+                    webLoginResultMessage = "网页端可以继续使用当前账号。"
+                    pendingWebLogin = null
+                    popToRootAndNavigate(Screen.WebLoginResult)
+                }
+                .onFailure { alertMessage = it.toUserMessage("确认登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun rejectWebLogin() {
+        val login = pendingWebLogin ?: return
+        if (authToken.isBlank() || webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.rejectWebLogin(authToken, login.loginToken) } }
+                .onSuccess {
+                    webLoginResultTitle = "已拒绝网页登录"
+                    webLoginResultMessage = "网页端登录请求已取消。"
+                    pendingWebLogin = null
+                    popToRootAndNavigate(Screen.WebLoginResult)
+                }
+                .onFailure { alertMessage = it.toUserMessage("拒绝登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun refreshWebSessions() {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.webSessions(authToken) } }
+                .onSuccess { webSessionRecords = it }
+                .onFailure { alertMessage = it.toUserMessage("网页登录记录同步失败") }
+        }
+    }
+
+    fun revokeWebSession(sessionId: String) {
+        if (authToken.isBlank() || webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.revokeWebSession(authToken, sessionId) } }
+                .onSuccess {
+                    snackbarMessage = "网页登录已退出"
+                    refreshWebSessions()
+                }
+                .onFailure { alertMessage = it.toUserMessage("退出网页登录失败") }
+            webLoginActionLoading = false
+        }
+    }
+
+    fun revokeAllWebSessions() {
+        if (authToken.isBlank() || webLoginActionLoading) return
+        webLoginActionLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.revokeAllWebSessions(authToken) } }
+                .onSuccess {
+                    snackbarMessage = "全部网页登录已退出"
+                    refreshWebSessions()
+                }
+                .onFailure { alertMessage = it.toUserMessage("退出网页登录失败") }
+            webLoginActionLoading = false
         }
     }
 

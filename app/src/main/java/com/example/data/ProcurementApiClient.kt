@@ -30,7 +30,10 @@ data class RemoteUser(
 data class RemoteLogin(
     val token: String,
     val expiresAt: Long,
-    val user: RemoteUser
+    val user: RemoteUser,
+    val status: String = "active",
+    val pendingApproval: Boolean = false,
+    val message: String = ""
 )
 
 data class DashboardOrder(
@@ -55,6 +58,7 @@ data class AdminDashboard(
     val shipped: Int = 0,
     val todayTotalCents: Long = 0,
     val tightInventory: Int = 0,
+    val openReceiptIssues: Int = 0,
     val recentOrders: List<DashboardOrder> = emptyList(),
     val demandRank: List<DemandRankItem> = emptyList()
 )
@@ -94,6 +98,181 @@ data class LedgerRow(
     val subtotalCents: Long,
     val totalCents: Long
 )
+
+data class InventoryAdjustRemoteResult(
+    val product: ProductEntity,
+    val beforeStockQuantity: String,
+    val afterStockQuantity: String,
+    val reservedQuantity: String,
+    val availableQuantity: String
+)
+
+data class CutoffInfo(
+    val businessDate: String = "",
+    val enabled: Boolean = false,
+    val cutoffTime: String = "",
+    val isClosed: Boolean = false,
+    val remainingSeconds: Long = 0
+)
+
+data class PreparationSummaryItem(
+    val productName: String,
+    val spec: String,
+    val unit: String,
+    val requestedQuantity: String,
+    val actualQuantity: String,
+    val unitCount: Int,
+    val orderCount: Int
+)
+
+data class DeliverySheetUnit(
+    val unitName: String,
+    val deliveryPoint: String,
+    val orderCount: Int,
+    val itemCount: Int
+)
+
+data class SystemResources(
+    val scope: String = "container",
+    val cpuPercent: Double = 0.0,
+    val memoryUsedBytes: Long = 0,
+    val memoryTotalBytes: Long = 0,
+    val diskUsedBytes: Long = 0,
+    val diskTotalBytes: Long = 0,
+    val diskFreeBytes: Long = 0
+)
+
+data class SystemPerformance(
+    val requestCount5m: Int = 0,
+    val averageLatencyMs: Int = 0,
+    val p95LatencyMs: Int = 0,
+    val errorCount5m: Int = 0,
+    val errorRatePercent: Double = 0.0,
+    val sqliteLockCount24h: Int = 0
+)
+
+data class SystemSessions(
+    val activeAppSessions: Int = 0,
+    val activeWebSessions: Int = 0
+)
+
+data class SystemStorage(
+    val databaseBytes: Long = 0,
+    val productImagesBytes: Long = 0,
+    val shippingPhotosBytes: Long = 0,
+    val receiptIssuePhotosBytes: Long = 0,
+    val backupsBytes: Long = 0
+)
+
+data class SystemServices(
+    val api: String = "unknown",
+    val database: String = "unknown",
+    val uploads: String = "unknown",
+    val backup: String = "unknown",
+    val web: String = "unknown",
+    val sms: String = "disabled"
+)
+
+data class SystemCapacity(
+    val status: String = "sufficient",
+    val summary: String = "",
+    val disclaimer: String = "",
+    val apiP95LatencyMs: Int = 0,
+    val errorRatePercent: Double = 0.0,
+    val sqliteLockCount24h: Int = 0
+)
+
+data class LatestBackup(
+    val status: String = "missing",
+    val createdAt: String = "",
+    val sizeBytes: Long = 0,
+    val verified: Boolean = false,
+    val offsiteSynced: Boolean = false,
+    val appVersion: String = "",
+    val databaseVersion: String = ""
+)
+
+data class SystemAlert(
+    val level: String = "info",
+    val title: String = "",
+    val occurredAt: String = "",
+    val impact: String = "",
+    val suggestion: String = ""
+)
+
+data class SystemOverview(
+    val overallStatus: String = "healthy",
+    val checkedAt: String = "",
+    val uptimeSeconds: Long = 0,
+    val resources: SystemResources = SystemResources(),
+    val performance: SystemPerformance = SystemPerformance(),
+    val sessions: SystemSessions = SystemSessions(),
+    val storage: SystemStorage = SystemStorage(),
+    val services: SystemServices = SystemServices(),
+    val capacity: SystemCapacity = SystemCapacity(),
+    val latestBackup: LatestBackup = LatestBackup(),
+    val alerts: List<SystemAlert> = emptyList(),
+    val todayOrders: Int = 0,
+    val pendingOrders: Int = 0,
+    val preparingOrders: Int = 0,
+    val shippedOrders: Int = 0,
+    val activeUnits: Int = 0,
+    val activeUsers: Int = 0,
+    val products: Int = 0,
+    val openReceiptIssues: Int = 0,
+    val latestBackupStatus: String = "",
+    val latestBackupTime: String = ""
+)
+
+data class WebLoginBrowserInfo(
+    val browserName: String = "",
+    val browserOs: String = "",
+    val browserIp: String = "",
+    val deviceName: String = ""
+) {
+    val name: String get() = browserName
+    val os: String get() = browserOs
+    val ip: String get() = browserIp
+}
+
+data class WebLoginScanResult(
+    val loginToken: String,
+    val websiteName: String = "景荣鲜配管理平台",
+    val websiteHost: String = "",
+    val browser: WebLoginBrowserInfo,
+    val createdAt: String = "",
+    val expiresAt: String = ""
+) {
+    val deviceName: String get() = browser.deviceName
+}
+
+data class WebSessionRecord(
+    val id: String,
+    val browserName: String = "",
+    val browserOs: String = "",
+    val browserIp: String = "",
+    val deviceName: String = "",
+    val createdAt: String = "",
+    val lastSeenAt: String = "",
+    val active: Boolean = true
+)
+
+data class InviteInspectResult(
+    val token: String,
+    val valid: Boolean = false,
+    val inviteType: String = "",
+    val roleLabel: String = "",
+    val issuerName: String = "",
+    val issuerOrg: String = "",
+    val unitCode: String = "",
+    val unitName: String = "",
+    val deliveryPoint: String = "",
+    val phoneRequired: Boolean = false,
+    val expiresAt: String = "",
+    val remainingUses: Int = 0
+)
+
+private const val INVITE_QR_PREFIX = "jingrongxianpei://invite?token="
 
 class ProcurementApiClient(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
@@ -188,6 +367,38 @@ class ProcurementApiClient(
         return parseProduct(request("admin/products/$productId/status", token = token, method = "PATCH", body = body))
     }
 
+    fun updateProductPrice(token: String, product: ProductEntity, priceCents: Long, reason: String): ProductEntity {
+        val body = JSONObject()
+            .put("price_cents", priceCents)
+            .put("reason", reason)
+            .toString()
+            .toRequestBody(JSON)
+        return parseProduct(request("admin/products/${product.id}/price", token = token, method = "PATCH", body = body))
+    }
+
+    fun adjustProductInventory(token: String, product: ProductEntity, mode: String, quantity: String, reason: String): InventoryAdjustRemoteResult {
+        val currentStock = product.stockQuantity.toBigDecimalOrNull() ?: BigDecimal.ZERO
+        val delta = quantity.toBigDecimalOrNull() ?: BigDecimal.ZERO
+        val nextStock = when (mode) {
+            "increase" -> currentStock + delta
+            "decrease" -> (currentStock - delta).max(BigDecimal.ZERO)
+            else -> delta
+        }.stripTrailingZeros().toPlainString()
+        val body = JSONObject()
+            .put("stock_quantity", nextStock)
+            .put("detail", reason)
+            .toString()
+            .toRequestBody(JSON)
+        val parsed = parseProduct(request("admin/products/${product.id}/stock", token = token, method = "PATCH", body = body))
+        return InventoryAdjustRemoteResult(
+            product = parsed,
+            beforeStockQuantity = product.stockQuantity,
+            afterStockQuantity = parsed.stockQuantity,
+            reservedQuantity = parsed.reservedQuantity,
+            availableQuantity = parsed.availableQuantity
+        )
+    }
+
     fun deleteProduct(token: String, productId: String) {
         request("admin/products/$productId", token = token, method = "DELETE")
     }
@@ -230,6 +441,7 @@ class ProcurementApiClient(
             shipped = json.optInt("shipped", 0),
             todayTotalCents = json.optLong("today_total_cents", 0),
             tightInventory = json.optInt("tight_inventory", 0),
+            openReceiptIssues = json.optInt("open_receipt_issues", 0),
             recentOrders = List(recent?.length() ?: 0) { index ->
                 val item = recent!!.getJSONObject(index)
                 DashboardOrder(
@@ -360,6 +572,298 @@ class ProcurementApiClient(
         return executeBytes("admin/ledger/export.xlsx", token)
     }
 
+    fun cutoff(token: String): CutoffInfo {
+        val json = request("procurement/cutoff", token = token)
+        return CutoffInfo(
+            businessDate = json.optString("business_date"),
+            enabled = json.optBooleanCompat("enabled"),
+            cutoffTime = json.optString("cutoff_time"),
+            isClosed = json.optBooleanCompat("is_closed"),
+            remainingSeconds = json.optLong("remaining_seconds", 0)
+        )
+    }
+
+    fun preparationSummary(token: String): List<PreparationSummaryItem> {
+        val array = request("admin/preparation-summary", token = token).optJSONArray("items") ?: JSONArray()
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            PreparationSummaryItem(
+                productName = item.optString("product_name"),
+                spec = item.optString("spec"),
+                unit = item.optString("unit"),
+                requestedQuantity = item.optString("requested_quantity"),
+                actualQuantity = item.optString("actual_quantity", item.optString("requested_quantity")),
+                unitCount = item.optInt("unit_count", 0),
+                orderCount = item.optInt("order_count", 0)
+            )
+        }
+    }
+
+    fun deliverySheets(token: String): List<DeliverySheetUnit> {
+        val units = request("admin/delivery-sheets", token = token).optJSONArray("units") ?: JSONArray()
+        return List(units.length()) { index ->
+            val unit = units.getJSONObject(index)
+            val orders = unit.optJSONArray("orders")
+            var itemCount = 0
+            for (orderIndex in 0 until (orders?.length() ?: 0)) {
+                itemCount += orders!!.getJSONObject(orderIndex).optJSONArray("items")?.length() ?: 0
+            }
+            DeliverySheetUnit(
+                unitName = unit.optString("unit_name"),
+                deliveryPoint = unit.optString("delivery_point"),
+                orderCount = orders?.length() ?: unit.optInt("order_count", 0),
+                itemCount = itemCount.takeIf { it > 0 } ?: unit.optInt("item_count", 0)
+            )
+        }
+    }
+
+    fun exportPreparationSummary(token: String): ByteArray = executeBytes("admin/preparation-summary/export.xlsx", token)
+
+    fun exportDeliverySheets(token: String): ByteArray = executeBytes("admin/delivery-sheets/export.xlsx", token)
+
+    fun systemOverview(token: String): SystemOverview {
+        val json = request("admin/system/overview?detail=true", token = token)
+        val resources = json.optJSONObject("resources") ?: JSONObject()
+        val performance = json.optJSONObject("performance") ?: JSONObject()
+        val sessions = json.optJSONObject("sessions") ?: JSONObject()
+        val storage = json.optJSONObject("storage") ?: JSONObject()
+        val services = json.optJSONObject("services") ?: JSONObject()
+        val capacity = json.optJSONObject("capacity") ?: JSONObject()
+        val latest = json.optJSONObject("latest_backup") ?: JSONObject()
+        val alerts = json.optJSONArray("alerts") ?: JSONArray()
+        return SystemOverview(
+            overallStatus = json.optString("overall_status", "healthy"),
+            checkedAt = json.optString("checked_at").replace('T', ' ').take(19),
+            uptimeSeconds = json.optLong("uptime_seconds", 0),
+            resources = SystemResources(
+                scope = resources.optString("scope", "container"),
+                cpuPercent = resources.optDouble("cpu_percent", 0.0),
+                memoryUsedBytes = resources.optLong("memory_used_bytes", 0),
+                memoryTotalBytes = resources.optLong("memory_total_bytes", 0),
+                diskUsedBytes = resources.optLong("disk_used_bytes", 0),
+                diskTotalBytes = resources.optLong("disk_total_bytes", 0),
+                diskFreeBytes = resources.optLong("disk_free_bytes", 0)
+            ),
+            performance = SystemPerformance(
+                requestCount5m = performance.optInt("request_count_5m", 0),
+                averageLatencyMs = performance.optInt("average_latency_ms", 0),
+                p95LatencyMs = performance.optInt("p95_latency_ms", 0),
+                errorCount5m = performance.optInt("error_count_5m", 0),
+                errorRatePercent = performance.optDouble("error_rate_percent", 0.0),
+                sqliteLockCount24h = performance.optInt("sqlite_lock_count_24h", 0)
+            ),
+            sessions = SystemSessions(
+                activeAppSessions = sessions.optInt("active_app_sessions", 0),
+                activeWebSessions = sessions.optInt("active_web_sessions", 0)
+            ),
+            storage = SystemStorage(
+                databaseBytes = storage.optLong("database_bytes", 0),
+                productImagesBytes = storage.optLong("product_images_bytes", 0),
+                shippingPhotosBytes = storage.optLong("shipping_photos_bytes", 0),
+                receiptIssuePhotosBytes = storage.optLong("receipt_issue_photos_bytes", 0),
+                backupsBytes = storage.optLong("backups_bytes", 0)
+            ),
+            services = SystemServices(
+                api = services.optString("api", "unknown"),
+                database = services.optString("database", "unknown"),
+                uploads = services.optString("uploads", "unknown"),
+                backup = services.optString("backup", "unknown"),
+                web = services.optString("web", "unknown"),
+                sms = services.optString("sms", "disabled")
+            ),
+            capacity = SystemCapacity(
+                status = capacity.optString("status", "sufficient"),
+                summary = capacity.optString("summary"),
+                disclaimer = capacity.optString("disclaimer"),
+                apiP95LatencyMs = capacity.optInt("api_p95_latency_ms", performance.optInt("p95_latency_ms", 0)),
+                errorRatePercent = capacity.optDouble("error_rate_percent", performance.optDouble("error_rate_percent", 0.0)),
+                sqliteLockCount24h = capacity.optInt("sqlite_lock_count_24h", performance.optInt("sqlite_lock_count_24h", 0))
+            ),
+            latestBackup = LatestBackup(
+                status = latest.optString("status", "missing"),
+                createdAt = latest.optString("created_at").replace('T', ' ').take(19),
+                sizeBytes = latest.optLong("size_bytes", 0),
+                verified = latest.optBooleanCompat("verified"),
+                offsiteSynced = latest.optBooleanCompat("offsite_synced"),
+                appVersion = latest.optString("app_version"),
+                databaseVersion = latest.optString("database_version")
+            ),
+            alerts = List(alerts.length()) { index ->
+                val item = alerts.getJSONObject(index)
+                SystemAlert(
+                    level = item.optString("level", item.optString("severity", "info")),
+                    title = item.optString("title"),
+                    occurredAt = item.optString("occurred_at").replace('T', ' ').take(19),
+                    impact = item.optString("impact", item.optString("message")),
+                    suggestion = item.optString("suggestion")
+                )
+            },
+            todayOrders = json.optInt("today_orders", 0),
+            pendingOrders = json.optInt("pending_orders", 0),
+            preparingOrders = json.optInt("preparing_orders", 0),
+            shippedOrders = json.optInt("shipped_orders", 0),
+            activeUnits = json.optInt("active_units", 0),
+            activeUsers = json.optInt("active_users", 0),
+            products = json.optInt("products", 0),
+            openReceiptIssues = json.optInt("open_receipt_issues", 0),
+            latestBackupStatus = json.optString("latest_backup_status"),
+            latestBackupTime = json.optString("latest_backup_time")
+        )
+    }
+
+    fun inspectInvite(inviteToken: String): InviteInspectResult {
+        val body = JSONObject()
+            .put("invite_token", inviteToken)
+            .toString()
+            .toRequestBody(JSON)
+        val json = request("auth/invites/inspect", method = "POST", body = body)
+        return InviteInspectResult(
+            token = inviteToken,
+            valid = json.optBooleanCompat("valid"),
+            inviteType = json.optString("invite_type"),
+            roleLabel = json.optString("role_label", json.optString("display_role")),
+            issuerName = json.optString("issuer_name_masked", json.optString("issuer_name")),
+            issuerOrg = json.optString("issuer_org"),
+            unitCode = json.optString("unit_code"),
+            unitName = json.optString("unit_name"),
+            deliveryPoint = json.optString("delivery_point"),
+            phoneRequired = json.optBooleanCompat("phone_required"),
+            expiresAt = json.optString("expires_at").replace('T', ' ').take(19),
+            remainingUses = json.optInt("remaining_uses", 0)
+        )
+    }
+
+    fun sendRegisterPhoneCode(phone: String, inviteToken: String): JSONObject {
+        val body = JSONObject()
+            .put("phone", phone)
+            .put("purpose", "register")
+            .put("invite_token", inviteToken)
+            .toString()
+            .toRequestBody(JSON)
+        return request("auth/phone/send-code", method = "POST", body = body)
+    }
+
+    fun verifyRegisterPhoneCode(phone: String, code: String, inviteToken: String): String {
+        val body = JSONObject()
+            .put("phone", phone)
+            .put("code", code)
+            .put("purpose", "register")
+            .put("invite_token", inviteToken)
+            .toString()
+            .toRequestBody(JSON)
+        return request("auth/phone/verify-code", method = "POST", body = body).optString("phone_verification_ticket")
+    }
+
+    fun registerWithInvite(
+        inviteToken: String,
+        username: String,
+        displayName: String,
+        password: String,
+        phone: String,
+        phoneVerificationTicket: String
+    ): RemoteLogin {
+        val body = JSONObject()
+            .put("invite_token", inviteToken)
+            .put("username", username)
+            .put("display_name", displayName)
+            .put("password", password)
+            .put("phone", phone)
+            .put("phone_verification_ticket", phoneVerificationTicket)
+            .toString()
+            .toRequestBody(JSON)
+        val json = request("auth/register-with-invite", method = "POST", body = body)
+        if (json.optString("status") == "pending_approval") {
+            return RemoteLogin(
+                token = "",
+                expiresAt = 0,
+                user = RemoteUser(id = "", username = username, displayName = displayName, role = "", unitId = ""),
+                status = "pending_approval",
+                pendingApproval = true,
+                message = json.optString("message", "管理者权限需要系统管理员审批")
+            )
+        }
+        return RemoteLogin(
+            token = json.getString("token"),
+            expiresAt = json.getLong("expires_at"),
+            user = parseUser(json.getJSONObject("user"))
+        )
+    }
+
+    fun scanWebLoginQr(token: String, rawValue: String): WebLoginScanResult {
+        val body = JSONObject()
+            .put("qr_token", rawValue)
+            .put("device_name", android.os.Build.MODEL.orEmpty())
+            .put("app_version", BuildConfig.VERSION_NAME)
+            .toString()
+            .toRequestBody(JSON)
+        val json = request("mobile/web-auth/qr/scan", token = token, method = "POST", body = body)
+        val browser = json.optJSONObject("browser") ?: json
+        return WebLoginScanResult(
+            loginToken = json.optString("login_token", json.optString("challenge_id", json.optString("token"))),
+            websiteName = json.optString("website_name", "景荣鲜配管理平台"),
+            websiteHost = json.optString("website_host"),
+            browser = WebLoginBrowserInfo(
+                browserName = json.optString("browser_name", browser.optString("browser_name", browser.optString("browser"))),
+                browserOs = json.optString("operating_system", browser.optString("browser_os", browser.optString("os"))),
+                browserIp = json.optString("ip_display", browser.optString("browser_ip", browser.optString("ip"))),
+                deviceName = json.optString("device_name", browser.optString("device_name", browser.optString("device")))
+            ),
+            createdAt = json.optString("created_at"),
+            expiresAt = json.optString("expires_at")
+        )
+    }
+
+    fun approveWebLogin(token: String, loginToken: String) {
+        request("mobile/web-auth/qr/$loginToken/approve", token = token, method = "POST")
+    }
+
+    fun rejectWebLogin(token: String, loginToken: String) {
+        request("mobile/web-auth/qr/$loginToken/reject", token = token, method = "POST")
+    }
+
+    fun webSessions(token: String): List<WebSessionRecord> {
+        val json = request("mobile/web-sessions", token = token)
+        val array = json.optJSONArray("items") ?: json.optJSONArray("sessions") ?: JSONArray()
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            WebSessionRecord(
+                id = item.optString("id", item.optString("session_id")),
+                browserName = item.optString("browser_name", item.optString("browser")),
+                browserOs = item.optString("browser_os", item.optString("os")),
+                browserIp = item.optString("browser_ip", item.optString("ip")),
+                deviceName = item.optString("device_name", item.optString("device")),
+                createdAt = item.optString("created_at").replace('T', ' ').take(16),
+                lastSeenAt = item.optString("last_seen_at", item.optString("created_at")).replace('T', ' ').take(16),
+                active = item.optBooleanCompat("active")
+            )
+        }
+    }
+
+    fun revokeWebSession(token: String, sessionId: String) {
+        request("mobile/web-sessions/$sessionId", token = token, method = "DELETE")
+    }
+
+    fun revokeAllWebSessions(token: String) {
+        request("mobile/web-sessions/revoke-all", token = token, method = "POST")
+    }
+
+    fun checkAppUpdate(token: String, channel: String): AppUpdateCheckResult {
+        val path = "app-update/check?channel=$channel&current_version_code=${BuildConfig.VERSION_CODE}&package_name=${BuildConfig.APPLICATION_ID}&android_api_level=${android.os.Build.VERSION.SDK_INT}&installation_id=android-${BuildConfig.VERSION_CODE}-local"
+        val json = request(path, token = token)
+        val release = json.optJSONObject("release")?.let(::parseAppUpdateRelease)
+        return AppUpdateCheckResult(
+            updateAvailable = json.optBooleanCompat("update_available"),
+            mandatory = json.optBooleanCompat("mandatory"),
+            currentVersionBlocked = json.optBooleanCompat("current_version_blocked"),
+            release = release
+        )
+    }
+
+    fun downloadAppRelease(token: String, release: AppUpdateRelease): ByteArray {
+        val ticket = release.downloadTicket
+        return executeBytes("app-update/releases/${release.releaseId}/download?download_ticket=$ticket", token)
+    }
+
     fun orderDetail(token: String, orderId: String, isAdmin: Boolean): RemoteOrderBundle {
         val path = if (isAdmin) "admin/orders/$orderId" else "orders/$orderId"
         return RemoteOrderMapper.mapOrder(request(path, token = token))
@@ -444,6 +948,32 @@ class ProcurementApiClient(
             }
             return responseBody
         }
+    }
+
+    private fun parseAppUpdateRelease(json: JSONObject): AppUpdateRelease {
+        val notes = json.optJSONArray("release_notes") ?: JSONArray()
+        return AppUpdateRelease(
+            releaseId = json.optString("release_id", json.optString("id")),
+            packageName = json.optString("package_name"),
+            versionCode = json.optInt("version_code", 0),
+            versionName = json.optString("version_name"),
+            channel = json.optString("channel"),
+            minimumSupportedVersionCode = json.optInt("minimum_supported_version_code", 0),
+            updateType = json.optString("update_type", "optional"),
+            mandatory = json.optBooleanCompat("mandatory"),
+            title = json.optString("title"),
+            releaseNotes = List(notes.length()) { index -> notes.optString(index) },
+            apkSha256 = json.optString("apk_sha256"),
+            signerSha256 = json.optString("signer_sha256"),
+            sizeBytes = json.optLong("size_bytes", json.optLong("apk_size_bytes", 0)),
+            minSdk = json.optInt("min_sdk", 0),
+            downloadUrl = json.optString("download_url"),
+            downloadTicket = json.optString("download_ticket"),
+            manifestSignature = json.optString("manifest_signature"),
+            manifestPublicKey = json.optString("manifest_public_key"),
+            manifestKeyId = json.optString("manifest_key_id"),
+            manifestSignatureAlgorithm = json.optString("manifest_signature_algorithm")
+        )
     }
 
     private fun parseUser(json: JSONObject): RemoteUser = RemoteUser(

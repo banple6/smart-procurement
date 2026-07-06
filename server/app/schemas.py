@@ -1,6 +1,7 @@
 from typing import Optional
+from urllib.parse import unquote
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
@@ -11,6 +12,52 @@ class LoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
+
+
+class InviteInspectRequest(BaseModel):
+    invite_token: str
+
+
+class PhoneSendCodeRequest(BaseModel):
+    phone: str
+    purpose: str = "register"
+    invite_token: str = ""
+
+
+class PhoneVerifyCodeRequest(BaseModel):
+    phone: str
+    code: str
+    purpose: str = "register"
+    invite_token: str = ""
+
+
+class RegisterWithInviteRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    invite_token: str
+    username: str
+    display_name: str
+    password: str
+    phone: str = ""
+    phone_verification_ticket: str = ""
+
+
+class StepUpRequest(BaseModel):
+    password: str
+    purpose: str
+
+
+class AdminInviteCreate(BaseModel):
+    invite_type: str
+    unit_id: Optional[str] = None
+    expires_in_hours: int = Field(default=72, ge=1, le=168)
+    max_uses: int = Field(default=1, ge=1, le=10)
+    phone_required: bool = False
+    allowed_phone: str = ""
+
+
+class ManagerRegistrationReview(BaseModel):
+    review_note: str = ""
 
 
 class UnitCreate(BaseModel):
@@ -120,3 +167,31 @@ class OrderCreate(BaseModel):
 
 class OrderStatusPatch(BaseModel):
     status: str
+
+
+class WebQrScanRequest(BaseModel):
+    qr_token: str = ""
+    qr_content: str = ""
+    raw_value: str = ""
+    device_name: str = ""
+    app_version: str = ""
+
+    def model_post_init(self, __context):
+        if not self.qr_token:
+            raw = self.qr_content or self.raw_value
+            token = ""
+            marker = "token="
+            if raw.startswith("jingrongxianpei://web-login?") and marker in raw:
+                token = unquote(raw.split(marker, 1)[1].split("&", 1)[0])
+            object.__setattr__(self, "qr_token", token)
+
+
+class CutoffPatch(BaseModel):
+    enabled: bool = False
+    cutoff_time: str = "10:30"
+
+
+class CutoffOverridePut(BaseModel):
+    enabled: bool = False
+    cutoff_time: str = "10:30"
+    note: str = ""

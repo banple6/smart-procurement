@@ -26,7 +26,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
-import com.smartprocurement.internal.ui.designsystem.PoliceBadgeImage
+import com.smartprocurement.internal.ui.designsystem.BusinessAppIconImage
 import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import kotlinx.coroutines.delay
@@ -114,6 +114,36 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             is Screen.InventoryRecords -> {
                 InventoryRecordsScreen(viewModel)
             }
+            is Screen.SystemStatus -> {
+                SystemStatusScreen(viewModel)
+            }
+            is Screen.PreparationSummary -> {
+                PreparationSummaryScreen(viewModel)
+            }
+            is Screen.DeliverySheets -> {
+                DeliverySheetsScreen(viewModel)
+            }
+            is Screen.InviteEntry -> {
+                InviteEntryScreen(viewModel)
+            }
+            is Screen.WebQrScanner -> {
+                WebQrScannerScreen(viewModel)
+            }
+            is Screen.WebLoginConfirm -> {
+                WebLoginConfirmScreen(viewModel)
+            }
+            is Screen.WebLoginResult -> {
+                WebLoginResultScreen(viewModel)
+            }
+            is Screen.WebSessions -> {
+                WebSessionsScreen(viewModel)
+            }
+            is Screen.AboutUpdate -> {
+                AboutUpdateScreen(viewModel)
+            }
+            is Screen.OnboardingGuide -> {
+                OnboardingWelcomeScreen(viewModel)
+            }
             else -> {
                 MainTabFrame(viewModel)
             }
@@ -143,7 +173,7 @@ fun SplashScreen(onFinish: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            PoliceBadgeImage(size = 88.dp, contentDescription = "人民警察警徽")
+            BusinessAppIconImage(size = 88.dp, contentDescription = "景荣鲜配业务图标")
             Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = "景荣鲜配",

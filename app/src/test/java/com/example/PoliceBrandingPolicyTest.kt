@@ -36,14 +36,35 @@ class PoliceBrandingPolicyTest {
     }
 
     @Test
-    fun launcher_uses_police_badge_foreground_on_navy_background() {
+    fun launcher_uses_business_foreground_on_navy_background_without_police_badge() {
         val adaptive = File(root, "src/main/res/mipmap-anydpi-v26/ic_launcher.xml").readText()
         val round = File(root, "src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml").readText()
         val background = File(root, "src/main/res/drawable/ic_launcher_background.xml").readText()
+        val foreground = File(root, "src/main/res/drawable/ic_launcher_foreground.xml").readText()
 
-        assertTrue(adaptive.contains("@drawable/ic_launcher_police_foreground"))
-        assertTrue(round.contains("@drawable/ic_launcher_police_foreground"))
+        assertTrue(adaptive.contains("@drawable/ic_launcher_foreground"))
+        assertTrue(round.contains("@drawable/ic_launcher_foreground"))
+        assertTrue(!adaptive.contains("police"))
+        assertTrue(!round.contains("police"))
         assertTrue(background.contains("#0B2864"))
+        assertTrue(foreground.contains("delivery-box-leaf"))
+        assertTrue(!foreground.contains("gradient"))
+        assertTrue(!foreground.contains("aapt:attr"))
+    }
+
+    @Test
+    fun police_badge_is_only_referenced_by_optional_badge_component() {
+        val uiFiles = File(root, "src/main/java").walkTopDown().filter { it.extension == "kt" }.toList()
+        val badgeReferences = uiFiles
+            .filter { it.readText().contains("PoliceBadgeImage(") }
+            .map { it.relativeTo(File(root, "src/main/java")).path }
+
+        assertEquals(
+            listOf(
+                "com/example/ui/designsystem/PoliceComponents.kt"
+            ),
+            badgeReferences.sorted()
+        )
     }
 
     @Test

@@ -68,27 +68,36 @@ fun PoliceBadgeImage(
 }
 
 @Composable
+fun BusinessAppIconImage(
+    size: Dp,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = "景荣鲜配业务图标",
+) {
+    Image(
+        painter = painterResource(R.drawable.ic_launcher_foreground),
+        contentDescription = contentDescription,
+        modifier = modifier.size(size),
+        contentScale = ContentScale.Fit,
+    )
+}
+
+@Composable
 fun PoliceBrandHeader(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
-    badgeSize: Dp = 32.dp,
 ) {
     PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .background(PoliceColors.Navy)
             .statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        PoliceBadgeImage(size = badgeSize, contentDescription = null)
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -100,21 +109,17 @@ fun PoliceIdentityHeader(
     modifier: Modifier = Modifier,
 ) {
     PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .background(PoliceColors.Navy)
             .statusBarsPadding()
             .padding(20.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        PoliceBadgeImage(size = 36.dp, contentDescription = null)
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(line1, fontSize = 13.sp, color = Color.White.copy(alpha = 0.86f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(line2, fontSize = 13.sp, color = Color.White.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
+        Text(title, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(line1, fontSize = 13.sp, color = Color.White.copy(alpha = 0.86f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(line2, fontSize = 13.sp, color = Color.White.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

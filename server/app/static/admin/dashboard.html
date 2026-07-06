@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>管理工作台 - 景荣鲜配</title>
+    <link rel="stylesheet" href="/admin-assets/dashboard.css" />
+  </head>
+  <body class="admin-page">
+    <aside class="sidebar" aria-label="后台导航">
+      <div class="brand">
+        <div class="brand-icon">鲜</div>
+        <div>
+          <strong>景荣鲜配</strong>
+          <span>后勤食材采购管理</span>
+        </div>
+      </div>
+      <nav id="navMenu" class="nav-menu"></nav>
+    </aside>
+    <div class="app-frame">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">工作台</h1>
+          <p id="businessDate">--</p>
+        </div>
+        <div class="top-actions">
+          <span id="refreshTime">尚未更新</span>
+          <button id="refreshButton" class="secondary-button" type="button">刷新</button>
+          <span id="currentUser" class="account-name">管理员</span>
+          <button id="logoutButton" class="ghost-button" type="button">退出登录</button>
+        </div>
+      </header>
+      <main class="content">
+        <div id="globalError" class="error-banner" hidden>
+          工作台数据加载失败
+          <button id="retryButton" type="button">重新加载</button>
+        </div>
+
+        <section id="metricGrid" class="metric-grid" aria-label="关键指标"></section>
+
+        <section class="dashboard-grid first">
+          <article class="panel todo-panel">
+            <div class="panel-header">
+              <div>
+                <h2>待办中心</h2>
+                <p>优先处理异常、超时和发货任务</p>
+              </div>
+            </div>
+            <div id="taskList" class="task-list"></div>
+          </article>
+
+          <article class="panel trend-panel">
+            <div class="panel-header">
+              <div>
+                <h2>近 7 日采购趋势</h2>
+                <p id="trendSummary">--</p>
+              </div>
+              <select id="rangeSelect" aria-label="趋势范围">
+                <option value="7">近 7 日</option>
+                <option value="14">近 14 日</option>
+                <option value="30">近 30 日</option>
+              </select>
+            </div>
+            <div id="trendChart" class="trend-chart"></div>
+          </article>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel table-panel">
+            <div class="panel-header">
+              <div>
+                <h2>最近订单</h2>
+                <p>最多显示最近 10 笔</p>
+              </div>
+              <a href="/admin/orders">查看全部订单</a>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>订单编号</th>
+                    <th>子单位</th>
+                    <th>下单时间</th>
+                    <th>商品种类</th>
+                    <th>订单金额</th>
+                    <th>当前状态</th>
+                    <th>异常标记</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="recentOrders"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel table-panel">
+            <div class="panel-header">
+              <div>
+                <h2>库存预警</h2>
+                <p>优先显示库存不足和暂停供应</p>
+              </div>
+              <a href="/admin/products?status=tight">查看食材列表</a>
+            </div>
+            <div id="inventoryAlerts" class="inventory-list"></div>
+          </article>
+        </section>
+
+        <section class="dashboard-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>今日需求排行</h2>
+                <p>按实际供应数量统计</p>
+              </div>
+              <a href="/admin/preparation-summary">今日备货汇总</a>
+            </div>
+            <div id="demandRank" class="rank-list"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>今日单位采购情况</h2>
+                <p>按金额或订单量查看</p>
+              </div>
+              <select id="unitSort" aria-label="单位排行排序">
+                <option value="amount">按金额</option>
+                <option value="orders">按订单量</option>
+              </select>
+            </div>
+            <div id="unitRank" class="rank-list"></div>
+          </article>
+        </section>
+
+        <section class="dashboard-grid bottom">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>快捷操作</h2>
+                <p>常用入口，不包含高风险操作</p>
+              </div>
+            </div>
+            <div id="quickActions" class="quick-grid"></div>
+          </article>
+
+          <article class="panel status-panel">
+            <div class="panel-header">
+              <div>
+                <h2>系统状态</h2>
+                <p>简要状态，不展示敏感信息</p>
+              </div>
+            </div>
+            <dl id="systemStatus" class="status-list"></dl>
+          </article>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" hidden></div>
+    <script src="/admin-assets/dashboard.js" defer></script>
+  </body>
+</html>

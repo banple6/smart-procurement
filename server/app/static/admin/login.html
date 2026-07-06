@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>扫码登录 - 景荣鲜配</title>
+    <link rel="stylesheet" href="/admin-assets/dashboard.css" />
+  </head>
+  <body class="login-page">
+    <main class="login-shell">
+      <header class="login-brand" aria-label="系统信息">
+        <img class="login-badge" src="/admin-assets/police-badge.svg" alt="人民警察警徽" />
+        <h1>景荣鲜配</h1>
+        <p>XX公安局后勤食材采购配送系统</p>
+      </header>
+      <section class="login-panel" aria-label="扫码登录">
+        <h2>扫码登录</h2>
+        <div id="qrBox" class="qr-box" aria-live="polite">
+          <div class="skeleton square"></div>
+        </div>
+        <p id="loginStatus" class="login-status">正在生成二维码...</p>
+        <p id="qrTimer" class="qr-timer">二维码将在 --:-- 后失效</p>
+        <button id="refreshQr" class="primary-button" type="button">刷新二维码</button>
+        <footer class="login-footnote">
+          <span>本系统仅限内部授权人员使用</span>
+          <span>请勿将二维码发送给他人</span>
+        </footer>
+      </section>
+    </main>
+    <script src="/admin-assets/login.js" defer></script>
+  </body>
+</html>

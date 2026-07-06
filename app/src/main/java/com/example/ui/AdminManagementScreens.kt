@@ -284,6 +284,76 @@ fun InventoryRecordsScreen(viewModel: SupplyViewModel) {
 }
 
 @Composable
+fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
+    val createDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        uri?.let { viewModel.exportPreparationSummary(it) }
+    }
+    LaunchedEffect(Unit) { viewModel.refreshPreparationSummary() }
+    AdminListScreen(
+        title = "今日备货单",
+        onBack = { viewModel.navigateBack() },
+        onRefresh = { viewModel.refreshPreparationSummary() }
+    ) {
+        item {
+            AdminFormCard {
+                Text("按商品汇总", fontWeight = FontWeight.Bold)
+                Text("用于备货称重和拣货，数量来自真实订单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(
+                    onClick = { createDocument.launch("今日备货汇总.xlsx") },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("导出 Excel") }
+            }
+        }
+        items(viewModel.preparationSummaryItems) { item ->
+            AdminFormCard {
+                Text(item.productName, fontWeight = FontWeight.Bold)
+                Text("${item.spec} · ${item.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("申领：${item.requestedQuantity} ${item.unit}", fontSize = 13.sp)
+                Text("备货：${item.actualQuantity} ${item.unit}", fontSize = 15.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("单位数：${item.unitCount} · 订单数：${item.orderCount}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+fun DeliverySheetsScreen(viewModel: SupplyViewModel) {
+    val createDocument = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri ->
+        uri?.let { viewModel.exportDeliverySheets(it) }
+    }
+    LaunchedEffect(Unit) { viewModel.refreshDeliverySheets() }
+    AdminListScreen(
+        title = "单位配送单",
+        onBack = { viewModel.navigateBack() },
+        onRefresh = { viewModel.refreshDeliverySheets() }
+    ) {
+        item {
+            AdminFormCard {
+                Text("按单位查看", fontWeight = FontWeight.Bold)
+                Text("用于发货前核对每个单位的订单和配送点。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button(
+                    onClick = { createDocument.launch("单位配送单.xlsx") },
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("导出 Excel") }
+            }
+        }
+        items(viewModel.deliverySheetUnits) { unit ->
+            AdminFormCard {
+                Text(unit.unitName, fontWeight = FontWeight.Bold)
+                Text("配送点：${unit.deliveryPoint}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("订单数：${unit.orderCount} · 明细数：${unit.itemCount}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
 private fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Scaffold(
         topBar = {

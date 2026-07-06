@@ -34,6 +34,11 @@ data class LoginSession(
     val mustChangePassword: Boolean = false
 )
 
+data class OnboardingState(
+    val completed: Boolean = false,
+    val selectedPath: String = ""
+)
+
 class SessionStore(private val context: Context) {
     private val userIdKey = stringPreferencesKey("user_id")
     private val rememberKey = booleanPreferencesKey("remember_login")
@@ -48,6 +53,8 @@ class SessionStore(private val context: Context) {
     private val defaultDeliveryPointKey = stringPreferencesKey("default_delivery_point")
     private val mustChangePasswordKey = booleanPreferencesKey("must_change_password")
     private val tokenIvKey = stringPreferencesKey("token_iv")
+    private val onboardingCompletedKey = booleanPreferencesKey("onboarding_completed")
+    private val selectedOnboardingPathKey = stringPreferencesKey("preferred_entry_method")
 
     val sessionFlow: Flow<LoginSession?> = context.sessionDataStore.data.map { preferences ->
         val userId = preferences[userIdKey].orEmpty()
@@ -64,6 +71,13 @@ class SessionStore(private val context: Context) {
             unitName = preferences[unitNameKey].orEmpty(),
             defaultDeliveryPoint = preferences[defaultDeliveryPointKey].orEmpty(),
             mustChangePassword = preferences[mustChangePasswordKey] ?: false
+        )
+    }
+
+    val onboardingFlow: Flow<OnboardingState> = context.sessionDataStore.data.map { preferences ->
+        OnboardingState(
+            completed = preferences[onboardingCompletedKey] ?: false,
+            selectedPath = preferences[selectedOnboardingPathKey].orEmpty()
         )
     }
 
@@ -108,6 +122,20 @@ class SessionStore(private val context: Context) {
             preferences.remove(unitNameKey)
             preferences.remove(defaultDeliveryPointKey)
             preferences.remove(mustChangePasswordKey)
+        }
+    }
+
+    suspend fun completeOnboarding(selectedPath: String) {
+        context.sessionDataStore.edit { preferences ->
+            preferences[onboardingCompletedKey] = true
+            preferences[selectedOnboardingPathKey] = selectedPath
+        }
+    }
+
+    suspend fun resetOnboardingGuide() {
+        context.sessionDataStore.edit { preferences ->
+            preferences[onboardingCompletedKey] = false
+            preferences.remove(selectedOnboardingPathKey)
         }
     }
 

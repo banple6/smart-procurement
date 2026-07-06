@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import base64
+import secrets
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -31,6 +32,31 @@ def login(client, username, password):
     assert response.status_code == 200, response.text
     token = response.json()["token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+def set_web_session(client, user_id: str, role: str = "admin", unit_id: str | None = None):
+    from app.database import connect
+    from app.security import hash_token
+    from app.web_session import CSRF_COOKIE, web_session_cookie_name
+
+    token = secrets.token_urlsafe(32)
+    csrf = secrets.token_urlsafe(24)
+    with connect() as conn:
+        conn.execute("UPDATE users SET must_change_password = 0 WHERE id = ?", (user_id,))
+        conn.execute(
+            """
+            INSERT INTO web_sessions(
+              id, token_hash, user_id, role, unit_id, idle_expires_at, absolute_expires_at,
+              browser_name, browser_os, browser_ip
+            )
+            VALUES (?, ?, ?, ?, ?, datetime('now', '+30 minutes'), datetime('now', '+8 hours'), 'TestBrowser', 'macOS', '127.0.0.1')
+            """,
+            (str(uuid4()), hash_token(token), user_id, role, unit_id),
+        )
+        conn.commit()
+    client.cookies.set(web_session_cookie_name(), token)
+    client.cookies.set(CSRF_COOKIE, csrf)
+    return {"X-CSRF-Token": csrf}
 
 
 def create_unit_user_product_order(client):
@@ -80,6 +106,77 @@ def create_unit_user_product_order(client):
     )
     assert product.status_code == 200, product.text
     return admin_headers, login(client, "unit001", "UnitPassword123"), unit_id, product.json()["id"]
+
+
+def test_registration_safety_migration_upgrades_legacy_invite_table(tmp_path):
+    os.environ["APP_ENV"] = "test"
+    os.environ["APP_SECRET"] = "test-secret"
+    os.environ["DATABASE_PATH"] = str(tmp_path / "smart_procurement.db")
+    os.environ["UPLOAD_DIR"] = str(tmp_path / "uploads")
+    os.environ["PRIVATE_UPLOAD_DIR"] = str(tmp_path / "private_uploads")
+
+    from app.database import column_names, connect, migrate
+
+    migrate()
+    with connect() as conn:
+        conn.execute("DROP TABLE IF EXISTS manager_registration_requests")
+        conn.execute("DROP TABLE IF EXISTS registration_invites")
+        conn.execute(
+            """
+            CREATE TABLE registration_invites (
+              id TEXT PRIMARY KEY,
+              token_hash TEXT NOT NULL UNIQUE,
+              token_suffix TEXT NOT NULL DEFAULT '',
+              invite_type TEXT NOT NULL,
+              unit_id TEXT,
+              max_uses INTEGER NOT NULL DEFAULT 1,
+              used_count INTEGER NOT NULL DEFAULT 0,
+              phone_required INTEGER NOT NULL DEFAULT 0,
+              allowed_phone_hash TEXT NOT NULL DEFAULT '',
+              approval_required INTEGER NOT NULL DEFAULT 0,
+              active INTEGER NOT NULL DEFAULT 1,
+              expires_at TEXT NOT NULL,
+              created_by TEXT,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              revoked_at TEXT,
+              revoked_by TEXT,
+              note TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute("DELETE FROM schema_migrations WHERE version IN ('0008_registration_safety', '0009_manager_registration_requests')")
+        conn.execute(
+            """
+            INSERT INTO registration_invites(
+              id, token_hash, token_suffix, invite_type, unit_id, max_uses, used_count, active, expires_at
+            )
+            VALUES
+              ('legacy-unit', 'hash-unit', 'U123', 'unit', 'unit-1', 2, 0, 1, datetime('now', '+1 day')),
+              ('legacy-manager', 'hash-manager', 'M123', 'manager', NULL, 1, 0, 0, datetime('now', '+1 day'))
+            """
+        )
+        conn.commit()
+
+    applied = migrate()
+    assert "0008_registration_safety" in applied
+    assert "0009_manager_registration_requests" in applied
+
+    with connect() as conn:
+        columns = column_names(conn, "registration_invites")
+        assert {"display_code_suffix", "role", "allowed_phone_masked", "status", "updated_at"} <= columns
+        unit_invite = conn.execute(
+            "SELECT display_code_suffix, role, status, updated_at FROM registration_invites WHERE id = 'legacy-unit'"
+        ).fetchone()
+        manager_invite = conn.execute(
+            "SELECT display_code_suffix, role, status FROM registration_invites WHERE id = 'legacy-manager'"
+        ).fetchone()
+    assert unit_invite["display_code_suffix"] == "U123"
+    assert unit_invite["role"] == "unit_user"
+    assert unit_invite["status"] == "active"
+    assert unit_invite["updated_at"]
+    assert manager_invite["display_code_suffix"] == "M123"
+    assert manager_invite["role"] == "admin"
+    assert manager_invite["status"] == "revoked"
 
 
 def sample_image_bytes(size=(32, 24), color=(180, 40, 30)) -> bytes:
@@ -692,6 +789,8 @@ def test_order_list_include_items_and_client_request_id_idempotency(tmp_path):
 
 def test_migration_status_and_readiness(tmp_path):
     client = make_client(tmp_path)
+    assert client.head("/api/v1/health").status_code == 200
+    assert client.head("/api/v1/health/ready").status_code == 200
     ready = client.get("/api/v1/health/ready")
     assert ready.status_code == 200
     assert ready.json()["status"] == "ready"
@@ -730,3 +829,502 @@ def test_existing_database_is_migrated_without_dropping_data(tmp_path, monkeypat
         sessions = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sessions'").fetchone()
     assert unit == ("历史单位", "")
     assert sessions is not None
+
+
+def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
+    client = make_client(tmp_path)
+    assert client.get("/admin/dashboard", follow_redirects=False).status_code == 302
+    assert client.get("/admin/dashboard", follow_redirects=False).headers["location"].startswith("/login")
+
+    admin_headers, unit_headers, unit_id, _ = create_unit_user_product_order(client)
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    csrf = set_web_session(client, admin_me["id"], "admin")
+
+    page = client.get("/admin/dashboard")
+    assert page.status_code == 200
+    assert "景荣鲜配" in page.text
+    assert "人民警察警徽" not in page.text
+    assert "police-badge" not in page.text
+    assert "公安" not in page.text
+    assert "no-store" in page.headers["cache-control"]
+    assert client.head("/admin/dashboard").status_code == 200
+
+    admin_routes = [
+        "/admin/orders",
+        "/admin/products",
+        "/admin/units",
+        "/admin/accounts",
+        "/admin/ledger",
+        "/admin/receipt-issues",
+        "/admin/preparation-summary",
+        "/admin/delivery-sheets",
+        "/admin/web-sessions",
+        "/admin/system",
+    ]
+    for route in admin_routes:
+        protected = client.get(route)
+        assert protected.status_code == 200, route
+        assert "景荣鲜配" in protected.text
+        assert "no-store" in protected.headers["cache-control"]
+
+    me = client.get("/api/v1/web-auth/me")
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin"
+
+    logout = client.post("/api/v1/web-auth/logout", headers=csrf)
+    assert logout.status_code == 200
+    assert client.get("/api/v1/web-auth/me").status_code == 401
+
+    unit_user = client.get("/api/v1/auth/me", headers=unit_headers).json()
+    set_web_session(client, unit_user["id"], "unit_user", unit_id)
+    forbidden = client.get("/api/v1/admin/dashboard/overview")
+    assert forbidden.status_code == 403
+    forbidden_page = client.get("/admin/dashboard")
+    assert forbidden_page.status_code == 403
+    assert "no-store" in forbidden_page.headers["cache-control"]
+
+
+def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
+    admin_root = Path(__file__).resolve().parents[1] / "app" / "static" / "admin"
+    dashboard_html = (admin_root / "dashboard.html").read_text(encoding="utf-8")
+    dashboard_js = (admin_root / "dashboard.js").read_text(encoding="utf-8")
+    login_html = (admin_root / "login.html").read_text(encoding="utf-8")
+
+    combined_dashboard_source = dashboard_html + dashboard_js
+    assert "http://" not in combined_dashboard_source
+    assert "https://" not in combined_dashboard_source
+    assert "localStorage" not in dashboard_js
+    assert "sessionStorage" not in dashboard_js
+    assert "police-badge" not in dashboard_html
+    assert "人民警察警徽" not in dashboard_html
+    assert "公安" not in dashboard_html
+    assert "人民警察警徽" in login_html
+    assert "staleSuffix" in dashboard_js
+    assert "includes(staleSuffix)" in dashboard_js
+
+
+def test_web_qr_login_is_bound_one_time_and_admin_only(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, _ = create_unit_user_product_order(client)
+
+    from app.database import connect
+    from app.main import app
+    from app.web_session import QR_BINDING_COOKIE
+
+    with connect() as conn:
+        conn.execute("UPDATE users SET must_change_password = 0 WHERE username = 'root_admin'")
+        conn.commit()
+
+    denied_challenge = client.post("/api/v1/web-auth/qr/challenges")
+    assert denied_challenge.status_code == 200, denied_challenge.text
+    denied_payload = denied_challenge.json()["qr_payload"]
+    denied_token = denied_payload.split("token=", 1)[1]
+    denied = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=unit_headers,
+        json={"qr_token": denied_token, "device_name": "Pixel", "app_version": "1.0"},
+    )
+    assert denied.status_code == 403
+    assert "管理平台访问权限" in denied.json()["detail"]
+    assert client.get(f"/api/v1/web-auth/qr/challenges/{denied_challenge.json()['challenge_id']}/status").json()["status"] == "pending"
+
+    challenge = client.post("/api/v1/web-auth/qr/challenges", headers={"User-Agent": "Mozilla/5.0 Chrome/120 Windows"})
+    assert challenge.status_code == 200, challenge.text
+    challenge_data = challenge.json()
+    qr_payload = challenge_data["qr_payload"]
+    qr_token = qr_payload.split("token=", 1)[1]
+    binding_cookie = client.cookies.get(QR_BINDING_COOKIE)
+    assert binding_cookie
+
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT qr_token_hash, browser_binding_hash FROM web_login_challenges WHERE id = ?",
+            (challenge_data["challenge_id"],),
+        ).fetchone()
+        assert row["qr_token_hash"] != qr_token
+        assert row["browser_binding_hash"] != binding_cookie
+
+    scan = client.post(
+        "/api/v1/mobile/web-auth/qr/scan",
+        headers=admin_headers,
+        json={"qr_token": qr_token, "device_name": "Pixel", "app_version": "1.0"},
+    )
+    assert scan.status_code == 200, scan.text
+    scan_data = scan.json()
+    assert scan_data["challenge_id"] == challenge_data["challenge_id"]
+    assert scan_data["website_name"] == "景荣鲜配管理平台"
+    assert scan_data["browser_name"] == "Chrome"
+    assert scan_data["operating_system"] == "Windows"
+    assert scan_data["ip_display"]
+    assert scan_data["allowed"] is True
+    assert client.get(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/status").json()["status"] == "scanned"
+
+    early_consume = client.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
+    assert early_consume.status_code == 409
+
+    approved = client.post(f"/api/v1/mobile/web-auth/qr/{challenge_data['challenge_id']}/approve", headers=admin_headers)
+    assert approved.status_code == 200, approved.text
+
+    other_browser = TestClient(app)
+    blocked = other_browser.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
+    assert blocked.status_code == 403
+
+    consumed = client.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
+    assert consumed.status_code == 200, consumed.text
+    assert "token" not in consumed.json()
+    assert "__Host-jrxp_session" not in consumed.headers.get("set-cookie", "")
+    assert "httponly" in consumed.headers.get("set-cookie", "").lower()
+    assert "samesite=strict" in consumed.headers.get("set-cookie", "").lower()
+
+    replay = client.post(f"/api/v1/web-auth/qr/challenges/{challenge_data['challenge_id']}/consume")
+    assert replay.status_code != 200
+
+
+def test_cleanup_web_auth_records_revokes_expired_and_prunes_old_records(tmp_path):
+    make_client(tmp_path)
+
+    from app.database import connect
+    from app.security import hash_token
+    from app.cli import cleanup_web_auth_records
+
+    with connect() as conn:
+        user_id = conn.execute("SELECT id FROM users WHERE username = 'root_admin'").fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO web_login_challenges(id, qr_token_hash, browser_binding_hash, status, created_at, expires_at, consumed_at)
+            VALUES ('old-challenge', 'old-token', 'old-binding', 'consumed', datetime('now', '-8 days'), datetime('now', '-8 days'), datetime('now', '-8 days'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO web_login_challenges(id, qr_token_hash, browser_binding_hash, status, created_at, expires_at)
+            VALUES ('recent-challenge', 'recent-token', 'recent-binding', 'pending', datetime('now', '-1 days'), datetime('now', '+1 minutes'))
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO web_sessions(id, token_hash, user_id, role, idle_expires_at, absolute_expires_at)
+            VALUES ('expired-session', ?, ?, 'admin', datetime('now', '-1 minutes'), datetime('now', '+1 hours'))
+            """,
+            (hash_token("expired"), user_id),
+        )
+        conn.execute(
+            """
+            INSERT INTO web_sessions(id, token_hash, user_id, role, created_at, idle_expires_at, absolute_expires_at, revoked_at, revoked_reason)
+            VALUES ('old-revoked-session', ?, ?, 'admin', datetime('now', '-100 days'), datetime('now', '-99 days'), datetime('now', '-99 days'), datetime('now', '-90 days'), '测试')
+            """,
+            (hash_token("old-revoked"), user_id),
+        )
+        conn.commit()
+
+    result = cleanup_web_auth_records(challenge_retention_days=7, revoked_session_retention_days=30)
+    assert result["revoked_expired_sessions"] == 1
+    assert result["deleted_challenges"] == 1
+    assert result["deleted_revoked_sessions"] == 1
+
+    with connect() as conn:
+        assert conn.execute("SELECT id FROM web_login_challenges WHERE id = 'old-challenge'").fetchone() is None
+        assert conn.execute("SELECT id FROM web_login_challenges WHERE id = 'recent-challenge'").fetchone() is not None
+        expired = conn.execute("SELECT revoked_at, revoked_reason FROM web_sessions WHERE id = 'expired-session'").fetchone()
+        assert expired["revoked_at"] is not None
+        assert expired["revoked_reason"] == "会话已过期"
+        assert conn.execute("SELECT id FROM web_sessions WHERE id = 'old-revoked-session'").fetchone() is None
+
+
+def test_dashboard_overview_uses_shanghai_business_date_and_actual_quantity(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    set_web_session(client, admin_me["id"], "admin")
+
+    order_today = client.post("/api/v1/orders", headers=unit_headers, json={"items": [{"product_id": product_id, "quantity": "1"}]}).json()
+    order_yesterday = client.post("/api/v1/orders", headers=unit_headers, json={"items": [{"product_id": product_id, "quantity": "1"}]}).json()
+    order_cancelled = client.post("/api/v1/orders", headers=unit_headers, json={"items": [{"product_id": product_id, "quantity": "1"}]}).json()
+
+    from app.database import connect
+
+    with connect() as conn:
+        unit_user_id = conn.execute("SELECT id FROM users WHERE username = 'unit001'").fetchone()["id"]
+        conn.execute("UPDATE orders SET created_at = '2026-07-01 16:30:00', total_cents = 450 WHERE id = ?", (order_today["id"],))
+        conn.execute("UPDATE orders SET created_at = '2026-07-01 15:30:00', total_cents = 450 WHERE id = ?", (order_yesterday["id"],))
+        conn.execute("UPDATE orders SET created_at = '2026-07-02 01:00:00', total_cents = 450, status = 'cancelled' WHERE id = ?", (order_cancelled["id"],))
+        conn.execute("UPDATE order_items SET actual_quantity = '2' WHERE order_id = ?", (order_today["id"],))
+        conn.execute(
+            """
+            INSERT INTO receipt_issues(id, order_id, unit_id, issue_type, description, status, reported_by)
+            VALUES (?, ?, ?, 'quality', '品质问题', 'open', ?)
+            """,
+            (str(uuid4()), order_today["id"], unit_id, unit_user_id),
+        )
+        conn.execute("UPDATE products SET warning_quantity = '20', supply_status = 'tight' WHERE id = ?", (product_id,))
+        conn.commit()
+
+    overview = client.get("/api/v1/admin/dashboard/overview?business_date=2026-07-02&range_days=7")
+    assert overview.status_code == 200, overview.text
+    body = overview.json()
+    assert body["business_date"] == "2026-07-02"
+    assert body["metrics"]["today_valid_orders"] == 1
+    assert body["metrics"]["today_total_cents"] == 450
+    assert body["metrics"]["pending"] >= 2
+    assert body["metrics"]["open_receipt_issues"] == 1
+    assert body["metrics"]["tight_inventory"] >= 1
+    assert len(body["recent_orders"]) <= 10
+    assert body["demand_rank"][0]["quantity"] == 2
+    assert body["unit_rank"][0]["unit_id"] == unit_id
+    assert len(body["trend"]) == 7
+    assert any(item["date"] == "2026-07-02" and item["order_count"] == 1 for item in body["trend"])
+
+
+def test_dashboard_overview_empty_shape_and_task_unit_labels(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    set_web_session(client, admin_me["id"], "admin")
+
+    overview = client.get("/api/v1/admin/dashboard/overview?business_date=2026-07-02&range_days=30&unit_sort=orders")
+    assert overview.status_code == 200, overview.text
+    body = overview.json()
+
+    assert body["business_date"] == "2026-07-02"
+    assert len(body["trend"]) == 30
+    assert body["recent_orders"] == []
+    assert body["inventory_alerts"] == []
+    assert body["demand_rank"] == []
+    assert body["unit_rank"] == []
+    assert isinstance(body["metrics"]["today_total_cents"], int)
+    assert isinstance(body["metrics"]["today_valid_orders"], int)
+
+    tasks = {item["type"]: item for item in body["tasks"]}
+    assert tasks["stock_alerts"]["unit_label"] == "种"
+    assert tasks["pending_orders"]["unit_label"] == "笔"
+    assert tasks["waiting_shipment"]["unit_label"] == "笔"
+    assert tasks["receipt_issues"]["unit_label"] == "项"
+
+
+def test_dashboard_overview_inventory_metric_matches_paused_alerts(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    set_web_session(client, admin_me["id"], "admin")
+
+    product = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={
+            "product_code": "PAUSED-FISH",
+            "name": "暂停供应鱼丸",
+            "category": "冻品",
+            "spec": "袋装",
+            "unit": "袋",
+            "price_cents": 1200,
+            "stock_quantity": "100",
+            "reserved_quantity": "0",
+            "warning_quantity": "0",
+            "supply_status": "paused",
+            "active": True,
+        },
+    )
+    assert product.status_code == 200, product.text
+    product_id = product.json()["id"]
+
+    overview = client.get("/api/v1/admin/dashboard/overview")
+    assert overview.status_code == 200, overview.text
+    body = overview.json()
+    assert body["metrics"]["tight_inventory"] == 1
+    assert body["tasks"][3]["type"] == "stock_alerts"
+    assert body["tasks"][3]["count"] == 1
+    assert any(item["id"] == product_id for item in body["inventory_alerts"])
+
+
+def test_unit_invite_registration_binds_server_role_and_unit_without_storing_raw_token(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    unit = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "REG-U1", "unit_name": "注册食堂", "default_delivery_point": "注册收货点"},
+    ).json()
+    other_unit = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "REG-U2", "unit_name": "伪造单位", "default_delivery_point": "伪造收货点"},
+    ).json()
+
+    created = client.post(
+        "/api/v1/admin/invites",
+        headers=admin_headers,
+        json={"invite_type": "unit", "unit_id": unit["id"], "max_uses": 1, "phone_required": False},
+    )
+    assert created.status_code == 200, created.text
+    invite_token = created.json()["invite_token"]
+    assert created.json()["qr_payload"] == f"jingrongxianpei://invite?token={invite_token}"
+
+    inspected = client.post("/api/v1/auth/invites/inspect", json={"invite_token": invite_token})
+    assert inspected.status_code == 200, inspected.text
+    inspect_body = inspected.json()
+    assert inspect_body["valid"] is True
+    assert inspect_body["invite_type"] == "unit"
+    assert inspect_body["unit_name"] == "注册食堂"
+    assert "role" not in inspect_body
+    assert "unit_id" not in inspect_body
+    assert "token_hash" not in inspect_body
+
+    registered = client.post(
+        "/api/v1/auth/register-with-invite",
+        json={
+            "invite_token": invite_token,
+            "username": "invite_unit",
+            "display_name": "邀请码子单位",
+            "password": "InviteUnit123",
+            "role": "admin",
+            "unit_id": other_unit["id"],
+            "is_admin": True,
+        },
+    )
+    assert registered.status_code == 200, registered.text
+    user = registered.json()["user"]
+    assert user["role"] == "unit_user"
+    assert user["unit_id"] == unit["id"]
+    assert user["unit_name"] == "注册食堂"
+
+    replay = client.post(
+        "/api/v1/auth/register-with-invite",
+        json={
+            "invite_token": invite_token,
+            "username": "invite_unit_replay",
+            "display_name": "重复注册",
+            "password": "InviteUnit123",
+        },
+    )
+    assert replay.status_code == 409
+
+    from app.database import connect
+    from app.security import hash_token
+
+    with connect() as conn:
+        invite = conn.execute(
+            "SELECT token_hash, display_code_suffix, used_count, status FROM registration_invites WHERE id = ?",
+            (created.json()["id"],),
+        ).fetchone()
+        audit_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM audit_logs WHERE object_id = ? AND action = 'INVITE_REGISTER'",
+            (created.json()["id"],),
+        ).fetchone()["c"]
+    assert invite["token_hash"] == hash_token(invite_token)
+    assert invite["token_hash"] != invite_token
+    assert invite["display_code_suffix"] == invite_token[-4:]
+    assert invite["used_count"] == 1
+    assert invite["status"] == "used"
+    assert audit_count == 1
+
+
+def test_manager_invite_registration_creates_pending_request_and_requires_approval(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, _ = create_unit_user_product_order(client)
+
+    forbidden = client.post(
+        "/api/v1/admin/invites",
+        headers=unit_headers,
+        json={"invite_type": "manager", "max_uses": 1},
+    )
+    assert forbidden.status_code == 403
+
+    created = client.post(
+        "/api/v1/admin/invites",
+        headers=admin_headers,
+        json={"invite_type": "manager", "expires_in_hours": 24, "max_uses": 1},
+    )
+    assert created.status_code == 200, created.text
+    token = created.json()["invite_token"]
+    assert created.json()["qr_payload"] == f"jingrongxianpei://invite?token={token}"
+
+    inspected = client.post("/api/v1/auth/invites/inspect", json={"invite_token": token})
+    assert inspected.status_code == 200, inspected.text
+    inspect_body = inspected.json()
+    assert inspect_body["valid"] is True
+    assert inspect_body["invite_type"] == "manager"
+    assert inspect_body["display_role"] == "管理者申请"
+    assert inspect_body["approval_required"] is True
+    assert "role" not in inspect_body
+    assert "unit_id" not in inspect_body
+    assert "token_hash" not in inspect_body
+    assert "issuer_id" not in inspect_body
+
+    registered = client.post(
+        "/api/v1/auth/register-with-invite",
+        json={
+            "invite_token": f"jingrongxianpei://register?invite={token}",
+            "username": "new_manager",
+            "display_name": "新管理员",
+            "password": "ManagerInvite123",
+            "unit_id": "forged-unit",
+        },
+    )
+    assert registered.status_code == 200, registered.text
+    register_body = registered.json()
+    assert register_body["status"] == "pending_approval"
+    assert register_body["approval_required"] is True
+    assert "token" not in register_body
+    assert "user" not in register_body
+    assert client.post("/api/v1/auth/login", json={"username": "new_manager", "password": "ManagerInvite123"}).status_code == 401
+
+    requests = client.get("/api/v1/admin/manager-registration-requests", headers=admin_headers)
+    assert requests.status_code == 200, requests.text
+    pending = next(item for item in requests.json()["items"] if item["username"] == "new_manager")
+    assert pending["status"] == "pending"
+    assert pending["phone_masked"] == ""
+    assert "password_hash" not in pending
+
+    limited_admin = client.post(
+        "/api/v1/admin/users",
+        headers=admin_headers,
+        json={
+            "username": "limited_admin",
+            "password": "LimitedAdmin123",
+            "display_name": "普通管理员",
+            "role": "admin",
+            "must_change_password": False,
+        },
+    )
+    assert limited_admin.status_code == 200, limited_admin.text
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute("UPDATE users SET can_manage_accounts = 0 WHERE username = 'limited_admin'")
+        conn.commit()
+    limited_headers = login(client, "limited_admin", "LimitedAdmin123")
+    blocked = client.post(f"/api/v1/admin/manager-registration-requests/{pending['id']}/approve", headers=limited_headers)
+    assert blocked.status_code == 403
+
+    approved = client.post(
+        f"/api/v1/admin/manager-registration-requests/{pending['id']}/approve",
+        headers=admin_headers,
+        json={"review_note": "测试审批通过"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+    login_after_approval = client.post("/api/v1/auth/login", json={"username": "new_manager", "password": "ManagerInvite123"})
+    assert login_after_approval.status_code == 200, login_after_approval.text
+    assert login_after_approval.json()["user"]["role"] == "admin"
+    assert login_after_approval.json()["user"]["unit_id"] == ""
+
+
+def test_system_overview_rejects_unit_users_and_returns_safety_shape(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, _ = create_unit_user_product_order(client)
+    assert client.get("/api/v1/admin/system/overview", headers=unit_headers).status_code == 403
+
+    overview = client.get("/api/v1/admin/system/overview", headers=admin_headers)
+    assert overview.status_code == 200, overview.text
+    body = overview.json()
+    assert body["overall_status"] in {"healthy", "warning", "critical"}
+    assert body["resources"]["scope"] in {"host", "container"}
+    assert {"cpu_percent", "memory_used_bytes", "memory_total_bytes", "disk_used_bytes", "disk_total_bytes"} <= set(body["resources"])
+    assert {"request_count_5m", "average_latency_ms", "p95_latency_ms", "error_count_5m", "error_rate_percent", "sqlite_lock_count_24h"} <= set(body["performance"])
+    assert {"active_app_sessions", "active_web_sessions"} <= set(body["sessions"])
+    assert {"database_bytes", "product_images_bytes", "shipping_photos_bytes", "receipt_issue_photos_bytes", "backups_bytes"} <= set(body["storage"])
+    assert body["services"]["sms"] in {"disabled", "healthy", "unconfigured", "error"}
+    assert body["capacity"]["status"] in {"sufficient", "moderate", "expand_recommended", "risk"}
+    assert "压力测试" in body["capacity"]["disclaimer"]
+    assert isinstance(body["alerts"], list)
+    assert "APP_SECRET" not in str(body)

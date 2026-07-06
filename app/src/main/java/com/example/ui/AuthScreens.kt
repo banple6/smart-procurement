@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,9 +21,110 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.smartprocurement.internal.ui.designsystem.PoliceBadgeImage
+import com.smartprocurement.internal.ui.designsystem.BusinessAppIconImage
 import com.smartprocurement.internal.ui.designsystem.PoliceColors
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
+
+@Composable
+fun OnboardingWelcomeScreen(viewModel: SupplyViewModel) {
+    PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        BusinessAppIconImage(size = 82.dp, contentDescription = "景荣鲜配业务图标")
+        Spacer(modifier = Modifier.height(22.dp))
+        Text("景荣鲜配", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Text("公安后勤食材采购配送系统", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(18.dp))
+        Text(
+            "用于内部食材申领、订单处理、库存管理与配送协同",
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 22.sp
+        )
+        Spacer(modifier = Modifier.height(36.dp))
+        Button(
+            onClick = { viewModel.startOnboarding() },
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("开始使用", fontWeight = FontWeight.Bold)
+        }
+        TextButton(onClick = { viewModel.openLoginFromOnboarding("login") }) {
+            Text("已有账号，直接登录")
+        }
+    }
+}
+
+@Composable
+fun OnboardingIdentityScreen(viewModel: SupplyViewModel) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text("请选择进入方式", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        IdentityChoiceCard(
+            icon = Icons.Default.Person,
+            title = "已有账号登录",
+            description = "使用管理员创建的内部账号登录，系统会自动识别真实权限。",
+            buttonText = "已有账号登录",
+            onClick = { viewModel.openLoginFromOnboarding("account_login") }
+        )
+        IdentityChoiceCard(
+            icon = Icons.Default.VerifiedUser,
+            title = "扫描邀请二维码",
+            description = "扫描系统管理员签发的邀请码，服务器决定账号类型和所属单位。",
+            buttonText = "扫描邀请二维码",
+            onClick = { viewModel.chooseOnboardingPath("scan_invite") }
+        )
+        IdentityChoiceCard(
+            icon = Icons.Default.Home,
+            title = "输入邀请码",
+            description = "手动输入或粘贴邀请码，适合无法扫码的场景。",
+            buttonText = "输入邀请码",
+            onClick = { viewModel.chooseOnboardingPath("manual_invite") }
+        )
+        Text(
+            "身份权限由单位邀请码或已分配账号确定，无法自行修改。",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            lineHeight = 20.sp
+        )
+        TextButton(onClick = { viewModel.openLoginFromOnboarding("login") }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text("已有账号，直接登录")
+        }
+    }
+}
+
+@Composable
+private fun IdentityChoiceCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String, buttonText: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(title, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(description, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 21.sp)
+            Button(onClick = onClick, modifier = Modifier.fillMaxWidth().height(50.dp), shape = RoundedCornerShape(10.dp)) {
+                Text(buttonText, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
 
 @Composable
 fun LoginScreen(viewModel: SupplyViewModel) {
@@ -46,11 +148,10 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                 .padding(horizontal = 24.dp, vertical = 34.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            PoliceBadgeImage(size = 68.dp, contentDescription = "人民警察警徽")
+            BusinessAppIconImage(size = 56.dp, contentDescription = "景荣鲜配业务图标")
             Spacer(modifier = Modifier.height(16.dp))
             Text("景荣鲜配", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("XX公安局后勤食材采购配送系统", fontSize = 14.sp, color = Color.White.copy(alpha = 0.82f))
-            Text("公安内部使用", fontSize = 13.sp, color = Color.White.copy(alpha = 0.68f), modifier = Modifier.padding(top = 4.dp))
         }
         Spacer(modifier = Modifier.height(26.dp))
 
@@ -112,6 +213,15 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                 }
 
                 Text("账号由系统管理员创建。忘记密码请联系管理员", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(
+                    onClick = {
+                        viewModel.selectedOnboardingPath = viewModel.selectedOnboardingPath.ifBlank { "manual_invite" }
+                        viewModel.navigateTo(Screen.InviteEntry)
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                ) {
+                    Text("没有账号？使用邀请码加入")
+                }
         }
         Spacer(modifier = Modifier.height(24.dp))
     }

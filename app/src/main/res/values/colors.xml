@@ -1,10 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- 景荣鲜配 (JRXP) 专属色彩体系 -->
+
+    <!-- 主色：公安蓝 -->
+    <color name="jrxp_command_navy">#FF0A2957</color>
+    <color name="jrxp_duty_blue">#FF174F8A</color>
+    <color name="jrxp_dispatch_blue">#FF2C6DA4</color>
+    <color name="jrxp_pale_blue">#FFE9F0F7</color>
+
+    <!-- 底色：纸张 -->
+    <color name="jrxp_ledger_paper">#FFF7F5EF</color>
+    <color name="jrxp_reading_surface">#FFFCFBF7</color>
+    <color name="jrxp_pure_surface">#FFFFFFFF</color>
+    <color name="jrxp_muted_surface">#FFF1F2F0</color>
+
+    <!-- 文字墨色 -->
+    <color name="jrxp_ink_primary">#FF20252B</color>
+    <color name="jrxp_ink_secondary">#FF606973</color>
+    <color name="jrxp_ink_tertiary">#FF858D95</color>
+
+    <!-- 分割线 -->
+    <color name="jrxp_rule_line">#FFD9DEE2</color>
+    <color name="jrxp_soft_divider">#FFE8EAE9</color>
+
+    <!-- 业务状态 -->
+    <color name="jrxp_supply_green">#FF347251</color>
+    <color name="jrxp_warning_amber">#FFA66817</color>
+    <color name="jrxp_critical_red">#FFB93636</color>
+    <color name="jrxp_cancelled_gray">#FF737980</color>
+
+    <!-- 点缀 -->
+    <color name="jrxp_ledger_gold">#FFAF8543</color>
+
+    <!-- 兼容保留（系统使用） -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>
