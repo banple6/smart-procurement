@@ -26,8 +26,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
-import com.smartprocurement.internal.ui.designsystem.BusinessAppIconImage
 import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceOpeningBadge
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import kotlinx.coroutines.delay
 
@@ -173,7 +173,7 @@ fun SplashScreen(onFinish: () -> Unit) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            BusinessAppIconImage(size = 88.dp, contentDescription = "景荣鲜配业务图标")
+            PoliceOpeningBadge(size = 96.dp)
             Spacer(modifier = Modifier.height(20.dp))
             Text(
                 text = "景荣鲜配",

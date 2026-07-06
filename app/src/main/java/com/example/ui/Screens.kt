@@ -200,6 +200,10 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "关于与更新") { viewModel.navigateTo(Screen.AboutUpdate) }
@@ -211,6 +215,10 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.LocationOn, title = "默认配送点", rightText = viewModel.defaultDeliveryPoint) {}
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "我的订单") { viewModel.currentTab = "orders" }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
+                        Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
+                        ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
                         Divider(color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.padding(horizontal = 16.dp))

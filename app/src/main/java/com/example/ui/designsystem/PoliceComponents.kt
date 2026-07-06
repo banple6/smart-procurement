@@ -82,6 +82,14 @@ fun BusinessAppIconImage(
 }
 
 @Composable
+fun PoliceOpeningBadge(
+    size: Dp,
+    modifier: Modifier = Modifier,
+) {
+    PoliceBadgeImage(size = size, modifier = modifier, contentDescription = "人民警察警徽")
+}
+
+@Composable
 fun PoliceBrandHeader(
     title: String,
     subtitle: String,

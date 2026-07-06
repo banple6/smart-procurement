@@ -21,8 +21,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.smartprocurement.internal.ui.designsystem.BusinessAppIconImage
 import com.smartprocurement.internal.ui.designsystem.PoliceColors
+import com.smartprocurement.internal.ui.designsystem.PoliceOpeningBadge
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 
 @Composable
@@ -37,7 +37,7 @@ fun OnboardingWelcomeScreen(viewModel: SupplyViewModel) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        BusinessAppIconImage(size = 82.dp, contentDescription = "景荣鲜配业务图标")
+        PoliceOpeningBadge(size = 88.dp)
         Spacer(modifier = Modifier.height(22.dp))
         Text("景荣鲜配", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         Text("公安后勤食材采购配送系统", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -148,7 +148,7 @@ fun LoginScreen(viewModel: SupplyViewModel) {
                 .padding(horizontal = 24.dp, vertical = 34.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            BusinessAppIconImage(size = 56.dp, contentDescription = "景荣鲜配业务图标")
+            PoliceOpeningBadge(size = 62.dp)
             Spacer(modifier = Modifier.height(16.dp))
             Text("景荣鲜配", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text("XX公安局后勤食材采购配送系统", fontSize = 14.sp, color = Color.White.copy(alpha = 0.82f))

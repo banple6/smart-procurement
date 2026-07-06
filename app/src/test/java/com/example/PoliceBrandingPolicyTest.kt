@@ -53,10 +53,13 @@ class PoliceBrandingPolicyTest {
     }
 
     @Test
-    fun police_badge_is_only_referenced_by_optional_badge_component() {
+    fun police_badge_is_limited_to_opening_component() {
         val uiFiles = File(root, "src/main/java").walkTopDown().filter { it.extension == "kt" }.toList()
         val badgeReferences = uiFiles
             .filter { it.readText().contains("PoliceBadgeImage(") }
+            .map { it.relativeTo(File(root, "src/main/java")).path }
+        val openingReferences = uiFiles
+            .filter { it.readText().contains("PoliceOpeningBadge(") }
             .map { it.relativeTo(File(root, "src/main/java")).path }
 
         assertEquals(
@@ -64,6 +67,14 @@ class PoliceBrandingPolicyTest {
                 "com/example/ui/designsystem/PoliceComponents.kt"
             ),
             badgeReferences.sorted()
+        )
+        assertEquals(
+            listOf(
+                "com/example/ui/AuthScreens.kt",
+                "com/example/ui/SupplyApp.kt",
+                "com/example/ui/designsystem/PoliceComponents.kt",
+            ),
+            openingReferences.sorted()
         )
     }
 

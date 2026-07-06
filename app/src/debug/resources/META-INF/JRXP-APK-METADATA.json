@@ -1,7 +1,7 @@
 {
   "package_name": "com.smartprocurement.internal",
-  "version_code": 2,
-  "version_name": "1.1-test1",
+  "version_code": 3,
+  "version_name": "1.1-test2",
   "channel": "staging",
   "signer_sha256": "5484E173DE1FAB2E6016D802734779F367CDE98C350DE22D7575C37DB4525068",
   "min_sdk": 24
