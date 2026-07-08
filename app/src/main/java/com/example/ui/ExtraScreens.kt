@@ -1,8 +1,10 @@
 package com.smartprocurement.internal.ui
 
 import android.net.Uri
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,10 +31,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.smartprocurement.internal.BuildConfig
+import com.smartprocurement.internal.R
 import com.smartprocurement.internal.data.InviteInspectResult
 import com.smartprocurement.internal.data.SystemOverview
 import com.smartprocurement.internal.data.AppUpdatePolicy
@@ -364,21 +369,27 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
 @Composable
 fun HelpTutorialScreen(viewModel: SupplyViewModel) {
     val isAdmin = viewModel.canManageIngredients()
+    var showFullWorkflow by remember { mutableStateOf(false) }
     val sections = if (isAdmin) {
         listOf(
-            "完善单位信息" to listOf("进入子单位管理", "确认单位名称、编码和默认配送点", "停用不参与公测的单位"),
-            "维护食材与库存" to listOf("进入食材列表", "新增或编辑食材名称、规格、价格和库存", "库存或价格变化后检查库存记录"),
-            "处理订单" to listOf("待接单订单点击接单", "已接单订单点击开始备货", "备货完成后上传发货照片并确认发货", "在台账和配送单核对数据"),
-            "公测检查" to listOf("检查系统状态", "确认 App 更新入口", "保留备份和回滚记录")
+            "完善单位" to listOf("进入子单位管理", "填写单位名称、编码", "设置默认配送点"),
+            "创建账号" to listOf("进入账号管理", "创建子单位账号", "初始密码只告知使用人"),
+            "维护食材" to listOf("进入食材列表", "维护名称、规格、价格", "核对库存和供应状态"),
+            "处理订单" to listOf("进入订单管理", "按状态接单、备货", "上传照片并确认发货"),
+            "备货配送" to listOf("查看当前备货", "查看单位配送", "导出 Excel 清单"),
+            "检查系统" to listOf("进入系统状态", "确认服务和备份", "核查 Web 会话情况")
         )
     } else {
         listOf(
-            "提交采购单" to listOf("进入食材申领", "选择需要的食材并加入采购清单", "在采购清单核对数量、配送点和备注", "点击提交订单"),
-            "查看配送进度" to listOf("进入我的订单", "查看待接单、备货中、已发货状态", "管理员发货后可查看发货照片"),
-            "确认收货" to listOf("收到食材后打开订单详情", "核对数量和照片", "无误后点击确认收货", "如有问题按页面提示提交异常"),
-            "网页扫码" to listOf("在网页端打开扫码登录页", "使用已登录 App 扫码", "确认浏览器信息后点击确认登录")
+            "账号登录" to listOf("使用管理员分配账号", "登录三公鲜配 App", "首次登录后确认单位信息"),
+            "浏览食材" to listOf("进入食材申领", "查看规格、价格、库存", "确认今日可申领状态"),
+            "加入清单" to listOf("选择所需食材", "填写申领数量", "核对默认配送点"),
+            "提交订单" to listOf("进入采购清单", "核对明细和数量", "提交后到我的订单查看"),
+            "确认收货" to listOf("订单发货后查看照片", "核对食材与数量", "无误后点击确认收货"),
+            "异常说明" to listOf("数量或质量异常", "按页面提示填写说明", "等待管理员处理")
         )
     }
+    val workflowImage = if (isAdmin) R.drawable.workflow_admin_tutorial else R.drawable.workflow_unit_tutorial
     Scaffold(
         topBar = { GovernmentTopBar(title = "帮助与教程", onBack = { viewModel.navigateBack() }) }
     ) { padding ->
@@ -394,10 +405,26 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
             GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("三公鲜配", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(if (isAdmin) "管理员常用流程" else "子单位常用流程", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
                         if (isAdmin) "管理员公测上线操作指引" else "子单位食材申领操作指引",
                         color = GovernmentColors.TextSecondary
                     )
+                    GovernmentSecondaryButton(
+                        text = if (showFullWorkflow) "收起完整流程图" else "查看完整流程图",
+                        onClick = { showFullWorkflow = !showFullWorkflow },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (showFullWorkflow) {
+                        Image(
+                            painter = painterResource(workflowImage),
+                            contentDescription = if (isAdmin) "管理员常用流程图" else "子单位常用流程图",
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                        )
+                    }
                 }
             }
             sections.forEachIndexed { index, section ->

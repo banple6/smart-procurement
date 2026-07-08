@@ -100,6 +100,16 @@ def help_index():
             <a class="quick-card" href="/help/unit"><strong>子单位教程</strong><span>食材申领、采购清单、订单和确认收货</span></a>
             <a class="quick-card" href="/download"><strong>下载 App</strong><span>安装 Android App 后扫码登录网页端</span></a>
           </div>
+          <div class="workflow-preview-grid" aria-label="流程图">
+            <a class="workflow-preview-card" href="/help/admin">
+              <img src="/admin-assets/workflow-admin-tutorial.png" alt="管理员常用流程图" loading="lazy" />
+              <strong>管理员使用流程图</strong>
+            </a>
+            <a class="workflow-preview-card" href="/help/unit">
+              <img src="/admin-assets/workflow-unit-tutorial.png" alt="子单位常用流程图" loading="lazy" />
+              <strong>子单位使用流程图</strong>
+            </a>
+          </div>
         </section>
         """,
     )
@@ -113,6 +123,12 @@ def help_admin():
         """
         <section class="public-panel help-article">
           <h2>管理员常用流程</h2>
+          <figure class="workflow-figure">
+            <a href="/admin-assets/workflow-admin-tutorial.png" target="_blank" rel="noopener">
+              <img src="/admin-assets/workflow-admin-tutorial.png" alt="管理员常用流程图" loading="lazy" />
+            </a>
+            <figcaption>点击图片可打开高清大图。</figcaption>
+          </figure>
           <ol>
             <li>在“子单位管理”完善单位名称、编码和默认配送点。</li>
             <li>在“账号管理”创建子单位账号，初始密码只告知使用人。</li>
@@ -134,6 +150,12 @@ def help_unit():
         """
         <section class="public-panel help-article">
           <h2>子单位常用流程</h2>
+          <figure class="workflow-figure">
+            <a href="/admin-assets/workflow-unit-tutorial.png" target="_blank" rel="noopener">
+              <img src="/admin-assets/workflow-unit-tutorial.png" alt="子单位常用流程图" loading="lazy" />
+            </a>
+            <figcaption>点击图片可打开高清大图。</figcaption>
+          </figure>
           <ol>
             <li>使用管理员分配的账号登录 App。</li>
             <li>在“食材申领”查看可申领食材、规格、价格和库存。</li>

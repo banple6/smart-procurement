@@ -1080,10 +1080,6 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     assert me.status_code == 200
     assert me.json()["role"] == "admin"
 
-    logout = client.post("/api/v1/web-auth/logout", headers=csrf)
-    assert logout.status_code == 200
-    assert client.get("/api/v1/web-auth/me").status_code == 401
-
     unit_user = client.get("/api/v1/auth/me", headers=unit_headers).json()
     set_web_session(client, unit_user["id"], "unit_user", unit_id)
     forbidden = client.get("/api/v1/admin/dashboard/overview")
@@ -1091,6 +1087,29 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     forbidden_page = client.get("/admin/dashboard")
     assert forbidden_page.status_code == 403
     assert "no-store" in forbidden_page.headers["cache-control"]
+
+    csrf = set_web_session(client, admin_me["id"], "admin")
+    logout = client.post("/api/v1/web-auth/logout", headers=csrf)
+    assert logout.status_code == 200
+    assert client.get("/api/v1/web-auth/me").status_code == 401
+
+
+def test_public_help_pages_embed_role_workflow_tutorial_images(tmp_path):
+    client = make_client(tmp_path)
+
+    help_index = client.get("/help")
+    admin = client.get("/help/admin")
+    unit = client.get("/help/unit")
+
+    assert help_index.status_code == 200
+    assert admin.status_code == 200
+    assert unit.status_code == 200
+    assert "/admin-assets/workflow-admin-tutorial.png" in help_index.text
+    assert "/admin-assets/workflow-unit-tutorial.png" in help_index.text
+    assert "/admin-assets/workflow-admin-tutorial.png" in admin.text
+    assert "/admin-assets/workflow-unit-tutorial.png" in unit.text
+    assert "管理员常用流程" in admin.text
+    assert "子单位常用流程" in unit.text
 
 
 def test_public_beta_download_and_help_pages_are_available_without_login(tmp_path):

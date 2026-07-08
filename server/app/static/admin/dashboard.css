@@ -761,6 +761,56 @@ button.primary-link {
   gap: 12px;
 }
 
+.workflow-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.workflow-preview-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--soft-divider);
+  border-radius: 8px;
+  color: var(--ink-primary);
+  background: #ffffff;
+  text-decoration: none;
+}
+
+.workflow-preview-card img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--soft-divider);
+  border-radius: 6px;
+  background: var(--warm-page);
+}
+
+.workflow-figure {
+  margin: 16px 0 20px;
+}
+
+.workflow-figure a {
+  display: block;
+}
+
+.workflow-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--soft-divider);
+  border-radius: 8px;
+  background: var(--warm-page);
+}
+
+.workflow-figure figcaption {
+  margin-top: 8px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+
 .help-article ol {
   margin: 12px 0 0;
   padding-left: 22px;
@@ -982,6 +1032,7 @@ button.primary-link {
   .top-actions { flex-wrap: wrap; }
   .metric-grid, .quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .login-shell { grid-template-columns: 1fr; }
+  .help-grid, .workflow-preview-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 680px) {
