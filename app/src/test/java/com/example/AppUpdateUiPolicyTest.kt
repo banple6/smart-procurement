@@ -40,4 +40,15 @@ class AppUpdateUiPolicyTest {
         assertTrue(app.contains("立即更新"))
         assertTrue(app.contains("onDismissRequest = {}"))
     }
+
+    @Test
+    fun startup_update_check_runs_after_update_state_is_initialized() {
+        val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
+
+        val updateStateIndex = viewModel.indexOf("var isCheckingAppUpdate by mutableStateOf(false)")
+        val startupCheckIndex = viewModel.indexOf("checkForAppUpdate(showNoUpdate = false)")
+
+        assertTrue(updateStateIndex >= 0)
+        assertTrue(startupCheckIndex > updateStateIndex)
+    }
 }

@@ -120,7 +120,6 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
-        checkForAppUpdate(showNoUpdate = false)
     }
 
     // --- State Flows from Repository ---
@@ -189,6 +188,10 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     // Alert dialog message helper
     var alertMessage by mutableStateOf<String?>(null)
     var snackbarMessage by mutableStateOf<String?>(null)
+
+    init {
+        checkForAppUpdate(showNoUpdate = false)
+    }
 
     // --- Navigation Methods ---
     fun navigateTo(screen: Screen) {
