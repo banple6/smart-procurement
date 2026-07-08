@@ -192,14 +192,14 @@ fun SplashScreen(onFinish: () -> Unit) {
             PoliceOpeningBadge(size = 80.dp)
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "景荣鲜配",
+                text = "三公鲜配",
                 fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
                 letterSpacing = 2.sp
             )
             Text(
-                text = "机构后勤物资采购台账系统",
+                text = "食材申领与配送平台",
                 fontSize = 14.sp,
                 color = Color.White,
                 modifier = Modifier.padding(top = 8.dp),

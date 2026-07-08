@@ -183,7 +183,7 @@ def download_release(
     headers = {
         "Accept-Ranges": "bytes",
         "Content-Length": str(end - start + 1),
-        "Content-Disposition": f'attachment; filename="jingrongxianpei-{release["version_name"]}.apk"',
+        "Content-Disposition": f'attachment; filename="sangongxianpei-{release["version_name"]}.apk"',
     }
     if status_code == 206:
         headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
@@ -205,4 +205,3 @@ def record_event(body: UpdateEventBody, request: Request, authorization: str | N
         metadata=body.metadata,
         user=optional_bearer_user(request, authorization),
     )
-

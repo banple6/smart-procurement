@@ -54,7 +54,7 @@ def web_admin_user_or_response(request: Request):
                 """
                 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
                 <meta name="viewport" content="width=device-width,initial-scale=1">
-                <title>无权限 - 景荣鲜配</title><link rel="stylesheet" href="/admin-assets/dashboard.css">
+                <title>无权限 - 三公鲜配</title><link rel="stylesheet" href="/admin-assets/dashboard.css">
                 </head><body class="plain-state"><main><h1>无权限访问</h1><p>当前账号没有管理员权限。</p>
                 <a class="primary-link" href="/login">重新扫码登录</a></main></body></html>
                 """,

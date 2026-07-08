@@ -100,6 +100,8 @@ class ResetPasswordRequest(BaseModel):
 
 
 class ProductCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     product_code: str
     name: str
     category: str
@@ -121,6 +123,8 @@ class ProductCreate(BaseModel):
 
 
 class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     product_code: Optional[str] = None
     name: Optional[str] = None
     category: Optional[str] = None
@@ -138,20 +142,26 @@ class ProductUpdate(BaseModel):
     description: Optional[str] = None
     supply_status: Optional[str] = None
     active: Optional[bool] = None
+    expected_version: Optional[int] = None
 
 
 class ProductStatusPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     supply_status: str
     active: bool = True
+    expected_version: Optional[int] = None
 
 
 class ProductPricePatch(BaseModel):
     price_cents: int = Field(ge=0)
+    expected_version: Optional[int] = None
 
 
 class ProductStockPatch(BaseModel):
     stock_quantity: str
     detail: str = ""
+    expected_version: Optional[int] = None
 
 
 class OrderItemRequest(BaseModel):

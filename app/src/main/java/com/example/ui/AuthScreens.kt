@@ -39,8 +39,8 @@ fun OnboardingWelcomeScreen(viewModel: SupplyViewModel) {
     ) {
         PoliceOpeningBadge(size = 88.dp)
         Spacer(modifier = Modifier.height(22.dp))
-        Text("景荣鲜配", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-        Text("公安后勤食材采购配送系统", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("三公鲜配", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Text("单位食材申领与配送协同平台", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(modifier = Modifier.height(18.dp))
         Text(
             "用于内部食材申领、订单处理、库存管理与配送协同",
@@ -150,8 +150,8 @@ fun LoginScreen(viewModel: SupplyViewModel) {
         ) {
             PoliceOpeningBadge(size = 62.dp)
             Spacer(modifier = Modifier.height(16.dp))
-            Text("景荣鲜配", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Text("XX公安局后勤食材采购配送系统", fontSize = 14.sp, color = Color.White.copy(alpha = 0.82f))
+            Text("三公鲜配", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Text("单位食材申领与配送协同平台", fontSize = 14.sp, color = Color.White.copy(alpha = 0.82f))
         }
         Spacer(modifier = Modifier.height(26.dp))
 

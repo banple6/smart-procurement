@@ -11,7 +11,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 主题系统
+// 三公鲜配主题系统
 // ══════════════════════════════════════════════════════════════
 
 private val JrxpLightColorScheme = lightColorScheme(

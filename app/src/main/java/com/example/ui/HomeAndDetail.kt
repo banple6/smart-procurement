@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.smartprocurement.internal.data.ProductEntity
+import com.smartprocurement.internal.domain.product.ProductOptions
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
 import com.smartprocurement.internal.ui.theme.JrxpColors
@@ -58,11 +59,7 @@ import java.util.Date
 import java.util.Locale
 
 private val IngredientCategories = listOf("全部", "蔬菜", "水果", "肉禽", "水产", "蛋奶", "粮油", "调料", "其他")
-private val EditableCategories = IngredientCategories.drop(1)
 private val SupplyStatuses = listOf("全部", "正常供应", "库存紧张", "库存不足", "暂停供应", "已下架")
-private val EditableStatuses = listOf("正常供应", "库存紧张", "暂停供应")
-private val Units = listOf("公斤", "斤", "箱", "袋", "筐", "盒", "瓶", "份", "个", "包")
-private val StorageMethods = listOf("常温", "冷藏", "冷冻", "阴凉干燥")
 
 @Composable
 fun HomeScreen(viewModel: SupplyViewModel) {
@@ -394,7 +391,7 @@ fun ProductDetailScreen(productId: String, viewModel: SupplyViewModel) {
                     IngredientDetailRow("计量单位", product.unit)
                     IngredientDetailRow("物理总库存", "${product.stockQuantity.ifBlank { "0" }} ${product.unit}")
                     IngredientDetailRow("预警阈值", product.warningQuantity.ifBlank { "未设置" })
-                    IngredientDetailRow("今日调度额度", product.availableQuantity.ifBlank { "未受限" })
+                    IngredientDetailRow("可用库存", "${product.availableQuantity.ifBlank { product.stockQuantity.ifBlank { "0" } }} ${product.unit}")
                     IngredientDetailRow("可见状态", if (product.isAvailable) "上架中" else "已隐藏")
                 }
             }
@@ -495,14 +492,18 @@ private fun DetailActions(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
     var form by remember(productId, viewModel.allProducts.collectAsState().value) {
         mutableStateOf(viewModel.formStateFor(productId))
     }
     var leavingConfirm by remember { mutableStateOf(false) }
-    var showMore by remember { mutableStateOf(false) }
+    var imageSheet by remember { mutableStateOf(false) }
+    var rulesSheet by remember { mutableStateOf(false) }
+    var moreSheet by remember { mutableStateOf(false) }
+    var showMoreCategories by remember { mutableStateOf(false) }
+    var showMoreUnits by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let { viewModel.persistIngredientImage(it) { path -> form = form.copy(imagePath = path) } }
@@ -514,6 +515,23 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
     }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) takePicture.launch(viewModel.createCameraUri()) else viewModel.alertMessage = "需要相机权限才能拍照"
+    }
+    fun resetForNext(saved: IngredientFormState): IngredientFormState = IngredientFormState(
+        category = saved.category,
+        unit = saved.unit,
+        minOrderQuantity = saved.minOrderQuantity,
+        quantityStep = saved.quantityStep,
+        warningQuantity = saved.warningQuantity,
+        storageMethod = saved.storageMethod,
+        status = saved.status,
+        isAvailable = saved.isAvailable
+    )
+    fun openCamera() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            takePicture.launch(viewModel.createCameraUri())
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
 
     Scaffold(
@@ -529,12 +547,25 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
         },
         bottomBar = {
             PrimaryActionDock {
-                JrxpPrimaryButton(
-                    text = if (productId == null) "新建食材并上架" else "保存修改",
-                    onClick = { viewModel.saveIngredient(form) { viewModel.navigateBack() } },
-                    enabled = !viewModel.isSavingIngredient,
-                    isLoading = viewModel.isSavingIngredient
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    JrxpSecondaryButton(
+                        text = "保存并继续添加",
+                        onClick = {
+                            viewModel.saveIngredient(form) {
+                                form = resetForNext(form)
+                            }
+                        },
+                        enabled = !viewModel.isSavingIngredient,
+                        modifier = Modifier.weight(1f)
+                    )
+                    JrxpPrimaryButton(
+                        text = "保存食材",
+                        onClick = { viewModel.saveIngredient(form) { viewModel.navigateBack() } },
+                        enabled = !viewModel.isSavingIngredient,
+                        isLoading = viewModel.isSavingIngredient,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     ) { padding ->
@@ -547,74 +578,144 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                SectionCard("食材图片") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(1.6f)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                            .size(88.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(JrxpColors.ReadingSurface)
+                            .border(1.dp, JrxpColors.RuleLine, RoundedCornerShape(10.dp))
+                            .clickable { imageSheet = true },
                         contentAlignment = Alignment.Center
                     ) {
                         if (form.imagePath.isBlank()) {
-                            Text("上传食材图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("暂无图片", color = JrxpColors.InkTertiary, fontSize = 13.sp, textAlign = TextAlign.Center)
                         } else {
                             AsyncImage(model = form.imagePath, contentDescription = form.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                    takePicture.launch(viewModel.createCameraUri())
-                                } else {
-                                    cameraPermission.launch(Manifest.permission.CAMERA)
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(if (form.imagePath.isBlank()) "拍照" else "重新拍照") }
-                        OutlinedButton(
-                            onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(if (form.imagePath.isBlank()) "从相册选择" else "更换图片") }
-                        if (form.imagePath.isNotBlank()) {
-                            OutlinedButton(onClick = { form = form.copy(imagePath = "") }) { Text("删除图片") }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FormInput("食材名称", form.name, { form = form.copy(name = it) }, viewModel.ingredientErrors["name"])
+                        FormInput("规格", form.spec, { form = form.copy(spec = it) }, viewModel.ingredientErrors["spec"])
+                    }
+                }
+            }
+            item {
+                PlainSection("食材分类") {
+                    QuickOptionFlow(
+                        primary = ProductOptions.primaryCategories,
+                        extra = ProductOptions.extraCategories,
+                        selected = form.category,
+                        showExtra = showMoreCategories,
+                        onToggleExtra = { showMoreCategories = !showMoreCategories },
+                        onSelected = { form = form.copy(category = it) }
+                    )
+                    FieldError(viewModel.ingredientErrors["category"])
+                }
+            }
+            item {
+                PlainSection("计量单位") {
+                    QuickOptionFlow(
+                        primary = ProductOptions.primaryUnits,
+                        extra = ProductOptions.extraUnits,
+                        selected = form.unit,
+                        showExtra = showMoreUnits,
+                        onToggleExtra = { showMoreUnits = !showMoreUnits },
+                        onSelected = { form = form.copy(unit = it) }
+                    )
+                    FieldError(viewModel.ingredientErrors["unit"])
+                }
+            }
+            item {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val twoColumns = maxWidth >= 420.dp
+                    if (twoColumns) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"], Modifier.weight(1f))
+                            DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"], Modifier.weight(1f))
                         }
-                    }
-                }
-            }
-            item {
-                DocumentSection("基本信息") {
-                    FormInput("食材名称", form.name, { form = form.copy(name = it) }, viewModel.ingredientErrors["name"])
-                    DropDownInput("食材分类", form.category, EditableCategories) { form = form.copy(category = it) }
-                    FormInput("规格描述", form.spec, { form = form.copy(spec = it) }, viewModel.ingredientErrors["spec"])
-                    DropDownInput("计量单位", form.unit, Units) { form = form.copy(unit = it) }
-                    DecimalInput("内控参考单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"])
-                    DecimalInput("当前物理库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"])
-                }
-            }
-            item {
-                DocumentSection("合规与溯源信息") {
-                    TextButton(onClick = { showMore = !showMore }) {
-                        Text(if (showMore) "收起更多信息" else "展开更多信息")
-                    }
-                    AnimatedVisibility(showMore) {
+                    } else {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            FormInput("系统内码", form.code, { form = form.copy(code = it) }, null)
-                            DecimalInput("单次最小调度量", form.minOrderQuantity, { form = form.copy(minOrderQuantity = it) }, viewModel.ingredientErrors["minOrderQuantity"])
-                            DecimalInput("数量增减步长", form.quantityStep, { form = form.copy(quantityStep = it) }, viewModel.ingredientErrors["quantityStep"])
-                            DecimalInput("库存预警阈值", form.warningQuantity, { form = form.copy(warningQuantity = it) }, viewModel.ingredientErrors["warningQuantity"])
-                            FormInput("原产地", form.origin, { form = form.copy(origin = it) }, null)
-                            FormInput("供应商/包装", form.packagingSpec, { form = form.copy(packagingSpec = it) }, null)
-                            FormInput("保质期要求", form.shelfLife, { form = form.copy(shelfLife = it) }, null)
-                            DropDownInput("标准存储方式", form.storageMethod, StorageMethods) { form = form.copy(storageMethod = it) }
-                            FormInput("特殊注意事项", form.remark, { form = form.copy(remark = it) }, null, singleLine = false)
-                            DropDownInput("当前供应状态", form.status, EditableStatuses) { form = form.copy(status = it) }
-                            SwitchRow("是否在台账可见", form.isAvailable) { form = form.copy(isAvailable = it) }
-                            DecimalInput("今日最大调度额度", form.availableQuantity, { form = form.copy(availableQuantity = it) }, viewModel.ingredientErrors["availableQuantity"])
+                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"])
+                            DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"])
                         }
                     }
                 }
+            }
+            item {
+                PlainSection("供应状态") {
+                    SegmentedOptionRow(ProductOptions.supplyStatuses, form.status) { form = form.copy(status = it) }
+                    SwitchRow("是否上架", form.isAvailable) { form = form.copy(isAvailable = it) }
+                }
+            }
+            item {
+                SummaryRow(
+                    title = "申领规则",
+                    subtitle = "最小 ${form.minOrderQuantity.ifBlank { "1" }} · 步长 ${form.quantityStep.ifBlank { "1" }} · 预警 ${form.warningQuantity.ifBlank { "0" }}",
+                    onClick = { rulesSheet = true }
+                )
+            }
+            item {
+                SummaryRow(
+                    title = "更多资料",
+                    subtitle = listOf(form.origin, form.packagingSpec, form.storageMethod).filter { it.isNotBlank() }.joinToString("、").ifBlank { "产地、供应商、储存方式等" },
+                    onClick = { moreSheet = true }
+                )
+            }
+        }
+    }
+
+    if (imageSheet) {
+        ModalBottomSheet(onDismissRequest = { imageSheet = false }) {
+            SheetAction("拍照") {
+                imageSheet = false
+                openCamera()
+            }
+            SheetAction("从相册选择") {
+                imageSheet = false
+                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            }
+            SheetAction("移除图片", enabled = form.imagePath.isNotBlank()) {
+                imageSheet = false
+                form = form.copy(imagePath = "")
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (rulesSheet) {
+        ModalBottomSheet(onDismissRequest = { rulesSheet = false }) {
+            SheetContent("申领规则") {
+                DecimalInput("最小申领量", form.minOrderQuantity, { form = form.copy(minOrderQuantity = it) }, viewModel.ingredientErrors["minOrderQuantity"])
+                DecimalInput("数量步长", form.quantityStep, { form = form.copy(quantityStep = it) }, viewModel.ingredientErrors["quantityStep"])
+                DecimalInput("库存预警值", form.warningQuantity, { form = form.copy(warningQuantity = it) }, viewModel.ingredientErrors["warningQuantity"])
+                JrxpPrimaryButton(text = "完成", onClick = { rulesSheet = false }, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+
+    if (moreSheet) {
+        ModalBottomSheet(onDismissRequest = { moreSheet = false }) {
+            SheetContent("更多资料") {
+                FormInput("食材编码", form.code, { form = form.copy(code = it) }, null)
+                FormInput("产地", form.origin, { form = form.copy(origin = it) }, null)
+                FormInput("供应商", form.packagingSpec, { form = form.copy(packagingSpec = it) }, null)
+                Text("储存方式", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = JrxpColors.InkPrimary)
+                QuickOptionFlow(
+                    primary = ProductOptions.storageMethods,
+                    extra = emptyList(),
+                    selected = form.storageMethod,
+                    showExtra = false,
+                    onToggleExtra = {},
+                    onSelected = { form = form.copy(storageMethod = it) }
+                )
+                FormInput("保质期说明", form.shelfLife, { form = form.copy(shelfLife = it) }, null)
+                FormInput("商品说明", form.remark, { form = form.copy(remark = it) }, null, singleLine = false)
+                JrxpPrimaryButton(text = "完成", onClick = { moreSheet = false }, modifier = Modifier.fillMaxWidth())
             }
         }
     }
@@ -697,13 +798,121 @@ private fun SectionCard(title: String, content: @Composable ColumnScope.() -> Un
 @Composable
 private fun CardBlock(content: @Composable ColumnScope.() -> Unit) = SectionCard("", content)
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun QuickOptionFlow(
+    primary: List<String>,
+    extra: List<String>,
+    selected: String,
+    showExtra: Boolean,
+    onToggleExtra: () -> Unit,
+    onSelected: (String) -> Unit
+) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        (primary + if (showExtra) extra else emptyList()).forEach { option ->
+            QuickOptionChip(option, selected == option) { onSelected(option) }
+        }
+        if (extra.isNotEmpty()) {
+            QuickOptionChip(if (showExtra) "收起" else "更多", false, onToggleExtra)
+        }
+    }
+}
+
+@Composable
+private fun QuickOptionChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        color = if (selected) JrxpColors.CommandNavy else JrxpColors.PureSurface,
+        contentColor = if (selected) Color.White else JrxpColors.InkPrimary,
+        border = BorderStroke(1.dp, if (selected) JrxpColors.CommandNavy else JrxpColors.RuleLine),
+        modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+    ) {
+        Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp), fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SegmentedOptionRow(options: List<String>, selected: String, onSelected: (String) -> Unit) {
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, option ->
+            SegmentedButton(
+                selected = selected == option,
+                onClick = { onSelected(option) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                label = { Text(option, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlainSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
+        content()
+    }
+}
+
+@Composable
+private fun SummaryRow(title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .background(JrxpColors.PureSurface)
+            .border(1.dp, JrxpColors.RuleLine, RoundedCornerShape(8.dp))
+            .padding(14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
+            Text(subtitle, fontSize = 13.sp, color = JrxpColors.InkTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = JrxpColors.InkTertiary)
+    }
+}
+
+@Composable
+private fun SheetAction(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 52.dp)
+            .padding(horizontal = 16.dp)
+    ) {
+        Text(text, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start, fontSize = 16.sp)
+    }
+}
+
+@Composable
+private fun SheetContent(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
+        content()
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun FieldError(error: String?) {
+    if (!error.isNullOrBlank()) {
+        Text(error, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+    }
+}
+
 @Composable
 private fun FormInput(label: String, value: String, onValueChange: (String) -> Unit, error: String?, singleLine: Boolean = true) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
         singleLine = singleLine,
         minLines = if (singleLine) 1 else 3,
         isError = error != null,
@@ -712,12 +921,12 @@ private fun FormInput(label: String, value: String, onValueChange: (String) -> U
 }
 
 @Composable
-private fun DecimalInput(label: String, value: String, onValueChange: (String) -> Unit, error: String?) {
+private fun DecimalInput(label: String, value: String, onValueChange: (String) -> Unit, error: String?, modifier: Modifier = Modifier) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         isError = error != null,

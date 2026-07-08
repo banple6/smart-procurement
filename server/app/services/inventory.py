@@ -49,13 +49,22 @@ def reserve_product(conn, product_id: str, quantity: Decimal, order_id: str | No
     if int(product["price_cents"]) <= 0:
         raise HTTPException(status_code=409, detail="价格未设置")
     validate_order_quantity(product, quantity)
-    if available(product) < quantity:
-        raise HTTPException(status_code=409, detail="库存不足，请减少数量")
-    new_reserved = as_decimal(product["reserved_quantity"]) + quantity
-    conn.execute(
-        "UPDATE products SET reserved_quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (decimal_text(new_reserved), product_id),
+    cursor = conn.execute(
+        """
+        UPDATE products
+        SET reserved_quantity = decimal_add(reserved_quantity, ?),
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND is_deleted = 0
+          AND active = 1
+          AND supply_status IN ('normal', 'tight')
+          AND CAST(stock_quantity AS REAL) - CAST(reserved_quantity AS REAL) >= CAST(? AS REAL)
+        """,
+        (decimal_text(quantity), product_id, decimal_text(quantity)),
     )
+    if cursor.rowcount != 1:
+        raise HTTPException(status_code=409, detail="库存不足，请减少数量")
     log_inventory(conn, product_id, order_id, "order_reserve", quantity, actor_id)
     return product
 

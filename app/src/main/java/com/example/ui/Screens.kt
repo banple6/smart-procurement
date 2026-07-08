@@ -160,13 +160,13 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             PoliceIdentityHeader(
                 title = "系统管理员",
                 line1 = "账号：${viewModel.userId}",
-                line2 = "XX公安局后勤保障",
+                line2 = "三公鲜配管理端",
             )
         } else {
             PoliceIdentityHeader(
                 title = viewModel.userName.ifBlank { "子单位采购账号" },
-                line1 = "所属单位：${viewModel.currentUnitName}",
-                line2 = "默认配送点：${viewModel.defaultDeliveryPoint}",
+                line1 = "所属单位：${viewModel.currentUnitName.ifBlank { "单位信息未配置" }}",
+                line2 = "默认配送点：${viewModel.defaultDeliveryPoint.ifBlank { "单位信息未配置" }}",
             )
         }
 

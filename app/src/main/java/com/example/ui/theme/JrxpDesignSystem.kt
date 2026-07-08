@@ -4,7 +4,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 设计系统 Token
+// 三公鲜配设计系统 Token
 // 间距、圆角、分割线、动效时长
 // ══════════════════════════════════════════════════════════════
 

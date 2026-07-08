@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
     -r /app/requirements.txt
 
 COPY app /app/app
+COPY scripts /app/scripts
 COPY backup.sh /app/backup.sh
 RUN chmod +x /app/backup.sh
 RUN mkdir -p /app/data /app/uploads /app/private_uploads /app/backups

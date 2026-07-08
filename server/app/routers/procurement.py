@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query, Response
+from urllib.parse import quote
 
 from ..database import all_rows, connect, one, transaction
 from ..dependencies import current_user, require_admin_user
@@ -7,6 +8,10 @@ from ..services.exports import delivery_sheets_workbook, preparation_summary_wor
 from ..services.procurement import cutoff_payload, validate_cutoff_time
 
 router = APIRouter(tags=["procurement"])
+
+
+def excel_attachment(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 ACTUAL_EXPR = "COALESCE(NULLIF(order_items.actual_quantity, ''), order_items.quantity)"
 REQUESTED_EXPR = "COALESCE(NULLIF(order_items.requested_quantity, ''), order_items.quantity)"
@@ -127,7 +132,7 @@ def export_preparation_summary(
     return Response(
         preparation_summary_workbook(rows),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=preparation-summary.xlsx"},
+        headers=excel_attachment(f"三公鲜配_今日备货单_{date_text.replace('-', '')}.xlsx"),
     )
 
 
@@ -220,7 +225,7 @@ def export_delivery_sheets(
     return Response(
         delivery_sheets_workbook(units),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=delivery-sheets.xlsx"},
+        headers=excel_attachment(f"三公鲜配_配送单_{date_text.replace('-', '')}.xlsx"),
     )
 
 

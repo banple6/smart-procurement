@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.ui.theme.*
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 专属业务组件
+// 三公鲜配专属业务组件
 //
 // 每个组件体现业务结构，而不只是更换名称的通用卡片。
 // ══════════════════════════════════════════════════════════════
@@ -741,11 +741,13 @@ fun JrxpSecondaryButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: ImageVector? = null
+    icon: ImageVector? = null,
+    enabled: Boolean = true
 ) {
     val ext = JrxpTheme.colors
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .fillMaxWidth()
             .height(JrxpDimensions.touchTargetMin),

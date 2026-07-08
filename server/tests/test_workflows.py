@@ -789,11 +789,20 @@ def test_cancel_releases_inventory_summary_and_excel(tmp_path):
     export = client.get("/api/v1/admin/ledger/export.xlsx", headers=admin_headers)
     assert export.status_code == 200
     assert export.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument")
+    from urllib.parse import quote
+    assert quote("三公鲜配_采购台账_") in export.headers["content-disposition"]
+    preparation_export = client.get("/api/v1/admin/preparation-summary/export.xlsx", headers=admin_headers)
+    assert preparation_export.status_code == 200
+    assert quote("三公鲜配_今日备货单_") in preparation_export.headers["content-disposition"]
+    delivery_export = client.get("/api/v1/admin/delivery-sheets/export.xlsx", headers=admin_headers)
+    assert delivery_export.status_code == 200
+    assert quote("三公鲜配_配送单_") in delivery_export.headers["content-disposition"]
     from io import BytesIO
     from openpyxl import load_workbook
 
     workbook = load_workbook(BytesIO(export.content), read_only=True)
     assert workbook.sheetnames == ["订单台账", "商品需求汇总"]
+    assert workbook.properties.title == "三公鲜配采购台账"
 
 
 def test_image_upload_validates_file_type(tmp_path):
@@ -966,10 +975,10 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
 
     page = client.get("/admin/dashboard")
     assert page.status_code == 200
-    assert "景荣鲜配" in page.text
-    assert "人民警察警徽" not in page.text
+    assert "三公鲜配" in page.text
+    assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in page.text
     assert "police-badge" not in page.text
-    assert "公安" not in page.text
+    assert "\u516c\u5b89" not in page.text
     assert "no-store" in page.headers["cache-control"]
     assert client.head("/admin/dashboard").status_code == 200
 
@@ -988,7 +997,7 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     for route in admin_routes:
         protected = client.get(route)
         assert protected.status_code == 200, route
-        assert "景荣鲜配" in protected.text
+        assert "三公鲜配" in protected.text
         assert "no-store" in protected.headers["cache-control"]
 
     me = client.get("/api/v1/web-auth/me")
@@ -1020,9 +1029,10 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "localStorage" not in dashboard_js
     assert "sessionStorage" not in dashboard_js
     assert "police-badge" not in dashboard_html
-    assert "人民警察警徽" not in dashboard_html
-    assert "公安" not in dashboard_html
-    assert "人民警察警徽" in login_html
+    assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in dashboard_html
+    assert "\u516c\u5b89" not in dashboard_html
+    assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in login_html
+    assert "police-badge" not in login_html
     assert "staleSuffix" in dashboard_js
     assert "includes(staleSuffix)" in dashboard_js
 
@@ -1049,7 +1059,7 @@ def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):
         json={"qr_token": unit_token, "device_name": "Pixel", "app_version": "1.0"},
     )
     assert unit_scan.status_code == 200, unit_scan.text
-    assert unit_scan.json()["website_name"] == "景荣鲜配单位网页版"
+    assert unit_scan.json()["website_name"] == "三公鲜配单位网页版"
     assert unit_scan.json()["user"]["role"] == "unit_user"
     assert unit_scan.json()["user"]["unit_id"] == unit_id
     approved_unit = client.post(f"/api/v1/mobile/web-auth/qr/{unit_challenge.json()['challenge_id']}/approve", headers=unit_headers)
@@ -1087,7 +1097,7 @@ def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):
     assert scan.status_code == 200, scan.text
     scan_data = scan.json()
     assert scan_data["challenge_id"] == challenge_data["challenge_id"]
-    assert scan_data["website_name"] == "景荣鲜配管理后台"
+    assert scan_data["website_name"] == "三公鲜配管理后台"
     assert scan_data["browser_name"] == "Chrome"
     assert scan_data["operating_system"] == "Windows"
     assert scan_data["ip_display"]
@@ -1336,7 +1346,7 @@ def test_dashboard_overview_inventory_metric_matches_paused_alerts(tmp_path):
         json={
             "product_code": "PAUSED-FISH",
             "name": "暂停供应鱼丸",
-            "category": "冻品",
+            "category": "水产",
             "spec": "袋装",
             "unit": "袋",
             "price_cents": 1200,
@@ -1357,6 +1367,99 @@ def test_dashboard_overview_inventory_metric_matches_paused_alerts(tmp_path):
     assert body["tasks"][3]["type"] == "stock_alerts"
     assert body["tasks"][3]["count"] == 1
     assert any(item["id"] == product_id for item in body["inventory_alerts"])
+
+
+def test_product_fast_entry_server_validation_matches_frontend_options(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    base_payload = {
+        "product_code": "FAST-VEG-001",
+        "name": "快录青菜",
+        "category": "蔬菜",
+        "spec": "散装",
+        "unit": "公斤",
+        "price_cents": 320,
+        "stock_quantity": "10",
+        "min_order_quantity": "1",
+        "quantity_step": "1",
+        "warning_quantity": "0",
+        "storage_method": "冷藏",
+        "supply_status": "normal",
+        "active": True,
+    }
+
+    ok = client.post("/api/v1/admin/products", headers=admin_headers, json=base_payload)
+    assert ok.status_code == 200, ok.text
+
+    invalid_category = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-CATEGORY", "category": "办公用品"},
+    )
+    assert invalid_category.status_code == 400
+    assert invalid_category.json()["detail"] == "食材分类不正确"
+
+    invalid_unit = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-UNIT", "unit": "随便填"},
+    )
+    assert invalid_unit.status_code == 400
+    assert invalid_unit.json()["detail"] == "计量单位不正确"
+
+    invalid_storage = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-STORAGE", "storage_method": "露天"},
+    )
+    assert invalid_storage.status_code == 400
+    assert invalid_storage.json()["detail"] == "储存方式不正确"
+
+    zero_min = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-MIN", "min_order_quantity": "0"},
+    )
+    assert zero_min.status_code == 400
+    assert zero_min.json()["detail"] == "最小申领量必须大于 0"
+
+    negative_stock = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-STOCK", "stock_quantity": "-1"},
+    )
+    assert negative_stock.status_code == 400
+    assert negative_stock.json()["detail"] == "库存不能小于 0"
+
+    zero_price_normal = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-PRICE", "price_cents": 0},
+    )
+    assert zero_price_normal.status_code == 400
+    assert zero_price_normal.json()["detail"] == "请先填写商品价格"
+
+    zero_price_paused = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "PAUSED-ZERO", "price_cents": 0, "supply_status": "paused"},
+    )
+    assert zero_price_paused.status_code == 200, zero_price_paused.text
+
+    off_shelf_status = client.patch(
+        f"/api/v1/admin/products/{ok.json()['id']}/status",
+        headers=admin_headers,
+        json={"supply_status": "off_shelf", "active": False},
+    )
+    assert off_shelf_status.status_code == 400
+    assert off_shelf_status.json()["detail"] == "供应状态不正确"
+
+    available_quantity = client.post(
+        "/api/v1/admin/products",
+        headers=admin_headers,
+        json={**base_payload, "product_code": "BAD-AVAILABLE", "available_quantity": "99"},
+    )
+    assert available_quantity.status_code == 422
 
 
 def test_unit_invite_registration_binds_server_role_and_unit_without_storing_raw_token(tmp_path):
@@ -1551,3 +1654,29 @@ def test_system_overview_rejects_unit_users_and_returns_safety_shape(tmp_path):
     assert "压力测试" in body["capacity"]["disclaimer"]
     assert isinstance(body["alerts"], list)
     assert "APP_SECRET" not in str(body)
+
+
+def test_environment_guard_exposes_only_safe_loadtest_metadata(tmp_path):
+    client = make_client(tmp_path)
+
+    production = client.get("/api/v1/system/environment")
+    assert production.status_code == 200
+    production_body = production.json()
+    assert production_body["environment"] == "test"
+    assert production_body["load_test_allowed"] is False
+    assert "database_fingerprint" not in production_body
+    assert "DATABASE_PATH" not in str(production_body)
+    assert str(tmp_path) not in str(production_body)
+
+    os.environ["APP_ENV"] = "loadtest"
+    os.environ["LOAD_TEST_ALLOWED"] = "true"
+    os.environ["DATA_NAMESPACE"] = "LOADTEST"
+    loadtest = client.get("/api/v1/system/environment")
+    assert loadtest.status_code == 200
+    body = loadtest.json()
+    assert body["environment"] == "loadtest"
+    assert body["load_test_allowed"] is True
+    assert body["data_namespace"] == "LOADTEST"
+    assert isinstance(body["database_fingerprint"], str)
+    assert len(body["database_fingerprint"]) == 16
+    assert str(tmp_path) not in str(body)

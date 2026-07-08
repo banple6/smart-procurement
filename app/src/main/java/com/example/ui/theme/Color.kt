@@ -3,13 +3,13 @@ package com.smartprocurement.internal.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 专属色彩体系
-// 设计理念：公安蓝 × 温和纸张色，台账单据式视觉
+// 三公鲜配专属色彩体系
+// 设计理念：深蓝 × 温和纸张色，台账单据式视觉
 // ══════════════════════════════════════════════════════════════
 
 object JrxpColors {
 
-    // ── 主色：公安蓝系列 ──────────────────────────────
+    // ── 主色：深蓝系列 ──────────────────────────────
     val CommandNavy      = Color(0xFF0A2957)   // 导航、核心身份、少数主操作
     val DutyBlue         = Color(0xFF174F8A)   // 选中、焦点、可点击文本
     val DispatchBlue     = Color(0xFF2C6DA4)   // 次级交互、链接

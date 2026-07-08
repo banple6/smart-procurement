@@ -12,7 +12,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.math.BigDecimal
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 data class RemoteUser(
@@ -237,7 +236,7 @@ data class WebLoginBrowserInfo(
 
 data class WebLoginScanResult(
     val loginToken: String,
-    val websiteName: String = "景荣鲜配管理平台",
+    val websiteName: String = "三公鲜配管理平台",
     val websiteHost: String = "",
     val browser: WebLoginBrowserInfo,
     val targetRole: String = "",
@@ -412,17 +411,18 @@ class ProcurementApiClient(
     }
 
     fun createOrder(token: String, note: String, items: List<Pair<String, Double>>): JSONObject {
+        val requestId = IdempotencyKeys.newKey()
         val array = JSONArray()
         items.forEach { (productId, quantity) ->
             array.put(JSONObject().put("product_id", productId).put("quantity", quantity.toCleanString()))
         }
         val body = JSONObject()
-            .put("client_request_id", UUID.randomUUID().toString())
+            .put("client_request_id", requestId)
             .put("note", note)
             .put("items", array)
             .toString()
             .toRequestBody(JSON)
-        return request("orders", token = token, method = "POST", body = body)
+        return request("orders", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId))
     }
 
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> {
@@ -805,7 +805,7 @@ class ProcurementApiClient(
         val user = json.optJSONObject("user") ?: JSONObject()
         return WebLoginScanResult(
             loginToken = json.optString("login_token", json.optString("challenge_id", json.optString("token"))),
-            websiteName = json.optString("website_name", "景荣鲜配管理平台"),
+            websiteName = json.optString("website_name", "三公鲜配管理平台"),
             websiteHost = json.optString("website_host"),
             browser = WebLoginBrowserInfo(
                 browserName = json.optString("browser_name", browser.optString("browser_name", browser.optString("browser"))),
@@ -924,13 +924,14 @@ class ProcurementApiClient(
         return JSONArray(text)
     }
 
-    private fun request(path: String, token: String = "", method: String = "GET", body: okhttp3.RequestBody? = null): JSONObject {
-        return JSONObject(execute(path, token, method, body))
+    private fun request(path: String, token: String = "", method: String = "GET", body: okhttp3.RequestBody? = null, extraHeaders: Map<String, String> = emptyMap()): JSONObject {
+        return JSONObject(execute(path, token, method, body, extraHeaders))
     }
 
-    private fun execute(path: String, token: String = "", method: String = "GET", body: okhttp3.RequestBody? = null): String {
+    private fun execute(path: String, token: String = "", method: String = "GET", body: okhttp3.RequestBody? = null, extraHeaders: Map<String, String> = emptyMap()): String {
         val builder = Request.Builder().url(baseUrl.trimEnd('/') + "/" + path.trimStart('/'))
         if (token.isNotBlank()) builder.header("Authorization", "Bearer $token")
+        extraHeaders.forEach { (name, value) -> builder.header(name, value) }
         val request = when (method) {
             "POST" -> builder.post(body ?: ByteArray(0).toRequestBody()).build()
             "PUT" -> builder.put(body ?: ByteArray(0).toRequestBody()).build()

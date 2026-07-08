@@ -5,12 +5,12 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
 object PoliceBrandConfig {
-    const val appName = "景荣鲜配"
-    const val departmentName = "XX公安局"
-    const val systemShortName = "后勤食材采购配送系统"
-    const val systemName = "XX公安局后勤食材采购配送系统"
-    const val internalUseLabel = "公安内部使用"
-    const val logisticsSubtitle = "XX公安局后勤保障"
+    const val appName = "三公鲜配"
+    const val departmentName = "单位信息未配置"
+    const val systemShortName = "食材申领与配送平台"
+    const val systemName = "单位食材申领与配送协同平台"
+    const val internalUseLabel = "内部授权使用"
+    const val logisticsSubtitle = "三公鲜配管理端"
     const val forceLightTheme = true
 }
 

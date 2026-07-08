@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
+import androidx.annotation.OptIn as AndroidXOptIn
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -108,7 +109,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
                     onQrCode = { value ->
                         val token = extractWebLoginToken(value)
                         if (token.isBlank()) {
-                            viewModel.alertMessage = "这不是景荣鲜配的网页登录二维码"
+                            viewModel.alertMessage = "这不是三公鲜配的网页登录二维码"
                         } else {
                             viewModel.scanWebLoginQr(token)
                         }
@@ -123,7 +124,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("将网站登录二维码放入框内", style = MaterialTheme.typography.bodyLarge, color = GovernmentColors.TextPrimary)
-                        Text("仅扫描景荣鲜配管理平台二维码", style = MaterialTheme.typography.bodySmall, color = GovernmentColors.TextSecondary)
+                        Text("仅扫描三公鲜配管理平台二维码", style = MaterialTheme.typography.bodySmall, color = GovernmentColors.TextSecondary)
                     }
                 }
             } else {
@@ -161,7 +162,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
     }
 }
 
-@OptIn(ExperimentalGetImage::class)
+@AndroidXOptIn(ExperimentalGetImage::class)
 @Composable
 private fun QrCameraPreview(modifier: Modifier = Modifier, onQrCode: (String) -> Unit) {
     val context = LocalContext.current
@@ -296,7 +297,7 @@ fun WebLoginConfirmScreen(viewModel: SupplyViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = GovernmentColors.GovernmentBlue)
                             Text(
-                                if (scan.targetRole == "admin") "即将登录景荣鲜配管理后台" else "即将登录景荣鲜配单位网页版",
+                                if (scan.targetRole == "admin") "即将登录三公鲜配管理后台" else "即将登录三公鲜配单位网页版",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold
                             )

@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.unit.dp
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 专属业务图标
+// 三公鲜配专属业务图标
 //
 // 设计规范：
 //   - 统一 2px 线宽（strokeWidth = 2f）

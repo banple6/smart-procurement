@@ -57,21 +57,16 @@ fun PoliceStatusBar(color: Color, darkIcons: Boolean) {
 fun PoliceBadgeImage(
     size: Dp,
     modifier: Modifier = Modifier,
-    contentDescription: String? = "人民警察警徽",
+    contentDescription: String? = "三公鲜配业务图标",
 ) {
-    Image(
-        painter = painterResource(R.drawable.police_badge),
-        contentDescription = contentDescription,
-        modifier = modifier.size(size),
-        contentScale = ContentScale.Fit,
-    )
+    BusinessAppIconImage(size = size, modifier = modifier, contentDescription = contentDescription)
 }
 
 @Composable
 fun BusinessAppIconImage(
     size: Dp,
     modifier: Modifier = Modifier,
-    contentDescription: String? = "景荣鲜配业务图标",
+    contentDescription: String? = "三公鲜配业务图标",
 ) {
     Image(
         painter = painterResource(R.drawable.ic_launcher_foreground),
@@ -86,7 +81,7 @@ fun PoliceOpeningBadge(
     size: Dp,
     modifier: Modifier = Modifier,
 ) {
-    PoliceBadgeImage(size = size, modifier = modifier, contentDescription = "人民警察警徽")
+    BusinessAppIconImage(size = size, modifier = modifier, contentDescription = "三公鲜配业务图标")
 }
 
 @Composable

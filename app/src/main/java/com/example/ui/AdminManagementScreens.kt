@@ -22,6 +22,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private fun exportDateText(): String = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
 
 @Composable
 fun UnitManagementScreen(viewModel: SupplyViewModel) {
@@ -219,7 +224,7 @@ fun LedgerScreen(viewModel: SupplyViewModel) {
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("商品汇总") })
                 }
                 Button(
-                    onClick = { createDocument.launch("采购台账.xlsx") },
+                    onClick = { createDocument.launch("三公鲜配_采购台账_${exportDateText()}.xlsx") },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("导出 Excel") }
@@ -301,7 +306,7 @@ fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
                 Text("按商品汇总", fontWeight = FontWeight.Bold)
                 Text("用于备货称重和拣货，数量来自真实订单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { createDocument.launch("今日备货汇总.xlsx") },
+                    onClick = { createDocument.launch("三公鲜配_今日备货单_${exportDateText()}.xlsx") },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("导出 Excel") }
@@ -337,7 +342,7 @@ fun DeliverySheetsScreen(viewModel: SupplyViewModel) {
                 Text("按单位查看", fontWeight = FontWeight.Bold)
                 Text("用于发货前核对每个单位的订单和配送点。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { createDocument.launch("单位配送单.xlsx") },
+                    onClick = { createDocument.launch("三公鲜配_配送单_${exportDateText()}.xlsx") },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(8.dp)
                 ) { Text("导出 Excel") }

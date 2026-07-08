@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, Response
+from datetime import date
+from urllib.parse import quote
 
 from ..database import all_rows, connect
 from ..dependencies import require_admin_user
 from ..services.exports import ledger_workbook
 
 router = APIRouter(prefix="/admin", tags=["ledger"])
+
+
+def excel_attachment(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
 def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None, product=None, order_no=None):
@@ -54,5 +60,5 @@ def export_ledger(start_date: str | None = None, end_date: str | None = None, un
     return Response(
         content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=ledger.xlsx"},
+        headers=excel_attachment(f"三公鲜配_采购台账_{date.today().strftime('%Y%m%d')}.xlsx"),
     )

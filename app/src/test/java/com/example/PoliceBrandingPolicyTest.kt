@@ -10,13 +10,15 @@ class PoliceBrandingPolicyTest {
     private val root = File(System.getProperty("user.dir"))
 
     @Test
-    fun brand_strings_use_police_internal_names() {
+    fun brand_strings_use_neutral_product_names() {
         val strings = File(root, "src/main/res/values/strings.xml").readText()
 
-        assertTrue(strings.contains("<string name=\"app_name\">景荣鲜配</string>"))
-        assertTrue(strings.contains("<string name=\"police_department_name\">XX公安局</string>"))
-        assertTrue(strings.contains("<string name=\"system_full_name\">XX公安局后勤食材采购配送系统</string>"))
-        assertTrue(strings.contains("<string name=\"internal_use_label\">公安内部使用</string>"))
+        assertTrue(strings.contains("<string name=\"app_name\">三公鲜配</string>"))
+        assertTrue(strings.contains("<string name=\"police_department_name\">单位信息未配置</string>"))
+        assertTrue(strings.contains("<string name=\"system_full_name\">单位食材申领与配送协同平台</string>"))
+        assertTrue(strings.contains("<string name=\"internal_use_label\">内部授权使用</string>"))
+        assertTrue(!strings.contains("\u0058\u0058\u516C\u5B89\u5C40"))
+        assertTrue(!strings.contains("\u516C\u5B89\u5185\u90E8"))
     }
 
     @Test
@@ -53,7 +55,7 @@ class PoliceBrandingPolicyTest {
     }
 
     @Test
-    fun police_badge_is_limited_to_opening_component() {
+    fun police_badge_is_not_used_by_opening_screens() {
         val uiFiles = File(root, "src/main/java").walkTopDown().filter { it.extension == "kt" }.toList()
         val badgeReferences = uiFiles
             .filter { it.readText().contains("PoliceBadgeImage(") }
@@ -62,12 +64,7 @@ class PoliceBrandingPolicyTest {
             .filter { it.readText().contains("PoliceOpeningBadge(") }
             .map { it.relativeTo(File(root, "src/main/java")).path }
 
-        assertEquals(
-            listOf(
-                "com/example/ui/designsystem/PoliceComponents.kt"
-            ),
-            badgeReferences.sorted()
-        )
+        assertEquals(listOf("com/example/ui/designsystem/PoliceComponents.kt"), badgeReferences.sorted())
         assertEquals(
             listOf(
                 "com/example/ui/AuthScreens.kt",

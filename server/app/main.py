@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -6,7 +7,7 @@ from uuid import uuid4
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 
-from .database import connect, init_db, one, private_upload_dir, transaction, upload_dir
+from .database import connect, database_path, init_db, one, private_upload_dir, transaction, upload_dir
 from .metrics import record_request
 from .routers import app_update, auth, dashboard, ledger, orders, procurement, products, system, unit_web, units, web_auth
 from .security import hash_password
@@ -116,6 +117,29 @@ def ready():
 @api.head("/health/ready")
 def ready_head():
     return Response(status_code=200)
+
+
+def database_fingerprint() -> str:
+    path = Path(database_path())
+    if not path.exists():
+        return hashlib.sha256(b"missing").hexdigest()[:16]
+    stat = path.stat()
+    payload = f"{os.getenv('APP_ENV', '')}:{stat.st_dev}:{stat.st_ino}".encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+@api.get("/system/environment")
+def environment():
+    env_name = os.getenv("APP_ENV", "development").strip() or "development"
+    load_allowed = env_name == "loadtest" and os.getenv("LOAD_TEST_ALLOWED", "").lower() in {"1", "true", "yes", "on"}
+    payload = {
+        "environment": env_name,
+        "load_test_allowed": load_allowed,
+    }
+    if load_allowed:
+        payload["data_namespace"] = os.getenv("DATA_NAMESPACE", "").strip()
+        payload["database_fingerprint"] = database_fingerprint()
+    return payload
 
 
 app.mount("/api/v1", api)

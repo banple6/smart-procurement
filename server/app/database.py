@@ -1,6 +1,7 @@
 import os
 import sqlite3
 from contextlib import contextmanager
+from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,14 +26,32 @@ def backup_dir() -> str:
     return os.getenv("BACKUP_DIR", str(Path(__file__).resolve().parents[1] / "backups"))
 
 
+def decimal_text(value) -> str:
+    return str(Decimal(str(value)).normalize())
+
+
+def _decimal_add(left, right) -> str:
+    return decimal_text(Decimal(str(left or "0")) + Decimal(str(right or "0")))
+
+
+def _decimal_sub(left, right) -> str:
+    return decimal_text(Decimal(str(left or "0")) - Decimal(str(right or "0")))
+
+
 def connect() -> sqlite3.Connection:
     path = Path(database_path())
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=10, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=5, check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA busy_timeout = 10000")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA cache_size = -32000")
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 268435456")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.create_function("decimal_add", 2, _decimal_add)
+    conn.create_function("decimal_sub", 2, _decimal_sub)
     return conn
 
 
@@ -188,6 +207,7 @@ def ensure_core_schema(conn: sqlite3.Connection):
           supply_status TEXT NOT NULL DEFAULT 'normal',
           active INTEGER NOT NULL DEFAULT 1,
           is_deleted INTEGER NOT NULL DEFAULT 0,
+          version INTEGER NOT NULL DEFAULT 1,
           created_by TEXT REFERENCES users(id),
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -231,6 +251,7 @@ def ensure_core_schema(conn: sqlite3.Connection):
           cancelled_at TEXT,
           shipping_note TEXT,
           ship_request_id TEXT,
+          idempotency_key TEXT,
           version INTEGER NOT NULL DEFAULT 1,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
@@ -310,14 +331,21 @@ def ensure_core_schema(conn: sqlite3.Connection):
     add_column(conn, "units", "address_note TEXT NOT NULL DEFAULT ''")
     add_column(conn, "users", "last_login_at TEXT")
     add_column(conn, "orders", "client_request_id TEXT")
+    add_column(conn, "orders", "idempotency_key TEXT")
     add_column(conn, "orders", "shipping_note TEXT")
     add_column(conn, "orders", "ship_request_id TEXT")
     add_column(conn, "orders", "cancelled_at TEXT")
     add_column(conn, "orders", "version INTEGER NOT NULL DEFAULT 1")
+    add_column(conn, "products", "version INTEGER NOT NULL DEFAULT 1")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_client_request_id ON orders(client_request_id) WHERE client_request_id IS NOT NULL")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_created_by_idempotency_key ON orders(created_by, idempotency_key) WHERE idempotency_key IS NOT NULL")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_ship_request_id ON orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_status_created ON orders(unit_id, status, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_created ON orders(unit_id, created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_active_category_updated ON products(active, category, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_shipping_photos_order_id ON order_shipping_photos(order_id)")
 
 
@@ -857,6 +885,16 @@ def apply_order_consistency_migration(conn: sqlite3.Connection):
     add_column(conn, "orders", "version INTEGER NOT NULL DEFAULT 1")
 
 
+def apply_performance_concurrency_migration(conn: sqlite3.Connection):
+    add_column(conn, "products", "version INTEGER NOT NULL DEFAULT 1")
+    add_column(conn, "orders", "idempotency_key TEXT")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_created_by_idempotency_key ON orders(created_by, idempotency_key) WHERE idempotency_key IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_created ON orders(unit_id, created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_products_active_category_updated ON products(active, category, updated_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -878,6 +916,7 @@ def migrate() -> list[str]:
             ("0009_manager_registration_requests", apply_manager_registration_requests_migration),
             ("0010_unit_web_portal", apply_unit_web_portal_migration),
             ("0011_order_consistency", apply_order_consistency_migration),
+            ("0012_performance_concurrency", apply_performance_concurrency_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -905,6 +944,7 @@ def migration_status() -> dict:
         "0009_manager_registration_requests",
         "0010_unit_web_portal",
         "0011_order_consistency",
+        "0012_performance_concurrency",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

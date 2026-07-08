@@ -3,7 +3,6 @@ package com.smartprocurement.internal.data
 import java.security.KeyFactory
 import java.security.Signature
 import java.security.spec.X509EncodedKeySpec
-import java.util.Base64
 
 data class AppUpdateRelease(
     val releaseId: String = "",
@@ -103,8 +102,8 @@ object AppUpdateVerifier {
             return AppUpdateVerificationResult(false, "UPDATE_MANIFEST_SIGNATURE_INVALID")
         }
         return runCatching {
-            val signatureBytes = Base64.getDecoder().decode(release.manifestSignature)
-            val rawPublicKey = Base64.getDecoder().decode(release.manifestPublicKey)
+            val signatureBytes = release.manifestSignature.decodeStandardBase64()
+            val rawPublicKey = release.manifestPublicKey.decodeStandardBase64()
             if (signatureBytes.size != 64 || rawPublicKey.size != 32) {
                 return AppUpdateVerificationResult(false, "UPDATE_MANIFEST_SIGNATURE_INVALID")
             }
@@ -142,6 +141,40 @@ object AppUpdateVerifier {
     }
 
     private fun String.normalizeHex(): String = trim().lowercase()
+
+    private fun String.decodeStandardBase64(): ByteArray {
+        val clean = filterNot { it.isWhitespace() }
+        require(clean.length % 4 != 1) { "Invalid Base64 length" }
+        val output = ArrayList<Byte>((clean.length * 3) / 4)
+        var index = 0
+        while (index < clean.length) {
+            val c0 = clean.base64ValueAt(index++)
+            val c1 = clean.base64ValueAt(index++)
+            val c2 = clean.base64ValueAt(index++)
+            val c3 = clean.base64ValueAt(index++)
+            output.add(((c0 shl 2) or (c1 shr 4)).toByte())
+            if (c2 >= 0) {
+                output.add((((c1 and 0x0f) shl 4) or (c2 shr 2)).toByte())
+            }
+            if (c3 >= 0) {
+                output.add((((c2 and 0x03) shl 6) or c3).toByte())
+            }
+        }
+        return output.toByteArray()
+    }
+
+    private fun String.base64ValueAt(index: Int): Int {
+        if (index >= length) return -1
+        return when (val ch = this[index]) {
+            in 'A'..'Z' -> ch - 'A'
+            in 'a'..'z' -> ch - 'a' + 26
+            in '0'..'9' -> ch - '0' + 52
+            '+' -> 62
+            '/' -> 63
+            '=' -> -1
+            else -> throw IllegalArgumentException("Invalid Base64 character")
+        }
+    }
 
     private fun String.json(): String {
         val out = StringBuilder(length + 2)

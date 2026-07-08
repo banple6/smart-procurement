@@ -7,7 +7,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 // ══════════════════════════════════════════════════════════════
-// 景荣鲜配 (JRXP) 字体系统 - 严谨语义化重构版
+// 三公鲜配字体系统 - 严谨语义化重构版
 //
 // 核心原则：
 // 1. 只使用 400 (Regular), 500 (Medium), 600 (SemiBold)。禁止使用 700+。

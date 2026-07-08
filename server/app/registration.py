@@ -97,7 +97,7 @@ def public_invite_payload(conn, row: dict, valid: bool = True) -> dict:
         "role_label": "管理者申请" if is_manager else "子单位",
         "issuer_name_masked": issuer_name,
         "issuer_name": issuer_name,
-        "issuer_org": "XX公安局",
+        "issuer_org": "三公鲜配",
         "unit_name": unit["unit_name"] if unit else "",
         "unit_code": unit["unit_code"] if unit else "",
         "delivery_point": unit["default_delivery_point"] if unit else "",

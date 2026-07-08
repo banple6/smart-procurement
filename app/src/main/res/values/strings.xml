@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">景荣鲜配</string>
-    <string name="police_department_name">XX公安局</string>
-    <string name="system_full_name">XX公安局后勤食材采购配送系统</string>
-    <string name="system_short_name">后勤食材采购配送系统</string>
-    <string name="internal_use_label">公安内部使用</string>
+    <string name="app_name">三公鲜配</string>
+    <string name="police_department_name">单位信息未配置</string>
+    <string name="system_full_name">单位食材申领与配送协同平台</string>
+    <string name="system_short_name">食材申领与配送平台</string>
+    <string name="internal_use_label">内部授权使用</string>
 </resources>

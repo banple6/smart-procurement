@@ -78,7 +78,7 @@
       const data = await response.json();
       challengeId = data.challenge_id;
       $("qrBox").innerHTML = `<img src="${data.qr_svg_data_url}" alt="网页登录二维码" />`;
-      setStatus("请使用景荣鲜配 App 扫码登录", "waiting");
+      setStatus("请使用三公鲜配 App 扫码登录", "waiting");
       startCountdown(data);
       pollTimer = window.setInterval(pollStatus, 2000);
     } catch (error) {
@@ -105,7 +105,7 @@
     if (!response.ok) return;
     const data = await response.json();
     startCountdown(data);
-    if (data.status === "pending") setStatus("请使用景荣鲜配 App 扫码登录", "waiting");
+    if (data.status === "pending") setStatus("请使用三公鲜配 App 扫码登录", "waiting");
     if (data.status === "scanned") setStatus("已扫描，请在手机上确认登录", "scanned");
     if (data.status === "rejected") {
       stopPolling();

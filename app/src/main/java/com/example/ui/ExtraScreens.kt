@@ -331,7 +331,7 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
         ) {
             GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("景荣鲜配", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("三公鲜配", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     GovernmentDataRow("当前版本", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                     GovernmentDataRow("版本渠道", if (AppUpdatePolicy.channelForVariant(BuildConfig.APP_VARIANT_LABEL) == "production") "正式版" else "测试版")
                     if (viewModel.isDownloadingAppUpdate) {
@@ -471,7 +471,7 @@ private fun InviteSummary(result: InviteInspectResult) {
         Divider()
         Text("邀请信息", fontWeight = FontWeight.Bold)
         GovernmentDataRow("邀请类型", result.roleLabel)
-        GovernmentDataRow("签发单位", result.issuerOrg.ifBlank { "XX公安局" })
+        GovernmentDataRow("签发单位", result.issuerOrg.ifBlank { "三公鲜配" })
         GovernmentDataRow("签发人", result.issuerName.ifBlank { "系统管理员" })
         if (result.inviteType == "unit") {
             GovernmentDataRow("单位名称", result.unitName)

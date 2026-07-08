@@ -68,13 +68,13 @@ data class IngredientFormState(
     val category: String = "蔬菜",
     val code: String = "",
     val imagePath: String = "",
-    val spec: String = "",
+    val spec: String = "散装",
     val unit: String = "公斤",
     val minOrderQuantity: String = "1",
     val quantityStep: String = "1",
     val packagingSpec: String = "",
     val stockQuantity: String = "0",
-    val warningQuantity: String = "",
+    val warningQuantity: String = "0",
     val availableQuantity: String = "",
     val origin: String = "",
     val internalPrice: String = "",
@@ -860,17 +860,14 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 quantityStep = form.quantityStep,
                 stockQuantity = form.stockQuantity,
                 warningQuantity = form.warningQuantity,
-                availableQuantity = form.availableQuantity,
-                internalPrice = form.internalPrice
+                internalPrice = form.internalPrice,
+                supplyStatus = form.status,
+                active = form.isAvailable
             )
         )
         ingredientErrors.clear()
         ingredientErrors.putAll(validation.errors)
         if (!validation.isValid) return
-        if (form.isAvailable && form.status != "暂停供应" && Money.yuanTextToCents(form.internalPrice) <= 0) {
-            ingredientErrors["internalPrice"] = "请先填写商品价格"
-            return
-        }
 
         isSavingIngredient = true
         viewModelScope.launch {
@@ -910,15 +907,23 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val saved = apiClient.saveProduct(authToken, product)
+                    var imageUploadFailed = false
                     if (form.imagePath.isNotBlank() && !form.imagePath.startsWith("http") && java.io.File(form.imagePath).exists()) {
-                        apiClient.uploadProductImage(authToken, saved.id, form.imagePath)
+                        imageUploadFailed = runCatching {
+                            apiClient.uploadProductImage(authToken, saved.id, form.imagePath)
+                        }.isFailure
                     }
+                    imageUploadFailed
                 }
             }
             isSavingIngredient = false
-            result.onSuccess {
+            result.onSuccess { imageUploadFailed ->
                 refreshProducts()
-                snackbarMessage = if (existing == null) "食材新增已保存" else "食材修改已保存"
+                snackbarMessage = when {
+                    imageUploadFailed -> "食材已保存，图片上传失败，可稍后重新编辑补传"
+                    existing == null -> "食材新增已保存"
+                    else -> "食材修改已保存"
+                }
                 onSuccess()
             }.onFailure {
                 alertMessage = it.toUserMessage("保存失败")
@@ -934,7 +939,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    apiClient.setProductStatus(authToken, productId, if (available) "normal" else "off_shelf", available)
+                    apiClient.setProductStatus(authToken, productId, "normal", available)
                 }
             }.onSuccess {
                 refreshProducts()

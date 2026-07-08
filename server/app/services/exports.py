@@ -28,6 +28,7 @@ LEDGER_HEADERS = [
 
 def ledger_workbook(rows: list[dict]) -> bytes:
     wb = Workbook()
+    wb.properties.title = "三公鲜配采购台账"
     ws = wb.active
     ws.title = "订单台账"
     ws.append(LEDGER_HEADERS)
@@ -95,6 +96,7 @@ PREPARATION_HEADERS = [
 
 def preparation_summary_workbook(rows: list[dict]) -> bytes:
     wb = Workbook()
+    wb.properties.title = "三公鲜配今日备货单"
     ws = wb.active
     ws.title = "今日备货汇总"
     ws.append(PREPARATION_HEADERS)
@@ -118,6 +120,7 @@ def preparation_summary_workbook(rows: list[dict]) -> bytes:
 
 def delivery_sheets_workbook(units: list[dict]) -> bytes:
     wb = Workbook()
+    wb.properties.title = "三公鲜配配送单"
     summary = wb.active
     summary.title = "按商品汇总"
     summary.append(PREPARATION_HEADERS)

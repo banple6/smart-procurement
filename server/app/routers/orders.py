@@ -3,13 +3,14 @@ from datetime import datetime
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from ..database import all_rows, one, transaction, connect
 from ..dependencies import current_user, require_admin_user, require_unit_user
 from ..models import ADMIN_TRANSITIONS
 from ..schemas import OrderCreate, OrderStatusPatch
+from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
 from ..services.order_status import order_status_payload
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
@@ -88,6 +89,68 @@ def order_out(conn, order: dict, include_items: bool = True, include_shipping_ph
     return payload
 
 
+def _placeholders(values: list[str]) -> str:
+    return ",".join("?" for _ in values)
+
+
+def order_list_out(conn, orders: list[dict], include_items: bool) -> list[dict]:
+    if not orders:
+        return []
+    order_ids = [row["id"] for row in orders]
+    created_by_ids = sorted({row.get("created_by") for row in orders if row.get("created_by")})
+    usernames = {}
+    if created_by_ids:
+        usernames = {
+            row["id"]: row["username"]
+            for row in all_rows(conn, f"SELECT id, username FROM users WHERE id IN ({_placeholders(created_by_ids)})", created_by_ids)
+        }
+    item_counts = {
+        row["order_id"]: row["c"]
+        for row in all_rows(
+            conn,
+            f"SELECT order_id, COUNT(*) AS c FROM order_items WHERE order_id IN ({_placeholders(order_ids)}) GROUP BY order_id",
+            order_ids,
+        )
+    }
+    photo_counts = {
+        row["order_id"]: row["c"]
+        for row in all_rows(
+            conn,
+            f"SELECT order_id, COUNT(*) AS c FROM order_shipping_photos WHERE order_id IN ({_placeholders(order_ids)}) GROUP BY order_id",
+            order_ids,
+        )
+    }
+    items_by_order: dict[str, list[dict]] = {order_id: [] for order_id in order_ids}
+    if include_items:
+        for item in all_rows(
+            conn,
+            f"SELECT * FROM order_items WHERE order_id IN ({_placeholders(order_ids)}) ORDER BY rowid",
+            order_ids,
+        ):
+            items_by_order.setdefault(item["order_id"], []).append(item)
+    payloads = []
+    for order in orders:
+        payload = {
+            **order,
+            **order_status_payload(order.get("status", "")),
+            "accepted_at": order.get("accepted_at") or "",
+            "preparing_at": order.get("preparing_at") or "",
+            "shipped_at": order.get("shipped_at") or "",
+            "completed_at": order.get("completed_at") or "",
+            "cancelled_at": order.get("cancelled_at") or "",
+            "version": int(order.get("version") or 1),
+            "created_by_username": usernames.get(order.get("created_by"), ""),
+            "item_count": int(item_counts.get(order["id"], 0)),
+            "shipping_note": order.get("shipping_note") or "",
+            "shipping_photo_count": int(photo_counts.get(order["id"], 0)),
+        }
+        payload.pop("created_by", None)
+        if include_items:
+            payload["items"] = items_by_order.get(order["id"], [])
+        payloads.append(payload)
+    return payloads
+
+
 def ensure_expected_order_state(order: dict, expected_status: str | None = None, expected_version: int | None = None):
     if expected_status and order.get("status") != expected_status:
         raise HTTPException(status_code=409, detail="订单状态已被其他操作员更新，页面已刷新")
@@ -99,7 +162,7 @@ def order_list(conn, sql: str, params: list, include_items: bool, page: int, pag
     count_sql = f"SELECT COUNT(*) AS c FROM ({sql}) AS filtered_orders"
     total = one(conn, count_sql, params)["c"]
     rows = all_rows(conn, sql + " ORDER BY created_at DESC LIMIT ? OFFSET ?", (*params, page_size, (page - 1) * page_size))
-    rows = [order_out(conn, row, include_items=include_items, include_shipping_photos=False) for row in rows]
+    rows = order_list_out(conn, rows, include_items=include_items)
     return {"items": rows, "total": total, "page": page, "page_size": page_size}
 
 
@@ -112,15 +175,20 @@ def fetch_order_for_user(conn, order_id: str, user: dict):
     return order
 
 
-def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: str | None = None):
+def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: str | None = None, idempotency_key: str | None = None):
     if not body.items:
         raise HTTPException(status_code=400, detail="请先选择食材")
     unit = get_unit(conn, user["unit_id"])
-    if body.client_request_id and not existing_order_id:
+    effective_idempotency_key = (idempotency_key or body.client_request_id or "").strip() or None
+    if effective_idempotency_key and not existing_order_id:
         existing = one(
             conn,
-            "SELECT * FROM orders WHERE client_request_id = ? AND created_by = ?",
-            (body.client_request_id, user["id"]),
+            """
+            SELECT * FROM orders
+            WHERE created_by = ?
+              AND (idempotency_key = ? OR client_request_id = ?)
+            """,
+            (user["id"], effective_idempotency_key, effective_idempotency_key),
         )
         if existing:
             return existing
@@ -148,6 +216,7 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
             """,
             (order_id, order_no(conn), unit["id"], unit["unit_name"], unit["default_delivery_point"], body.note, total, user["id"], body.client_request_id),
         )
+        conn.execute("UPDATE orders SET idempotency_key = ? WHERE id = ?", (effective_idempotency_key, order_id))
     for product, quantity, subtotal in items_payload:
         conn.execute(
             """
@@ -168,9 +237,10 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
 
 
 @router.post("/orders")
-def create_order(body: OrderCreate, user=Depends(require_unit_user)):
+def create_order(body: OrderCreate, user=Depends(require_unit_user), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
     with transaction() as conn:
-        order = create_order_rows(conn, body, user)
+        order = create_order_rows(conn, body, user, idempotency_key=idempotency_key)
+        invalidate_dashboard_cache()
         return order_out(conn, order)
 
 
@@ -233,6 +303,7 @@ def update_pending_order(order_id: str, body: OrderCreate, user=Depends(require_
         for item in order_items(conn, order_id):
             release_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         updated = create_order_rows(conn, body, user, existing_order_id=order_id)
+        invalidate_dashboard_cache()
         return order_out(conn, updated)
 
 
@@ -249,6 +320,7 @@ def cancel_order(order_id: str, user=Depends(require_unit_user)):
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'cancel', ?, 'cancelled')",
             (str(uuid4()), order_id, user["id"], order["status"]),
         )
+        invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 
@@ -265,6 +337,7 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'confirm_receipt', 'shipped', 'completed')",
             (str(uuid4()), order_id, user["id"]),
         )
+        invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 
@@ -327,6 +400,7 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'status', ?, ?)",
             (str(uuid4()), order_id, admin["id"], order["status"], body.status),
         )
+        invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 
@@ -420,6 +494,7 @@ async def ship_order(
                     json.dumps({"shipping_photo_count": len(processed), "client_request_id": request_id}, ensure_ascii=False),
                 ),
             )
+            invalidate_dashboard_cache()
             return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
     except Exception:
         cleanup_photos(processed)

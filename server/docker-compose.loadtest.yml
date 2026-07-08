@@ -1,0 +1,26 @@
+services:
+  api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env.loadtest
+    volumes:
+      - /srv/smart-procurement-loadtest/data:/app/loadtest-data
+      - /srv/smart-procurement-loadtest/uploads:/app/loadtest-uploads
+      - /srv/smart-procurement-loadtest/private_uploads:/app/loadtest-private-uploads
+      - /srv/smart-procurement-loadtest/backups:/app/loadtest-backups
+      - /srv/smart-procurement-loadtest/releases:/app/loadtest-releases
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:18080:80"
+    volumes:
+      - ./nginx.loadtest.conf:/etc/nginx/conf.d/default.conf:ro
+      - /srv/smart-procurement-loadtest/uploads:/app/loadtest-uploads:ro
+      - /srv/smart-procurement-loadtest/logs:/var/log/nginx

@@ -56,7 +56,7 @@ def ensure_web_platform_allowed(conn, user: dict, challenge_id: str = ""):
 
 
 def web_target_name(user: dict) -> str:
-    return "景荣鲜配管理后台" if user["role"] == "admin" else "景荣鲜配单位网页版"
+    return "三公鲜配管理后台" if user["role"] == "admin" else "三公鲜配单位网页版"
 
 
 def version_key(value: str) -> tuple[int, ...]:

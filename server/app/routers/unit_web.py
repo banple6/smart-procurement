@@ -10,6 +10,7 @@ from ..database import all_rows, connect, one, transaction
 from ..dependencies import require_csrf, require_unit_web_session
 from ..routers.orders import fetch_order_for_user, order_items, order_out
 from ..schemas import OrderCreate, OrderItemRequest
+from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text
 from ..services.procurement import cutoff_payload
 from ..web_session import CSRF_COOKIE, secure_cookie_enabled, web_absolute_seconds
@@ -292,6 +293,7 @@ def submit_unit_order(body: UnitOrderSubmitBody, request: Request, user=Depends(
 
         order = create_order_rows(conn, order_body, user)
         conn.execute("DELETE FROM web_cart_items WHERE user_id = ? AND unit_id = ?", (user["id"], user["unit_id"]))
+        invalidate_dashboard_cache()
         return order_out(conn, order)
 
 
@@ -329,6 +331,7 @@ def unit_confirm_receipt(order_id: str, request: Request, user=Depends(require_u
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
+        invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
 
 
@@ -347,4 +350,5 @@ def unit_receipt_issue(order_id: str, body: ReceiptIssueBody, request: Request, 
             """,
             (issue_id, order_id, user["unit_id"], body.issue_type.strip()[:40] or "other", body.description.strip()[:500], user["id"]),
         )
+        invalidate_dashboard_cache()
         return one(conn, "SELECT * FROM receipt_issues WHERE id = ?", (issue_id,))

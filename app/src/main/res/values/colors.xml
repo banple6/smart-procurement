@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- 景荣鲜配 (JRXP) 专属色彩体系 -->
+    <!-- 三公鲜配专属色彩体系 -->
 
-    <!-- 主色：公安蓝 -->
+    <!-- 主色：深蓝 -->
     <color name="jrxp_command_navy">#FF0A2957</color>
     <color name="jrxp_duty_blue">#FF174F8A</color>
     <color name="jrxp_dispatch_blue">#FF2C6DA4</color>

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 
 from ..database import all_rows, connect, one
 from ..dependencies import require_admin_user, require_web_admin_user
+from ..services.dashboard_cache import get_dashboard_cached
 from ..services.dashboard_overview import dashboard_overview, utc_bounds
 
 router = APIRouter(prefix="/admin", tags=["dashboard"])
@@ -13,8 +14,11 @@ router = APIRouter(prefix="/admin", tags=["dashboard"])
 @router.get("/dashboard")
 def dashboard(admin=Depends(require_admin_user)):
     business_day = datetime.now(ZoneInfo("Asia/Shanghai")).date()
-    with connect() as conn:
-        overview = dashboard_overview(conn, business_day.isoformat(), 7, "amount")
+    key = ("api-dashboard", business_day.isoformat(), 7, "amount")
+    overview = get_dashboard_cached(
+        key,
+        lambda: _dashboard_overview_payload(business_day.isoformat(), 7, "amount"),
+    )
     metrics = overview["metrics"]
     return {
         "today_orders": metrics["today_valid_orders"],
@@ -36,6 +40,14 @@ def dashboard_overview_api(
     unit_sort: str = Query(default="amount", pattern="^(amount|orders)$"),
     admin=Depends(require_web_admin_user),
 ):
+    date_key = business_date or datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    return get_dashboard_cached(
+        ("web-dashboard-overview", date_key, range_days, unit_sort),
+        lambda: _dashboard_overview_payload(business_date, range_days, unit_sort),
+    )
+
+
+def _dashboard_overview_payload(business_date: str | None, range_days: int, unit_sort: str):
     with connect() as conn:
         return dashboard_overview(conn, business_date, range_days, unit_sort)
 
