@@ -51,4 +51,18 @@ class AppUpdateUiPolicyTest {
         assertTrue(updateStateIndex >= 0)
         assertTrue(startupCheckIndex > updateStateIndex)
     }
+
+    @Test
+    fun product_sync_clears_stale_local_products_when_server_returns_empty_list() {
+        val repository = File("src/main/java/com/example/data/SupplyRepository.kt").readText()
+        val replaceProductsStart = repository.indexOf("suspend fun replaceProducts(products: List<ProductEntity>)")
+        val replaceOrdersStart = repository.indexOf("suspend fun saveProduct", replaceProductsStart)
+        val replaceProductsBody = repository.substring(replaceProductsStart, replaceOrdersStart)
+
+        val clearIndex = replaceProductsBody.indexOf("supplyDao.clearProducts()")
+        val insertIndex = replaceProductsBody.indexOf("supplyDao.insertProducts(products)")
+
+        assertTrue(clearIndex >= 0)
+        assertTrue(insertIndex > clearIndex)
+    }
 }

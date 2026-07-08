@@ -18,10 +18,9 @@ class SupplyRepository(private val database: AppDatabase) {
     suspend fun getProductById(id: String): ProductEntity? = supplyDao.getProductById(id)
     suspend fun updateProduct(product: ProductEntity) = supplyDao.updateProduct(product)
     suspend fun replaceProducts(products: List<ProductEntity>) {
-        if (products.isNotEmpty()) {
-            database.withTransaction {
-                supplyDao.insertProducts(products)
-            }
+        database.withTransaction {
+            supplyDao.clearProducts()
+            if (products.isNotEmpty()) supplyDao.insertProducts(products)
         }
     }
     suspend fun saveProduct(product: ProductEntity) = supplyDao.insertProduct(product.withComputedSupplyStatus())

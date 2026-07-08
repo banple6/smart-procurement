@@ -1,0 +1,20 @@
+{
+  "release_id": "8944882d-6ab5-4f2d-b103-df8608dafcd0",
+  "storage_key": "production/8944882d-6ab5-4f2d-b103-df8608dafcd0.apk",
+  "package_name": "com.smartprocurement.internal",
+  "version_code": 11,
+  "version_name": "1.1.4",
+  "min_sdk": 24,
+  "apk_size_bytes": 38251143,
+  "apk_sha256": "87b01b572c0e4ca3b75491141743c8fc7c7deb099f084bd268169b0ae47a28f6",
+  "signer_sha256": "5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068",
+  "channel": "production",
+  "minimum_supported_version_code": 11,
+  "update_type": "mandatory",
+  "title": "三公鲜配缓存清理修复版 1.1.4",
+  "release_notes_text": "修复服务器清空或删除食材后 App 本地缓存仍显示的问题\n商品同步会先清空本地列表再写入服务器最新列表\n生产库当前无测试食材，更新后刷新即可显示空列表",
+  "manifest_payload": "{\"apk_sha256\":\"87b01b572c0e4ca3b75491141743c8fc7c7deb099f084bd268169b0ae47a28f6\",\"apk_size_bytes\":38251143,\"channel\":\"production\",\"min_sdk\":24,\"minimum_supported_version_code\":11,\"package_name\":\"com.smartprocurement.internal\",\"release_id\":\"8944882d-6ab5-4f2d-b103-df8608dafcd0\",\"release_notes\":[\"修复服务器清空或删除食材后 App 本地缓存仍显示的问题\",\"商品同步会先清空本地列表再写入服务器最新列表\",\"生产库当前无测试食材，更新后刷新即可显示空列表\"],\"schema_version\":1,\"signer_sha256\":\"5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068\",\"title\":\"三公鲜配缓存清理修复版 1.1.4\",\"update_type\":\"mandatory\",\"version_code\":11,\"version_name\":\"1.1.4\"}",
+  "manifest_signature": "UkS3NY9muBW7V+0HK34lhd4JBN6j39vAwf7qP5a+pdIyScZXbFO2JFf07SCnY32SuMtNil8KqfLAf3ZFsMFhAw==",
+  "manifest_public_key": "VP8g3w/5CBvptth1cnhy5zfI33F4vraH6n7U2D257qE=",
+  "manifest_key_id": "product-cache-sync-fix-11"
+}
