@@ -27,4 +27,17 @@ class AppUpdateUiPolicyTest {
         assertTrue(service.contains("ACTION_VIEW"))
         assertTrue(service.contains("application/vnd.android.package-archive"))
     }
+
+    @Test
+    fun login_page_can_show_mandatory_update_before_authentication() {
+        val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
+        val app = File("src/main/java/com/example/ui/SupplyApp.kt").readText()
+
+        assertTrue(viewModel.contains("checkForAppUpdate(showNoUpdate = false)"))
+        assertFalse(viewModel.contains("fun checkForAppUpdate(showNoUpdate: Boolean = false) {\n        if (authToken.isBlank()) return"))
+        assertFalse(viewModel.contains("if (authToken.isBlank() || isDownloadingAppUpdate) return"))
+        assertTrue(app.contains("必须更新"))
+        assertTrue(app.contains("立即更新"))
+        assertTrue(app.contains("onDismissRequest = {}"))
+    }
 }

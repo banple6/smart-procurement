@@ -120,6 +120,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+        checkForAppUpdate(showNoUpdate = false)
     }
 
     // --- State Flows from Repository ---
@@ -683,8 +684,12 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun checkForAppUpdate(showNoUpdate: Boolean = false) {
-        if (authToken.isBlank()) return
+    fun blockingAppUpdateRelease(): AppUpdateRelease? {
+        val release = appUpdateCheckResult.release ?: return null
+        return if (release.versionCode > BuildConfig.VERSION_CODE && !AppUpdatePolicy.canEnterBusiness(release)) release else null
+    }
+
+    fun checkForAppUpdate(showNoUpdate: Boolean = false, showFailure: Boolean = false) {
         isCheckingAppUpdate = true
         viewModelScope.launch {
             runCatching {
@@ -695,7 +700,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 appUpdateCheckResult = it
                 if (showNoUpdate && it.release == null) snackbarMessage = "当前已是最新版本"
             }.onFailure {
-                alertMessage = it.toUserMessage("检查更新失败")
+                if (showFailure || showNoUpdate) alertMessage = it.toUserMessage("检查更新失败")
             }
             isCheckingAppUpdate = false
         }
@@ -703,7 +708,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun downloadAndInstallUpdate() {
         val release = appUpdateCheckResult.release ?: return
-        if (authToken.isBlank() || isDownloadingAppUpdate) return
+        if (isDownloadingAppUpdate) return
         isDownloadingAppUpdate = true
         appUpdateDownloadProgress = 5
         viewModelScope.launch {

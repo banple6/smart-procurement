@@ -52,6 +52,11 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
         viewModel.navigateBack()
     }
 
+    val mandatoryRelease = viewModel.blockingAppUpdateRelease()
+    BackHandler(enabled = mandatoryRelease != null) {
+        // 强制更新期间不允许通过返回键绕过。
+    }
+
     viewModel.alertMessage?.let { msg ->
         AlertDialog(
             onDismissRequest = { viewModel.alertMessage = null },
@@ -62,6 +67,49 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             },
             title = { Text("提示", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = { Text(msg, fontSize = 14.sp) },
+            shape = RoundedCornerShape(12.dp),
+            containerColor = Color.White
+        )
+    }
+
+    mandatoryRelease?.let { release ->
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.downloadAndInstallUpdate() },
+                    enabled = !viewModel.isDownloadingAppUpdate,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (viewModel.isDownloadingAppUpdate) {
+                            "正在下载 ${viewModel.appUpdateDownloadProgress}%"
+                        } else {
+                            "立即更新"
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            title = { Text("必须更新", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "当前版本已停用，请先安装 ${release.versionName.ifBlank { "最新版" }} 后继续使用。",
+                        fontSize = 14.sp,
+                        lineHeight = 21.sp
+                    )
+                    if (viewModel.isDownloadingAppUpdate) {
+                        LinearProgressIndicator(
+                            progress = { viewModel.appUpdateDownloadProgress / 100f },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
             shape = RoundedCornerShape(12.dp),
             containerColor = Color.White
         )

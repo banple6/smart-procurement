@@ -1,0 +1,20 @@
+{
+  "release_id": "0f055ef8-c9a3-42c0-9c1c-a95e0ea02226",
+  "storage_key": "production/0f055ef8-c9a3-42c0-9c1c-a95e0ea02226.apk",
+  "package_name": "com.smartprocurement.internal",
+  "version_code": 9,
+  "version_name": "1.1.2",
+  "min_sdk": 24,
+  "apk_size_bytes": 38251143,
+  "apk_sha256": "dd303d871f27ea625a004e336feac7c7da6d6e5f01aafeed5b5689366bdd6b48",
+  "signer_sha256": "5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068",
+  "channel": "production",
+  "minimum_supported_version_code": 9,
+  "update_type": "mandatory",
+  "title": "三公鲜配强制更新修复版 1.1.2",
+  "release_notes_text": "登录页启动时检查强制更新\n未登录状态也可下载并安装更新包\n强制更新弹窗不可返回绕过",
+  "manifest_payload": "{\"apk_sha256\":\"dd303d871f27ea625a004e336feac7c7da6d6e5f01aafeed5b5689366bdd6b48\",\"apk_size_bytes\":38251143,\"channel\":\"production\",\"min_sdk\":24,\"minimum_supported_version_code\":9,\"package_name\":\"com.smartprocurement.internal\",\"release_id\":\"0f055ef8-c9a3-42c0-9c1c-a95e0ea02226\",\"release_notes\":[\"登录页启动时检查强制更新\",\"未登录状态也可下载并安装更新包\",\"强制更新弹窗不可返回绕过\"],\"schema_version\":1,\"signer_sha256\":\"5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068\",\"title\":\"三公鲜配强制更新修复版 1.1.2\",\"update_type\":\"mandatory\",\"version_code\":9,\"version_name\":\"1.1.2\"}",
+  "manifest_signature": "EymlWxnArTshxB6sCSFQ/nb4JAzEbZ/Uay57+FKvbq/XxwdWHTDXGS2hvNKUSwM4dBWQpuFbQRLx5Bjh7cdBBA==",
+  "manifest_public_key": "zDP4f4mpVnisbjCGkNQUAQaXPX/4iLGE9u3IL4q+58s=",
+  "manifest_key_id": "login-update-gate-9"
+}
