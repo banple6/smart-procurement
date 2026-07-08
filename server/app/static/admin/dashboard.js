@@ -93,6 +93,13 @@
     return found ? found.split("=").slice(1).join("=") : "";
   }
 
+  function requestId(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return `${prefix}-${window.crypto.randomUUID()}`;
+    }
+    return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
   function toast(message) {
     const box = $("toast");
     box.textContent = message;
@@ -282,6 +289,7 @@
   function primaryAction(order) {
     if (order.status === "pending") return ["接单", "accepted"];
     if (order.status === "accepted") return ["开始备货", "preparing"];
+    if (order.status === "preparing") return ["确认发货", "ship"];
     if (order.status === "shipped") return ["完成订单", "completed"];
     return ["查看", ""];
   }
@@ -393,6 +401,63 @@
     }
   }
 
+  async function shipOrder(button, files, note = "") {
+    const selected = Array.from(files || []).filter(Boolean);
+    if (!selected.length) {
+      toast("请先上传发货照片");
+      return;
+    }
+    if (selected.length > 3) {
+      toast("最多上传三张发货照片");
+      return;
+    }
+    const label = button.textContent;
+    if (!confirm("确认发货这笔订单吗？")) return;
+    button.disabled = true;
+    button.textContent = "提交中";
+    try {
+      const form = new FormData();
+      selected.forEach((file) => form.append("photos", file));
+      form.append("note", note || "");
+      form.append("client_request_id", requestId("web-ship"));
+      const response = await fetch(`/api/v1/admin/orders/${button.dataset.order}/ship`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) },
+        body: form,
+      });
+      if (response.status === 401) {
+        window.location.replace("/login?expired=1");
+        throw new Error("登录已过期，请重新登录");
+      }
+      if (!response.ok) {
+        let detail = "";
+        try {
+          detail = (await response.json()).detail || "";
+        } catch (_) {
+          detail = "";
+        }
+        throw new Error(detail || "发货失败，请刷新后重试");
+      }
+      toast("已确认发货");
+      await loadCurrent(true);
+    } catch (error) {
+      toast(error.message || "发货失败，请刷新后重试");
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+
+  function chooseShipPhotos(button) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.name = "photos";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.addEventListener("change", () => shipOrder(button, input.files));
+    input.click();
+  }
+
   function table(headers, rows, emptyText) {
     if (!rows.length) return empty(emptyText || "暂无数据");
     return `<div class="table-wrap"><table class="admin-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
@@ -409,10 +474,13 @@
     content().innerHTML += table(["订单编号", "单位", "下单时间", "金额", "状态", "食材", "操作"], items.map((order) => {
       const action = primaryAction(order);
       const goods = (order.items || []).slice(0, 3).map((item) => `${html(item.product_name || item.product_name_snapshot)} x ${qty(item.quantity)}`).join("<br>");
-      const button = action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
+      const button = action[1] === "ship"
+        ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
+        : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
       return `<tr><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${goods || "--"}</td><td>${button}</td></tr>`;
     }), "暂无订单");
-    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
   }
 
   async function loadOrderDetail(orderId) {
@@ -427,13 +495,36 @@
           <dt>备注</dt><dd>${html(order.remark || "无")}</dd>
           <dt>订单金额</dt><dd>${money(order.total_cents)}</dd>
         </dl>
-        ${action[1] ? `<div class="page-toolbar"><button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button></div>` : ""}
+        ${action[1] && action[1] !== "ship" ? `<div class="page-toolbar"><button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button></div>` : ""}
       </article>
     `;
+    if (order.status === "preparing") {
+      content().innerHTML += `
+        <article class="panel section-panel">
+          <div class="panel-header"><div><h2>发货留存</h2><p>上传 1 到 3 张发货照片后确认发货</p></div></div>
+          <div class="form-grid">
+            <label class="form-field"><span>发货照片</span><input id="shippingPhotosInput" name="photos" type="file" accept="image/*" capture="environment" multiple /></label>
+            <label class="form-field"><span>发货备注</span><input id="shippingNoteInput" type="text" placeholder="可填写数量核对、配送说明" /></label>
+          </div>
+          <div class="page-toolbar"><button class="primary-link" data-ship-detail="${order.id}" data-order="${order.id}" type="button">确认发货</button></div>
+        </article>
+      `;
+    }
+    if ((order.shipping_photos || []).length) {
+      content().innerHTML += `
+        <article class="panel section-panel">
+          <div class="panel-header"><div><h2>发货照片</h2><p>${html(order.shipping_note || "无备注")}</p></div></div>
+          <div class="photo-grid">${order.shipping_photos.map((photo) => `<a href="${photo.full_url}" target="_blank" rel="noreferrer"><img src="${photo.thumbnail_url}" alt="发货照片" /></a>`).join("")}</div>
+        </article>
+      `;
+    }
     content().innerHTML += table(["食材", "规格", "数量", "单价", "小计"], (order.items || []).map((item) => `
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.unit_price_cents)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
-    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-ship-detail]").forEach((button) => button.addEventListener("click", () => {
+      shipOrder(button, $("shippingPhotosInput").files, $("shippingNoteInput").value || "");
+    }));
   }
 
   async function loadProducts() {

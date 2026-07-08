@@ -1118,6 +1118,10 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert 'headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },\n      ...options' not in unit_js
     assert "expected_status" in dashboard_js
     assert "expected_version" in dashboard_js
+    assert "确认发货" in dashboard_js
+    assert "/ship" in dashboard_js
+    assert 'name="photos"' in dashboard_js
+    assert "client_request_id" in dashboard_js
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):
