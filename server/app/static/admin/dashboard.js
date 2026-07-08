@@ -17,7 +17,7 @@
 
   const nav = [
     ["", [["工作台", "/admin/dashboard", "▦"]]],
-    ["采购管理", [["订单管理", "/admin/orders", "□"], ["今日备货", "/admin/preparation-summary", "▤"], ["单位配送", "/admin/delivery-sheets", "⇄"]]],
+    ["采购管理", [["订单管理", "/admin/orders", "□"], ["当前备货", "/admin/preparation-summary", "▤"], ["单位配送", "/admin/delivery-sheets", "⇄"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
@@ -25,7 +25,7 @@
   ];
 
   const quickActions = [
-    ["今日备货单", "/admin/preparation-summary", "按食材汇总今日需求"],
+    ["当前备货单", "/admin/preparation-summary", "按食材汇总待备货需求"],
     ["单位配送单", "/admin/delivery-sheets", "按单位查看配送清单"],
     ["待接单订单", "/admin/orders?status=pending", "处理新提交采购单"],
     ["食材价格维护", "/admin/products?mode=price", "快速改价和库存"],
@@ -199,7 +199,7 @@
         <article class="panel table-panel"><div class="panel-header"><div><h2>库存预警</h2><p>优先显示库存不足和暂停供应</p></div><a href="/admin/products?status=tight">查看食材列表</a></div><div id="inventoryAlerts" class="inventory-list"></div></article>
       </section>
       <section class="dashboard-grid">
-        <article class="panel"><div class="panel-header"><div><h2>今日需求排行</h2><p>按实际供应数量统计</p></div><a href="/admin/preparation-summary">今日备货汇总</a></div><div id="demandRank" class="rank-list"></div></article>
+        <article class="panel"><div class="panel-header"><div><h2>今日需求排行</h2><p>按实际供应数量统计</p></div><a href="/admin/preparation-summary">当前备货汇总</a></div><div id="demandRank" class="rank-list"></div></article>
         <article class="panel"><div class="panel-header"><div><h2>今日单位采购情况</h2><p>按金额或订单量查看</p></div><select id="unitSort" aria-label="单位排行排序"><option value="amount">按金额</option><option value="orders">按订单量</option></select></div><div id="unitRank" class="rank-list"></div></article>
       </section>
       <section class="dashboard-grid bottom">
@@ -503,7 +503,7 @@
   }
 
   async function loadPreparationSummary() {
-    pageShell("今日备货", "按食材汇总今日需求");
+    pageShell("当前备货", "汇总所有待备货和备货中的订单");
     const data = await api("/api/v1/admin/preparation-summary");
     const rows = data.items || data || [];
     content().innerHTML += `<div class="page-toolbar"><a class="primary-link" href="/api/v1/admin/preparation-summary/export.xlsx">导出备货 Excel</a></div>`;

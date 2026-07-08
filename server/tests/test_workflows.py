@@ -805,6 +805,42 @@ def test_cancel_releases_inventory_summary_and_excel(tmp_path):
     assert workbook.properties.title == "三公鲜配采购台账"
 
 
+def test_preparation_summary_includes_current_preparing_orders_from_previous_business_days(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "2"}]},
+    ).json()
+
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = 'preparing',
+                created_at = datetime('now', '-2 days'),
+                accepted_at = datetime('now', '-1 day'),
+                preparing_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (order["id"],),
+        )
+        conn.commit()
+
+    current_summary = client.get("/api/v1/admin/preparation-summary", headers=admin_headers)
+    assert current_summary.status_code == 200, current_summary.text
+    assert current_summary.json()["total"] == 1
+    assert current_summary.json()["items"][0]["product_name"] == "西红柿"
+    assert current_summary.json()["items"][0]["order_count"] == 1
+
+    today_only = client.get("/api/v1/admin/preparation-summary?business_date=2099-01-01", headers=admin_headers)
+    assert today_only.status_code == 200, today_only.text
+    assert today_only.json()["total"] == 0
+
+
 def test_image_upload_validates_file_type(tmp_path):
     client = make_client(tmp_path)
     admin_headers, _, _, product_id = create_unit_user_product_order(client)

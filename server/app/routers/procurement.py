@@ -74,10 +74,13 @@ def put_cutoff_override(business_date: str, body: CutoffOverridePut, admin=Depen
         return cutoff_payload(conn)
 
 
-def preparation_rows(conn, business_date: str, scope: str, category: str | None, page: int, page_size: int):
+def preparation_rows(conn, business_date: str | None, scope: str, category: str | None, page: int, page_size: int):
     statuses = scope_statuses(scope)
-    where = [business_date_filter(), f"orders.status IN ({','.join('?' for _ in statuses)})"]
-    params: list = [business_date, *statuses]
+    where = [f"orders.status IN ({','.join('?' for _ in statuses)})"]
+    params: list = [*statuses]
+    if business_date:
+        where.insert(0, business_date_filter())
+        params.insert(0, business_date)
     if category:
         where.append("order_items.category_snapshot = ?")
         params.append(category)
@@ -115,8 +118,13 @@ def preparation_summary(
     admin=Depends(require_admin_user),
 ):
     with connect() as conn:
-        date_text = business_date or cutoff_payload(conn)["business_date"]
-        return preparation_rows(conn, date_text, scope, category, page, page_size)
+        date_text = business_date
+        if scope == "shipped" and not date_text:
+            date_text = cutoff_payload(conn)["business_date"]
+        result = preparation_rows(conn, date_text, scope, category, page, page_size)
+        result["business_date"] = date_text or cutoff_payload(conn)["business_date"]
+        result["date_filtered"] = bool(date_text)
+        return result
 
 
 @router.get("/admin/preparation-summary/export.xlsx")
@@ -127,12 +135,15 @@ def export_preparation_summary(
     admin=Depends(require_admin_user),
 ):
     with connect() as conn:
-        date_text = business_date or cutoff_payload(conn)["business_date"]
+        date_text = business_date
+        if scope == "shipped" and not date_text:
+            date_text = cutoff_payload(conn)["business_date"]
         rows = preparation_rows(conn, date_text, scope, category, 1, 10000)["items"]
+        filename_date = (date_text or cutoff_payload(conn)["business_date"]).replace("-", "")
     return Response(
         preparation_summary_workbook(rows),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=excel_attachment(f"三公鲜配_今日备货单_{date_text.replace('-', '')}.xlsx"),
+        headers=excel_attachment(f"三公鲜配_今日备货单_{filename_date}.xlsx"),
     )
 
 
