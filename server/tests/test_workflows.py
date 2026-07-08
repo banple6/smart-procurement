@@ -1019,9 +1019,11 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
 
 def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     admin_root = Path(__file__).resolve().parents[1] / "app" / "static" / "admin"
+    unit_root = Path(__file__).resolve().parents[1] / "app" / "static" / "unit"
     dashboard_html = (admin_root / "dashboard.html").read_text(encoding="utf-8")
     dashboard_js = (admin_root / "dashboard.js").read_text(encoding="utf-8")
     login_html = (admin_root / "login.html").read_text(encoding="utf-8")
+    unit_js = (unit_root / "unit.js").read_text(encoding="utf-8")
 
     combined_dashboard_source = dashboard_html + dashboard_js
     assert "http://" not in combined_dashboard_source
@@ -1035,6 +1037,11 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "police-badge" not in login_html
     assert "staleSuffix" in dashboard_js
     assert "includes(staleSuffix)" in dashboard_js
+    assert 'function pageShell(title, subtitle, body = "")' in dashboard_js
+    assert 'headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },\n      ...options' not in dashboard_js
+    assert 'headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },\n      ...options' not in unit_js
+    assert "expected_status" in dashboard_js
+    assert "expected_version" in dashboard_js
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):

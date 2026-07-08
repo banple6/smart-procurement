@@ -46,8 +46,8 @@
     const csrfHeaders = ["POST", "PUT", "PATCH", "DELETE"].includes(method) ? { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) } : {};
     const response = await fetch(path, {
       credentials: "same-origin",
-      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
       ...options,
+      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
     });
     if (response.status === 401) {
       window.location.replace("/login?expired=1");

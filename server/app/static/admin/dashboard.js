@@ -122,8 +122,8 @@
     const csrfHeaders = ["POST", "PUT", "PATCH", "DELETE"].includes(method) ? { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) } : {};
     const response = await fetch(path, {
       credentials: "same-origin",
-      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
       ...options,
+      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
     });
     if (response.status === 401) {
       window.location.replace("/login?expired=1");
@@ -368,11 +368,29 @@
     }
   }
 
-  function pageShell(title, subtitle, body) {
+  function pageShell(title, subtitle, body = "") {
     setTitle(title, subtitle || "真实服务端数据");
     $("refreshTime").textContent = "";
     content().innerHTML = `<div id="globalError" class="error-banner" hidden>数据加载失败 <button id="retryButton" type="button">重新加载</button></div>${body}`;
     $("retryButton").addEventListener("click", () => loadCurrent(false));
+  }
+
+  async function updateOrderStatus(button) {
+    const label = button.textContent;
+    if (!confirm(`确认${label}这笔订单吗？`)) return;
+    button.disabled = true;
+    button.textContent = "提交中";
+    try {
+      await mutate(`/api/v1/admin/orders/${button.dataset.order}/status`, {
+        status: button.dataset.status,
+        expected_status: button.dataset.currentStatus,
+        expected_version: Number(button.dataset.version || 0) || undefined,
+      });
+    } catch (error) {
+      toast(error.message || "操作失败，请刷新后重试");
+      button.disabled = false;
+      button.textContent = label;
+    }
   }
 
   function table(headers, rows, emptyText) {
@@ -391,14 +409,10 @@
     content().innerHTML += table(["订单编号", "单位", "下单时间", "金额", "状态", "食材", "操作"], items.map((order) => {
       const action = primaryAction(order);
       const goods = (order.items || []).slice(0, 3).map((item) => `${html(item.product_name || item.product_name_snapshot)} x ${qty(item.quantity)}`).join("<br>");
-      const button = action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
+      const button = action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
       return `<tr><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${goods || "--"}</td><td>${button}</td></tr>`;
     }), "暂无订单");
-    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm(`确认${button.textContent}这笔订单吗？`)) return;
-      button.disabled = true;
-      await mutate(`/api/v1/admin/orders/${button.dataset.order}/status`, { status: button.dataset.status });
-    }));
+    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
   }
 
   async function loadOrderDetail(orderId) {
@@ -413,17 +427,13 @@
           <dt>备注</dt><dd>${html(order.remark || "无")}</dd>
           <dt>订单金额</dt><dd>${money(order.total_cents)}</dd>
         </dl>
-        ${action[1] ? `<div class="page-toolbar"><button class="primary-link" data-order="${order.id}" data-status="${action[1]}">${action[0]}</button></div>` : ""}
+        ${action[1] ? `<div class="page-toolbar"><button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button></div>` : ""}
       </article>
     `;
     content().innerHTML += table(["食材", "规格", "数量", "单价", "小计"], (order.items || []).map((item) => `
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.unit_price_cents)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
-    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm(`确认${button.textContent}这笔订单吗？`)) return;
-      button.disabled = true;
-      await mutate(`/api/v1/admin/orders/${button.dataset.order}/status`, { status: button.dataset.status });
-    }));
+    document.querySelectorAll("[data-order]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
   }
 
   async function loadProducts() {
