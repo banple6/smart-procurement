@@ -1112,6 +1112,25 @@ def test_public_help_pages_embed_role_workflow_tutorial_images(tmp_path):
     assert "子单位常用流程" in unit.text
 
 
+def test_web_qr_challenge_allows_http_public_beta_when_explicitly_enabled(tmp_path, monkeypatch):
+    client = make_client(tmp_path)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("WEB_PUBLIC_ORIGIN", "http://47.94.227.58")
+    monkeypatch.setenv("ALLOW_INSECURE_PRODUCTION_HTTP", "true")
+
+    response = client.post("/api/v1/web-auth/qr/challenges")
+
+    assert response.status_code == 200, response.text
+    assert "secure" not in response.headers["set-cookie"].lower()
+    payload = response.json()
+    assert payload["challenge_id"]
+    assert payload["qr_svg_data_url"].startswith("data:image/svg+xml;base64,")
+
+    status = client.get(f"/api/v1/web-auth/qr/challenges/{payload['challenge_id']}/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["status"] == "pending"
+
+
 def test_public_beta_download_and_help_pages_are_available_without_login(tmp_path):
     client = make_client(tmp_path)
 

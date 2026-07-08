@@ -33,7 +33,8 @@ mobile_router = APIRouter(prefix="/mobile", tags=["mobile-web-auth"])
 
 
 def ensure_qr_allowed():
-    if os.getenv("APP_ENV") == "production" and not os.getenv("WEB_PUBLIC_ORIGIN", "").startswith("https://"):
+    allow_insecure = os.getenv("ALLOW_INSECURE_PRODUCTION_HTTP", "").lower() in {"1", "true", "yes", "on"}
+    if os.getenv("APP_ENV") == "production" and not os.getenv("WEB_PUBLIC_ORIGIN", "").startswith("https://") and not allow_insecure:
         raise HTTPException(status_code=503, detail="网页版扫码登录需要 HTTPS 域名")
 
 

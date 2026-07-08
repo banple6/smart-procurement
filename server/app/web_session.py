@@ -8,6 +8,7 @@ from fastapi import Request, Response
 CSRF_COOKIE = "csrf_token"
 QR_BINDING_COOKIE = "jrxp_qr_binding"
 DEV_WEB_SESSION_COOKIE = "jrxp_dev_session"
+INSECURE_PROD_WEB_SESSION_COOKIE = "jrxp_session"
 PROD_WEB_SESSION_COOKIE = "__Host-jrxp_session"
 
 
@@ -15,11 +16,23 @@ def is_production() -> bool:
     return os.getenv("APP_ENV") == "production"
 
 
+def insecure_production_http_enabled() -> bool:
+    return (
+        is_production()
+        and os.getenv("ALLOW_INSECURE_PRODUCTION_HTTP", "").lower() in {"1", "true", "yes", "on"}
+        and not os.getenv("WEB_PUBLIC_ORIGIN", "").startswith("https://")
+    )
+
+
 def web_session_cookie_name() -> str:
+    if insecure_production_http_enabled():
+        return INSECURE_PROD_WEB_SESSION_COOKIE
     return PROD_WEB_SESSION_COOKIE if is_production() else DEV_WEB_SESSION_COOKIE
 
 
 def secure_cookie_enabled(request: Request) -> bool:
+    if insecure_production_http_enabled():
+        return request.headers.get("x-forwarded-proto", "").lower() == "https"
     if is_production():
         return True
     return request.headers.get("x-forwarded-proto", "").lower() == "https"
@@ -78,6 +91,9 @@ def set_web_cookies(response: Response, request: Request, token: str):
 
 def clear_web_cookies(response: Response):
     response.delete_cookie(web_session_cookie_name(), path="/", samesite="strict")
+    response.delete_cookie(PROD_WEB_SESSION_COOKIE, path="/", samesite="strict")
+    response.delete_cookie(INSECURE_PROD_WEB_SESSION_COOKIE, path="/", samesite="strict")
+    response.delete_cookie(DEV_WEB_SESSION_COOKIE, path="/", samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/", samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/api/v1", samesite="strict")
 
