@@ -1,0 +1,20 @@
+{
+  "release_id": "4595fc74-6d5b-4a16-a0bf-e20f4778371d",
+  "storage_key": "production/4595fc74-6d5b-4a16-a0bf-e20f4778371d.apk",
+  "package_name": "com.smartprocurement.internal",
+  "version_code": 12,
+  "version_name": "1.1.5",
+  "min_sdk": 24,
+  "apk_size_bytes": 38251183,
+  "apk_sha256": "ac7d77c70fadda94d1aa790e9b5f0da3a2100df967eb41dcfa0370d71a1248ab",
+  "signer_sha256": "5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068",
+  "channel": "production",
+  "minimum_supported_version_code": 12,
+  "update_type": "mandatory",
+  "title": "三公鲜配更新安装修复版 1.1.5",
+  "release_notes_text": "修复更新包下载完成后无法打开系统安装器的问题\n修正安装器配置错误时误报网络连接失败的问题\n本版安装后，后续 App 内更新可正常拉起系统安装器",
+  "manifest_payload": "{\"apk_sha256\":\"ac7d77c70fadda94d1aa790e9b5f0da3a2100df967eb41dcfa0370d71a1248ab\",\"apk_size_bytes\":38251183,\"channel\":\"production\",\"min_sdk\":24,\"minimum_supported_version_code\":12,\"package_name\":\"com.smartprocurement.internal\",\"release_id\":\"4595fc74-6d5b-4a16-a0bf-e20f4778371d\",\"release_notes\":[\"修复更新包下载完成后无法打开系统安装器的问题\",\"修正安装器配置错误时误报网络连接失败的问题\",\"本版安装后，后续 App 内更新可正常拉起系统安装器\"],\"schema_version\":1,\"signer_sha256\":\"5484e173de1fab2e6016d802734779f367cde98c350de22d7575c37db4525068\",\"title\":\"三公鲜配更新安装修复版 1.1.5\",\"update_type\":\"mandatory\",\"version_code\":12,\"version_name\":\"1.1.5\"}",
+  "manifest_signature": "IcYKDyZIbRoyOsKA7WTVlyUagjcLeU/os8red0y7iuIqdZhYCt9+4ArA28Ezi0wWqbRx32PsEbJbYE75LNqqDQ==",
+  "manifest_public_key": "NRJxlCuGDDdu0BRHz5ZD9dT/mtXNQW3KNfjiLCilPVE=",
+  "manifest_key_id": "app-update-installer-provider-fix-12"
+}

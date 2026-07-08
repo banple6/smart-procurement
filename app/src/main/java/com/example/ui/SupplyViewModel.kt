@@ -1244,6 +1244,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             message.contains("订单状态已变化") -> "订单状态已变化，请刷新后重试"
             message.contains("低于最小申领量") -> "低于最小申领量"
             message.contains("步长") -> "数量不符合申领步长"
+            message.contains("configured root", ignoreCase = true) || message.contains("FileProvider", ignoreCase = true) -> "更新包打开失败，请重新下载安装包"
             message.contains("timeout", ignoreCase = true) || message.contains("failed", ignoreCase = true) || message.contains("connect", ignoreCase = true) -> "网络连接失败，请稍后重试"
             else -> message.ifBlank { fallback }
         }

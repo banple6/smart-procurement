@@ -65,4 +65,25 @@ class AppUpdateUiPolicyTest {
         assertTrue(clearIndex >= 0)
         assertTrue(insertIndex > clearIndex)
     }
+
+    @Test
+    fun app_update_apk_cache_directory_is_exposed_to_file_provider() {
+        val installer = File("src/main/java/com/example/data/AppUpdateInstaller.kt").readText()
+        val fileProviderPaths = File("src/main/res/xml/file_paths.xml").readText()
+
+        assertTrue(installer.contains("app_updates/"))
+        assertTrue(fileProviderPaths.contains("cache-path"))
+        assertTrue(fileProviderPaths.contains("app_updates"))
+    }
+
+    @Test
+    fun file_provider_update_install_failure_is_not_reported_as_network_failure() {
+        val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
+
+        val fileProviderIndex = viewModel.indexOf("configured root")
+        val networkFailureIndex = viewModel.indexOf("网络连接失败，请稍后重试")
+
+        assertTrue(fileProviderIndex >= 0)
+        assertTrue(fileProviderIndex < networkFailureIndex)
+    }
 }
