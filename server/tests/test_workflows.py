@@ -1053,7 +1053,7 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     assert page.status_code == 200
     assert "三公鲜配" in page.text
     assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in page.text
-    assert "police-badge" not in page.text
+    assert "police-badge.svg" in page.text
     assert "\u516c\u5b89" not in page.text
     assert "no-store" in page.headers["cache-control"]
     assert client.head("/admin/dashboard").status_code == 200
@@ -1133,11 +1133,11 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "https://" not in combined_dashboard_source
     assert "localStorage" not in dashboard_js
     assert "sessionStorage" not in dashboard_js
-    assert "police-badge" not in dashboard_html
+    assert "police-badge.svg" in dashboard_html
     assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in dashboard_html
     assert "\u516c\u5b89" not in dashboard_html
     assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in login_html
-    assert "police-badge" not in login_html
+    assert "police-badge.svg" in login_html
     assert "staleSuffix" in dashboard_js
     assert "includes(staleSuffix)" in dashboard_js
     assert 'function pageShell(title, subtitle, body = "")' in dashboard_js

@@ -17,7 +17,11 @@ app = FastAPI(title="生鲜后勤 API", version="1.0.0")
 
 
 def production_web_origin_ready() -> bool:
-    return os.getenv("APP_ENV") != "production" or os.getenv("WEB_PUBLIC_ORIGIN", "").startswith("https://")
+    if os.getenv("APP_ENV") != "production":
+        return True
+    if os.getenv("WEB_PUBLIC_ORIGIN", "").startswith("https://"):
+        return True
+    return os.getenv("ALLOW_INSECURE_PRODUCTION_HTTP", "").lower() in {"1", "true", "yes", "on"}
 
 
 @app.middleware("http")

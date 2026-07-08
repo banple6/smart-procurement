@@ -55,7 +55,7 @@ class PoliceBrandingPolicyTest {
     }
 
     @Test
-    fun police_badge_is_not_used_by_opening_screens() {
+    fun police_badge_is_used_by_opening_screens_only() {
         val uiFiles = File(root, "src/main/java").walkTopDown().filter { it.extension == "kt" }.toList()
         val badgeReferences = uiFiles
             .filter { it.readText().contains("PoliceBadgeImage(") }
@@ -64,7 +64,12 @@ class PoliceBrandingPolicyTest {
             .filter { it.readText().contains("PoliceOpeningBadge(") }
             .map { it.relativeTo(File(root, "src/main/java")).path }
 
+        val policeBadgeResourceReferences = uiFiles
+            .filter { it.readText().contains("R.drawable.police_badge") }
+            .map { it.relativeTo(File(root, "src/main/java")).path }
+
         assertEquals(listOf("com/example/ui/designsystem/PoliceComponents.kt"), badgeReferences.sorted())
+        assertEquals(listOf("com/example/ui/designsystem/PoliceComponents.kt"), policeBadgeResourceReferences.sorted())
         assertEquals(
             listOf(
                 "com/example/ui/AuthScreens.kt",

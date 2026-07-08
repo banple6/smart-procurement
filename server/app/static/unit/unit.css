@@ -39,6 +39,10 @@ button { min-height: 48px; cursor: pointer; }
   color: var(--blue);
   font-weight: 800;
 }
+.unit-brand-mark.emblem-badge {
+  object-fit: contain;
+  padding: 3px;
+}
 .unit-brand span { display: block; color: #c9d7e8; font-size: 13px; margin-top: 3px; }
 .unit-nav { display: grid; gap: 6px; }
 .unit-nav a {

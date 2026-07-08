@@ -83,8 +83,17 @@ def env_name() -> str:
     return os.getenv("APP_ENV", "development").lower()
 
 
+def allow_insecure_production_http() -> bool:
+    return os.getenv("ALLOW_INSECURE_PRODUCTION_HTTP", "").lower() in {"1", "true", "yes", "on"}
+
+
 def production_https_required(channel: str):
-    if env_name() == "production" and channel == "production" and not app_update_public_origin().startswith("https://"):
+    if (
+        env_name() == "production"
+        and channel == "production"
+        and not app_update_public_origin().startswith("https://")
+        and not allow_insecure_production_http()
+    ):
         raise HTTPException(status_code=400, detail="HTTPS 未配置，正式更新功能已停用")
 
 

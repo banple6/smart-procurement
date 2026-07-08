@@ -108,6 +108,11 @@ button {
   font-weight: 600;
 }
 
+.brand-icon.emblem-badge {
+  object-fit: contain;
+  padding: 3px;
+}
+
 .brand strong, .brand span {
   display: block;
 }
@@ -846,6 +851,12 @@ button.primary-link {
   color: #fff;
   font-weight: 800;
   font-size: 24px;
+}
+
+.login-badge.emblem-badge {
+  object-fit: contain;
+  padding: 2px;
+  background: transparent;
 }
 
 .login-brand h1 {

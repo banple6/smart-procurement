@@ -8,6 +8,16 @@ plugins {
 val configuredReleaseApiUrl = providers.gradleProperty("API_BASE_URL")
   .orElse(providers.environmentVariable("API_BASE_URL"))
   .getOrElse("")
+val allowInsecureHttpRelease = providers.gradleProperty("ALLOW_INSECURE_HTTP_RELEASE")
+  .orElse(providers.environmentVariable("ALLOW_INSECURE_HTTP_RELEASE"))
+  .map { it.equals("true", ignoreCase = true) || it == "1" || it.equals("yes", ignoreCase = true) || it.equals("on", ignoreCase = true) }
+  .getOrElse(false)
+val releaseKeystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+val debugKeystorePath = System.getenv("DEBUG_KEYSTORE_PATH")
+  ?: "${System.getProperty("user.home")}/.android/debug.keystore"
+val hasReleaseSigning = file(releaseKeystorePath).exists()
+  && !System.getenv("STORE_PASSWORD").isNullOrBlank()
+  && !System.getenv("KEY_PASSWORD").isNullOrBlank()
 
 android {
   namespace = "com.smartprocurement.internal"
@@ -17,8 +27,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 6
-    versionName = "1.1-test5"
+    versionCode = 7
+    versionName = "1.1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -27,14 +37,13 @@ android {
 
   signingConfigs {
     create("release") {
-      val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
+      storeFile = file(releaseKeystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
       keyAlias = "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
+      storeFile = file(debugKeystorePath)
       storePassword = "android"
       keyAlias = "androiddebugkey"
       keyPassword = "android"
@@ -46,7 +55,8 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debugConfig")
+      manifestPlaceholders["usesCleartextTraffic"] = allowInsecureHttpRelease.toString()
       buildConfigField("String", "API_BASE_URL", "\"$configuredReleaseApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
     }
@@ -126,8 +136,8 @@ dependencies {
 
 gradle.taskGraph.whenReady {
   if (allTasks.any { it.name.contains("Release") }) {
-    if (!configuredReleaseApiUrl.startsWith("https://")) {
-      throw GradleException("Release build requires API_BASE_URL starting with https://")
+    if (!configuredReleaseApiUrl.startsWith("https://") && !allowInsecureHttpRelease) {
+      throw GradleException("Release build requires API_BASE_URL starting with https:// unless ALLOW_INSECURE_HTTP_RELEASE=true")
     }
   }
 }

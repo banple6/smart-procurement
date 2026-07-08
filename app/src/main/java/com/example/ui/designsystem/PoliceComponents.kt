@@ -81,7 +81,12 @@ fun PoliceOpeningBadge(
     size: Dp,
     modifier: Modifier = Modifier,
 ) {
-    BusinessAppIconImage(size = size, modifier = modifier, contentDescription = "三公鲜配业务图标")
+    Image(
+        painter = painterResource(R.drawable.police_badge),
+        contentDescription = "警徽",
+        modifier = modifier.size(size),
+        contentScale = ContentScale.Fit,
+    )
 }
 
 @Composable

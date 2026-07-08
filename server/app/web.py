@@ -29,7 +29,7 @@ def public_page(title: str, subtitle: str, body: str) -> HTMLResponse:
             <title>{title} - 三公鲜配</title><link rel="stylesheet" href="/admin-assets/dashboard.css">
             </head><body class="public-page">
             <main class="public-shell">
-              <header class="login-brand"><div class="login-badge" aria-hidden="true">鲜</div><h1>三公鲜配</h1><p>{subtitle}</p></header>
+              <header class="login-brand"><img class="login-badge emblem-badge" src="/admin-assets/police-badge.svg" alt="警徽" /><h1>三公鲜配</h1><p>{subtitle}</p></header>
               {body}
             </main>
             <script src="/admin-assets/login.js" defer></script>
