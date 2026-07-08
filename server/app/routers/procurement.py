@@ -147,12 +147,21 @@ def export_preparation_summary(
     )
 
 
-def delivery_sheet_rows(conn, business_date: str, status: str | None, unit_id: str | None):
-    where = [business_date_filter(), "orders.status != 'cancelled'"]
-    params: list = [business_date]
+def delivery_sheet_rows(conn, business_date: str | None, status: str | None, unit_id: str | None):
+    where = []
+    params: list = []
+    if business_date:
+        where.append(business_date_filter())
+        params.append(business_date)
     if status:
         where.append("orders.status = ?")
         params.append(status)
+    elif business_date:
+        where.append("orders.status != 'cancelled'")
+    else:
+        statuses = ("accepted", "preparing", "shipped")
+        where.append(f"orders.status IN ({','.join('?' for _ in statuses)})")
+        params.extend(statuses)
     if unit_id:
         where.append("orders.unit_id = ?")
         params.append(unit_id)
@@ -219,8 +228,12 @@ def delivery_sheets(
     admin=Depends(require_admin_user),
 ):
     with connect() as conn:
-        date_text = business_date or cutoff_payload(conn)["business_date"]
-        return {"business_date": date_text, "units": delivery_sheet_rows(conn, date_text, status, unit_id)}
+        date_text = business_date
+        return {
+            "business_date": date_text or cutoff_payload(conn)["business_date"],
+            "date_filtered": bool(date_text),
+            "units": delivery_sheet_rows(conn, date_text, status, unit_id),
+        }
 
 
 @router.get("/admin/delivery-sheets/export.xlsx")
@@ -231,12 +244,13 @@ def export_delivery_sheets(
     admin=Depends(require_admin_user),
 ):
     with connect() as conn:
-        date_text = business_date or cutoff_payload(conn)["business_date"]
+        date_text = business_date
         units = delivery_sheet_rows(conn, date_text, status, unit_id)
+        filename_date = (date_text or cutoff_payload(conn)["business_date"]).replace("-", "")
     return Response(
         delivery_sheets_workbook(units),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=excel_attachment(f"三公鲜配_配送单_{date_text.replace('-', '')}.xlsx"),
+        headers=excel_attachment(f"三公鲜配_配送单_{filename_date}.xlsx"),
     )
 
 

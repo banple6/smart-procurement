@@ -513,13 +513,35 @@
   }
 
   async function loadDeliverySheets() {
-    pageShell("单位配送", "按单位查看配送清单");
+    pageShell("单位配送", "按单位查看当前待配送清单");
     const data = await api("/api/v1/admin/delivery-sheets");
     const units = data.units || data.items || data || [];
     content().innerHTML += `<div class="page-toolbar"><a class="primary-link" href="/api/v1/admin/delivery-sheets/export.xlsx">导出配送 Excel</a></div>`;
-    content().innerHTML += units.length ? units.map((unit) => `
-      <article class="panel section-panel"><div class="panel-header"><div><h2>${html(unit.unit_name || unit.name)}</h2><p>${html(unit.delivery_point || unit.default_delivery_point || "")}</p></div></div>${table(["食材", "数量", "单位", "备注"], (unit.items || []).map((item) => `<tr><td>${html(item.name || item.product_name)}</td><td>${qty(item.quantity)}</td><td>${html(item.unit || "")}</td><td>${html(item.remark || "")}</td></tr>`), "暂无配送明细")}</article>
-    `).join("") : empty("暂无配送清单");
+    content().innerHTML += units.length ? units.map((unit) => {
+      const orders = unit.orders || [];
+      const rows = orders.flatMap((order) => (order.items || []).map((item) => `
+        <tr>
+          <td>${html(order.order_no || "--")}</td>
+          <td>${statusTag(order.status)}</td>
+          <td>${html(item.product_name || item.name || "--")}</td>
+          <td>${html(item.spec || "--")}</td>
+          <td>${qty(item.actual_quantity || item.quantity || item.requested_quantity)} ${html(item.unit || "")}</td>
+          <td>${html(item.adjustment_reason || "无")}</td>
+        </tr>
+      `));
+      const totalItems = rows.length;
+      return `
+        <article class="panel section-panel">
+          <div class="panel-header">
+            <div>
+              <h2>${html(unit.unit_name || unit.name)}</h2>
+              <p>${html(unit.delivery_point || unit.default_delivery_point || "未填写配送点")} · ${num(orders.length)} 单 · ${num(totalItems)} 项食材</p>
+            </div>
+          </div>
+          ${table(["订单编号", "状态", "食材", "规格", "配送数量", "备注"], rows, "暂无配送明细")}
+        </article>
+      `;
+    }).join("") : empty("暂无配送清单");
   }
 
   function serviceLabel(value) {

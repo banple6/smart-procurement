@@ -841,6 +841,46 @@ def test_preparation_summary_includes_current_preparing_orders_from_previous_bus
     assert today_only.json()["total"] == 0
 
 
+def test_delivery_sheets_include_current_delivery_orders_from_previous_business_days(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "2"}]},
+    ).json()
+
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE orders
+            SET status = 'preparing',
+                created_at = datetime('now', '-2 days'),
+                accepted_at = datetime('now', '-1 day'),
+                preparing_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (order["id"],),
+        )
+        conn.commit()
+
+    current_sheets = client.get("/api/v1/admin/delivery-sheets", headers=admin_headers)
+    assert current_sheets.status_code == 200, current_sheets.text
+    body = current_sheets.json()
+    assert body["date_filtered"] is False
+    assert len(body["units"]) == 1
+    assert body["units"][0]["unit_name"] == "第一食堂"
+    assert body["units"][0]["orders"][0]["order_no"] == order["order_no"]
+    assert body["units"][0]["orders"][0]["items"][0]["product_name"] == "西红柿"
+
+    future_day = client.get("/api/v1/admin/delivery-sheets?business_date=2099-01-01", headers=admin_headers)
+    assert future_day.status_code == 200, future_day.text
+    assert future_day.json()["date_filtered"] is True
+    assert future_day.json()["units"] == []
+
+
 def test_image_upload_validates_file_type(tmp_path):
     client = make_client(tmp_path)
     admin_headers, _, _, product_id = create_unit_user_product_order(client)
