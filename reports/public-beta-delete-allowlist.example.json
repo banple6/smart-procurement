@@ -1,0 +1,13 @@
+{
+  "delete": {
+    "orders": [],
+    "order_items": [],
+    "products": [],
+    "users": [],
+    "units": [],
+    "sessions": [],
+    "web_sessions": [],
+    "registration_invites": [],
+    "notifications": []
+  }
+}

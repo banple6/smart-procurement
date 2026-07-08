@@ -64,11 +64,17 @@ button { min-height: 48px; cursor: pointer; }
 .unit-topbar h1 { margin: 0; font-size: 24px; }
 .unit-topbar p { margin: 4px 0 0; color: var(--muted); }
 .unit-account { display: flex; gap: 10px; align-items: center; }
-.unit-account button, .toolbar button, .panel-title button {
+.unit-account button, .toolbar button, .panel-title button, .unit-top-link {
   border: 1px solid var(--line);
   background: #fff;
   color: var(--blue);
   padding: 0 14px;
+}
+.unit-top-link {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 4px;
 }
 .unit-content { max-width: 1120px; padding: 22px 24px 90px; }
 .unit-view { display: grid; gap: 16px; }
@@ -164,6 +170,7 @@ textarea { min-height: 92px; padding-top: 10px; resize: vertical; }
   .unit-nav a { justify-content: center; padding: 0 4px; font-size: 13px; }
   .unit-topbar { padding: 12px 14px; }
   .unit-account span { display: none; }
+  .unit-top-link { display: none; }
   .unit-content { padding: 14px 12px 92px; }
   .unit-hero { display: grid; gap: 16px; padding: 18px; }
   .unit-metrics { grid-template-columns: 1fr; }

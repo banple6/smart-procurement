@@ -191,6 +191,7 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
+                        ProfileMenuItem(icon = Icons.Default.Menu, title = "帮助与教程") { viewModel.viewOnboardingGuide() }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "关于与更新") { viewModel.navigateTo(Screen.AboutUpdate) }
                     } else {
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号", rightText = viewModel.userId) {}
@@ -200,6 +201,7 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
+                        ProfileMenuItem(icon = Icons.Default.Menu, title = "帮助与教程") { viewModel.viewOnboardingGuide() }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "关于与更新") { viewModel.navigateTo(Screen.AboutUpdate) }
                     }
                 }

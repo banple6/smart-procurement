@@ -611,6 +611,26 @@ button.primary-link {
   color: #fff;
 }
 
+.as-link {
+  text-decoration: none;
+}
+
+.link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.text-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  color: var(--duty-blue);
+  font-weight: 600;
+}
+
 .section-panel {
   margin-bottom: 16px;
 }
@@ -683,6 +703,64 @@ button.primary-link {
   background: var(--muted-surface);
   text-align: center;
   margin: 16px;
+}
+
+.download-panel {
+  margin-top: 18px;
+}
+
+.status-list.compact {
+  grid-template-columns: auto 1fr;
+  padding: 12px 0;
+}
+
+.public-page {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background: var(--page-bg);
+  color: var(--ink-primary);
+}
+
+.public-shell {
+  width: min(920px, calc(100vw - 32px));
+  display: grid;
+  gap: 18px;
+  padding: 28px 0;
+}
+
+.public-panel {
+  background: var(--surface);
+  border: 1px solid var(--soft-divider);
+  border-radius: 6px;
+  padding: 24px;
+  box-shadow: var(--shadow-panel);
+}
+
+.public-panel h2 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  color: var(--ink-primary);
+}
+
+.public-panel p {
+  margin: 0 0 14px;
+  color: var(--ink-secondary);
+  line-height: 1.7;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.help-article ol {
+  margin: 12px 0 0;
+  padding-left: 22px;
+  color: var(--ink-primary);
+  line-height: 1.8;
 }
 
 .error-inline {

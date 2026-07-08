@@ -157,7 +157,7 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                     AboutUpdateScreen(viewModel)
                 }
                 is Screen.OnboardingGuide -> {
-                    OnboardingWelcomeScreen(viewModel)
+                    HelpTutorialScreen(viewModel)
                 }
                 else -> {
                     MainTabFrame(viewModel)

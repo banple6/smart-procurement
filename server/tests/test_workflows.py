@@ -1093,6 +1093,33 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     assert "no-store" in forbidden_page.headers["cache-control"]
 
 
+def test_public_beta_download_and_help_pages_are_available_without_login(tmp_path):
+    client = make_client(tmp_path)
+
+    latest = client.get("/api/v1/app-update/latest")
+    assert latest.status_code == 200
+    assert "available" in latest.json()
+
+    login = client.get("/login")
+    assert login.status_code == 200
+    assert "下载 Android App" in login.text
+    assert "三公鲜配" in login.text
+    assert "undefined" not in login.text
+
+    download = client.get("/download")
+    assert download.status_code == 200
+    assert "下载 Android App" in download.text
+    assert "/api/v1/app-update/latest/download" in download.text
+    assert "127.0.0.1" not in download.text
+
+    for path, expected in [("/help", "首次使用"), ("/help/admin", "管理员常用流程"), ("/help/unit", "子单位常用流程")]:
+        page = client.get(path)
+        assert page.status_code == 200
+        assert expected in page.text
+        assert "景荣鲜配" not in page.text
+        assert "智慧后勤采购" not in page.text
+
+
 def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     admin_root = Path(__file__).resolve().parents[1] / "app" / "static" / "admin"
     unit_root = Path(__file__).resolve().parents[1] / "app" / "static" / "unit"
@@ -1122,6 +1149,9 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "/ship" in dashboard_js
     assert 'name="photos"' in dashboard_js
     assert "client_request_id" in dashboard_js
+    assert "下载 App" in dashboard_html
+    assert "/download" in dashboard_html
+    assert "/help/admin" in dashboard_html
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):

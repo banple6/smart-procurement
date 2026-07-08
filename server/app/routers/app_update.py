@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, UploadFile, Form
 from fastapi.responses import StreamingResponse
@@ -135,6 +136,28 @@ def check_update(
     )
 
 
+@router.get("/app-update/latest")
+def latest_release(channel: str = "production", package_name: str = ""):
+    release = app_update.latest_public_release(channel=channel, package_name=package_name)
+    if not release:
+        return {
+            "available": False,
+            "environment": app_update.env_name(),
+            "channel": channel,
+            "message": "暂无可下载版本，请联系管理员",
+        }
+    download_query = urlencode({"channel": channel, **({"package_name": package_name} if package_name else {})})
+    return {
+        "available": True,
+        "environment": app_update.env_name(),
+        "channel": channel,
+        "release": {
+            **app_update.release_out(release),
+            "download_url": f"/api/v1/app-update/latest/download?{download_query}",
+        },
+    }
+
+
 def parse_range(range_header: str | None, total_size: int) -> tuple[int, int, int]:
     if not range_header:
         return 0, total_size - 1, 200
@@ -175,6 +198,35 @@ def download_release(
     range_header: str | None = Header(default=None, alias="Range"),
 ):
     release = app_update.verify_download_ticket(release_id, download_ticket)
+    path = app_update.release_storage_path(release["apk_storage_key"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="更新文件不存在，请联系管理员")
+    total_size = path.stat().st_size
+    start, end, status_code = parse_range(range_header, total_size)
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(end - start + 1),
+        "Content-Disposition": f'attachment; filename="sangongxianpei-{release["version_name"]}.apk"',
+    }
+    if status_code == 206:
+        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+    return StreamingResponse(
+        file_iterator(path, start, end),
+        status_code=status_code,
+        media_type="application/vnd.android.package-archive",
+        headers=headers,
+    )
+
+
+@router.get("/app-update/latest/download")
+def download_latest_release(
+    channel: str = "production",
+    package_name: str = "",
+    range_header: str | None = Header(default=None, alias="Range"),
+):
+    release = app_update.latest_public_release(channel=channel, package_name=package_name)
+    if not release:
+        raise HTTPException(status_code=404, detail="暂无可下载版本，请联系管理员")
     path = app_update.release_storage_path(release["apk_storage_key"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="更新文件不存在，请联系管理员")

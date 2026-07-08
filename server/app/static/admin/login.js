@@ -50,6 +50,39 @@
     countdownTimer = window.setInterval(updateCountdown, 1000);
   }
 
+  function bytes(value) {
+    const n = Number(value || 0);
+    if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(1) + "GB";
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + "MB";
+    if (n >= 1024) return (n / 1024).toFixed(1) + "KB";
+    return n ? n + "B" : "--";
+  }
+
+  function renderDownloadInfo(targetId, release) {
+    const box = $(targetId);
+    if (!box) return;
+    if (!release) {
+      box.innerHTML = "<dt>状态</dt><dd>暂无可下载版本，请联系管理员</dd>";
+      return;
+    }
+    box.innerHTML = `<dt>当前版本</dt><dd>v${release.version_name || "--"} (${release.version_code || "--"})</dd><dt>更新时间</dt><dd>${String(release.published_at || release.updated_at || "--").replace("T", " ").slice(0, 16)}</dd><dt>安装包大小</dt><dd>${bytes(release.apk_size_bytes)}</dd>`;
+  }
+
+  async function loadDownloadInfo() {
+    const response = await fetch("/api/v1/app-update/latest", { credentials: "same-origin" }).catch(() => null);
+    if (!response || !response.ok) return;
+    const data = await response.json();
+    const release = data.available ? data.release : null;
+    renderDownloadInfo("loginDownloadInfo", release);
+    renderDownloadInfo("downloadInfo", release);
+    if (release?.download_url) {
+      const loginButton = $("loginDownloadButton");
+      const downloadButton = $("downloadApkButton");
+      if (loginButton) loginButton.href = release.download_url;
+      if (downloadButton) downloadButton.href = release.download_url;
+    }
+  }
+
   async function checkExistingSession() {
     const response = await fetch("/api/v1/web-auth/me", { credentials: "same-origin" }).catch(() => null);
     if (response && response.ok) {
@@ -144,12 +177,20 @@
     window.location.replace("/web/entry");
   }
 
-  $("refreshQr").addEventListener("click", createChallenge);
+  $("refreshQr")?.addEventListener("click", createChallenge);
+  $("copyDownloadLinkButton")?.addEventListener("click", async () => {
+    const href = $("downloadApkButton")?.href || `${window.location.origin}/api/v1/app-update/latest/download`;
+    await navigator.clipboard?.writeText(href).catch(() => {});
+    $("downloadStatus").textContent = "下载链接已复制";
+  });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && challengeId && !pollTimer && !consuming) {
       pollStatus();
       pollTimer = window.setInterval(pollStatus, 2000);
     }
   });
-  checkExistingSession().finally(createChallenge);
+  loadDownloadInfo();
+  if ($("refreshQr")) {
+    checkExistingSession().finally(createChallenge);
+  }
 })();

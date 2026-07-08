@@ -1,0 +1,193 @@
+{
+  "generated_at": "2026-07-08T19:38:07",
+  "environment": "development",
+  "database_path": "/Users/tianboyu/Downloads/智慧后勤采购/server/data/smart_procurement.db",
+  "database_exists": true,
+  "checks": {
+    "integrity_check": "ok",
+    "quick_check": "ok"
+  },
+  "findings": {
+    "units": [],
+    "users": [],
+    "products": [],
+    "orders": [],
+    "order_items": [],
+    "inventory_logs": [],
+    "sessions": [],
+    "web_sessions": [],
+    "invites": [],
+    "registration_invites": [],
+    "app_releases": [],
+    "notifications": [],
+    "web_login_challenges": [],
+    "qr_login_challenges": [],
+    "loadtest_environment": [
+      {
+        "_table": "loadtest_environment",
+        "DATABASE_PATH": "",
+        "DATA_NAMESPACE": "",
+        "LOAD_TEST_ALLOWED": "",
+        "_reason": "环境变量记录",
+        "_recommended_action": "确认压测环境与正式环境隔离"
+      }
+    ],
+    "uploads": [],
+    "private_uploads": [],
+    "backups": [],
+    "releases": [
+      {
+        "_table": "releases",
+        "path": "staging/a9c30f51-7af7-4b5c-acd3-20a889521a12.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T08:32:14",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/95db75e7-ac74-4e86-a6f9-33a7665bd01a.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T18:43:07",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/da149797-ea5b-4cc0-a505-4aa018183033.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T18:06:23",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/5537ce07-5fe9-4a66-a1fc-8d0d636a1249.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T20:28:39",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/fec58128-71e4-49f0-b1ca-854a60139ee5.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T05:34:34",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/9075d9a3-6f43-4f96-838f-633f8a92c5e3.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T19:26:08",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/131fa121-ebbb-435e-ac95-0dd3df51dabc.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T17:51:07",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/02bf2a10-22a0-4dbd-8fed-c432da1c3481.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T02:30:09",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/e52e69b3-efb5-4607-99d4-ef0acb726d2f.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T05:32:44",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/519f984c-5815-4676-a995-fbc6345fec43.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T05:51:38",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/c7b3ff7b-7f9d-4e54-867a-c346e90e8f7e.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T02:49:47",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/6b39054d-ad83-4e7c-a873-8420808ec30e.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T19:22:52",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/f3f5faca-bce7-4a33-b9ba-cd00d46dc9eb.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T17:19:20",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/e378ebb0-d4e4-4dd0-a72e-30f120c10b33.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T20:33:09",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/a0efba29-5eff-4789-8fac-b770b8ef5200.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T16:39:02",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/4c2917b7-6c18-4cc7-b347-3bb97b930e22.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T18:24:42",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/1881096a-ff5c-43cc-8e3a-4bbcfc8ee4ba.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-08T16:31:28",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/99a1ecd1-ffe9-42fc-ac7a-87f0e9159bd2.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T02:27:12",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      },
+      {
+        "_table": "releases",
+        "path": "staging/8faa50e7-30cb-4728-84f0-06b4ddf9b3a3.apk",
+        "size_bytes": 381,
+        "updated_at": "2026-07-07T17:48:14",
+        "_reason": "staging",
+        "_recommended_action": "人工确认后再清理文件"
+      }
+    ]
+  }
+}

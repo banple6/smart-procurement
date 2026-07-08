@@ -362,6 +362,67 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
 }
 
 @Composable
+fun HelpTutorialScreen(viewModel: SupplyViewModel) {
+    val isAdmin = viewModel.canManageIngredients()
+    val sections = if (isAdmin) {
+        listOf(
+            "完善单位信息" to listOf("进入子单位管理", "确认单位名称、编码和默认配送点", "停用不参与公测的单位"),
+            "维护食材与库存" to listOf("进入食材列表", "新增或编辑食材名称、规格、价格和库存", "库存或价格变化后检查库存记录"),
+            "处理订单" to listOf("待接单订单点击接单", "已接单订单点击开始备货", "备货完成后上传发货照片并确认发货", "在台账和配送单核对数据"),
+            "公测检查" to listOf("检查系统状态", "确认 App 更新入口", "保留备份和回滚记录")
+        )
+    } else {
+        listOf(
+            "提交采购单" to listOf("进入食材申领", "选择需要的食材并加入采购清单", "在采购清单核对数量、配送点和备注", "点击提交订单"),
+            "查看配送进度" to listOf("进入我的订单", "查看待接单、备货中、已发货状态", "管理员发货后可查看发货照片"),
+            "确认收货" to listOf("收到食材后打开订单详情", "核对数量和照片", "无误后点击确认收货", "如有问题按页面提示提交异常"),
+            "网页扫码" to listOf("在网页端打开扫码登录页", "使用已登录 App 扫码", "确认浏览器信息后点击确认登录")
+        )
+    }
+    Scaffold(
+        topBar = { GovernmentTopBar(title = "帮助与教程", onBack = { viewModel.navigateBack() }) }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(GovernmentColors.PageBackground)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            GovernmentCard {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("三公鲜配", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (isAdmin) "管理员公测上线操作指引" else "子单位食材申领操作指引",
+                        color = GovernmentColors.TextSecondary
+                    )
+                }
+            }
+            sections.forEachIndexed { index, section ->
+                GovernmentCard {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("${index + 1}. ${section.first}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        section.second.forEach { step ->
+                            Text("• $step", color = GovernmentColors.TextPrimary)
+                        }
+                    }
+                }
+            }
+            GovernmentCard {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("常见问题", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("忘记密码、账号停用或单位信息不正确时，请联系系统管理员处理。", color = GovernmentColors.TextSecondary)
+                    Text("网络失败时请不要重复快速点击，等待页面提示后再重试。", color = GovernmentColors.TextSecondary)
+                }
+            }
+            Spacer(Modifier.height(80.dp))
+        }
+    }
+}
+
+@Composable
 fun InviteEntryScreen(viewModel: SupplyViewModel) {
     var inviteToken by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }

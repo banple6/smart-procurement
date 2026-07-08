@@ -548,6 +548,32 @@ def best_release(package_name: str, channel: str, current_version_code: int) -> 
         )
 
 
+def latest_public_release(channel: str = "production", package_name: str = "") -> dict | None:
+    if not app_update_enabled():
+        return None
+    if channel not in CHANNELS:
+        raise HTTPException(status_code=400, detail="更新通道不正确")
+    if env_name() in {"staging", "loadtest"} and channel == "production":
+        return None
+    where = ["channel = ?", "status = 'published'"]
+    params: list = [channel]
+    if package_name.strip():
+        where.append("package_name = ?")
+        params.append(package_name.strip())
+    with connect() as conn:
+        return one(
+            conn,
+            f"""
+            SELECT *
+            FROM app_releases
+            WHERE {' AND '.join(where)}
+            ORDER BY version_code DESC, published_at DESC
+            LIMIT 1
+            """,
+            params,
+        )
+
+
 def check_update(
     *,
     package_name: str,

@@ -84,4 +84,17 @@ class PoliceBrandingPolicyTest {
             assertTrue(!File(root, "src/main/res/mipmap-$dpi/ic_launcher_round.webp").exists())
         }
     }
+
+    @Test
+    fun app_has_public_beta_help_tutorial_entry() {
+        val screens = File(root, "src/main/java/com/example/ui/Screens.kt").readText()
+        val extra = File(root, "src/main/java/com/example/ui/ExtraScreens.kt").readText()
+        val viewModel = File(root, "src/main/java/com/example/ui/SupplyViewModel.kt").readText()
+
+        assertTrue(screens.contains("帮助与教程"))
+        assertTrue(extra.contains("HelpTutorialScreen"))
+        assertTrue(extra.contains("管理员公测上线操作指引"))
+        assertTrue(extra.contains("子单位食材申领操作指引"))
+        assertTrue(viewModel.contains("navigateTo(Screen.OnboardingGuide)"))
+    }
 }

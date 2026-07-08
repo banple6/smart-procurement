@@ -733,7 +733,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun viewOnboardingGuide() {
-        alertMessage = "请按页面提示完成登录、下单、接单和发货流程。"
+        navigateTo(Screen.OnboardingGuide)
     }
 
     fun scanWebLoginQr(qrToken: String) {

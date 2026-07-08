@@ -21,7 +21,7 @@
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
-    ["系统", [["网页登录记录", "/admin/web-sessions", "◉"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
+    ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
   ];
 
   const quickActions = [
