@@ -11,6 +11,7 @@ from .database import connect, database_path, init_db, one, private_upload_dir, 
 from .metrics import record_request
 from .routers import app_update, auth, dashboard, ledger, orders, procurement, products, system, unit_web, units, web_auth
 from .security import hash_password
+from .services.audit import record_request_audit
 from .web import router as web_router
 
 app = FastAPI(title="生鲜后勤 API", version="1.0.0")
@@ -30,9 +31,13 @@ async def security_headers(request: Request, call_next):
     try:
         response = await call_next(request)
     except Exception as exc:
-        record_request(500, int((time.monotonic() - started) * 1000), exc)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        record_request(500, duration_ms, exc)
+        record_request_audit(request, 500, duration_ms, str(exc))
         raise
-    record_request(response.status_code, int((time.monotonic() - started) * 1000))
+    duration_ms = int((time.monotonic() - started) * 1000)
+    record_request(response.status_code, duration_ms)
+    record_request_audit(request, response.status_code, duration_ms)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")

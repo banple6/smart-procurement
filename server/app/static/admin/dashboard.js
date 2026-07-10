@@ -15,13 +15,18 @@
     off_shelf: "已下架",
   };
 
+  const productCategories = ["蔬菜", "水果", "肉禽", "水产", "粮油", "蛋奶", "调料", "其他"];
+  const productUnits = ["公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包"];
+  const productStorageMethods = ["常温", "冷藏", "冷冻", "阴凉干燥"];
+  const productSupplyStatuses = [["normal", "正常供应"], ["tight", "库存紧张"], ["paused", "暂停供应"]];
+
   const nav = [
     ["", [["工作台", "/admin/dashboard", "▦"]]],
     ["采购管理", [["订单管理", "/admin/orders", "□"], ["当前备货", "/admin/preparation-summary", "▤"], ["单位配送", "/admin/delivery-sheets", "⇄"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
-    ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
+    ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统日志", "/admin/system-logs", "▤"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
   ];
 
   const quickActions = [
@@ -39,6 +44,17 @@
     timer: null,
     rangeDays: 7,
     unitSort: "amount",
+    productFormOpen: false,
+    productFormDefaults: {
+      productCategory: "蔬菜",
+      productUnit: "公斤",
+      productSupplyStatus: "normal",
+      productActive: true,
+      productStorageMethod: "冷藏",
+      productMinOrder: "1",
+      productStep: "1",
+      productWarning: "0",
+    },
   };
 
   const staleSuffix = "，数据可能不是最新";
@@ -127,11 +143,17 @@
   async function api(path, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
     const csrfHeaders = ["POST", "PUT", "PATCH", "DELETE"].includes(method) ? { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) } : {};
-    const response = await fetch(path, {
-      credentials: "same-origin",
-      ...options,
-      headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
-    });
+    let response;
+    try {
+      response = await fetch(path, {
+        credentials: "same-origin",
+        ...options,
+        headers: { "Accept": "application/json", ...csrfHeaders, ...(options.headers || {}) },
+      });
+    } catch (error) {
+      reportClientError("网络请求失败", path, { method });
+      throw new Error("网络连接失败，请稍后重试");
+    }
     if (response.status === 401) {
       window.location.replace("/login?expired=1");
       throw new Error("登录已过期，请重新登录");
@@ -143,6 +165,7 @@
       } catch (_) {
         detail = "";
       }
+      reportClientError(detail || "接口请求失败", path, { method, status: response.status });
       throw new Error(detail || "数据加载失败");
     }
     if (response.status === 204) return {};
@@ -158,6 +181,22 @@
     toast("操作已完成");
     await loadCurrent(true);
     return result;
+  }
+
+  function reportClientError(message, path = window.location.pathname, context = {}) {
+    fetch("/api/v1/admin/system/client-errors", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")),
+      },
+      body: JSON.stringify({
+        message: String(message || "前端操作失败").slice(0, 300),
+        path,
+        context,
+      }),
+    }).catch(() => {});
   }
 
   function renderNav() {
@@ -284,6 +323,112 @@
   function supplyTag(status, active) {
     const text = active ? (supplyText[status] || "未知状态") : "已停用";
     return `<span class="status-tag status-${active ? html(status) : "cancelled"}">${html(text)}</span>`;
+  }
+
+  function productOptionButtons(inputName, options, selectedValue) {
+    return `<div class="option-row" data-option-group="${html(inputName)}">${options.map((option) => {
+      const value = Array.isArray(option) ? option[0] : option;
+      const label = Array.isArray(option) ? option[1] : option;
+      return `<button class="option-button ${value === selectedValue ? "active" : ""}" type="button" data-option-input="${html(inputName)}" data-option-value="${html(value)}">${html(label)}</button>`;
+    }).join("")}</div><input type="hidden" name="${html(inputName)}" value="${html(selectedValue)}" />`;
+  }
+
+  function productFormTemplate() {
+    const defaults = state.productFormDefaults;
+    if (!state.productFormOpen) return "";
+    return `
+      <article class="panel section-panel product-create-panel" id="productCreatePanel">
+        <div class="panel-header">
+          <div><h2>添加食材</h2><p>一页快速录入，保存后立即进入食材列表</p></div>
+        </div>
+        <form id="productCreateForm" class="product-form">
+          <div class="form-grid compact">
+            <label class="form-field span-2"><span>食材名称</span><input name="productName" type="text" autocomplete="off" required placeholder="例如：青菜" /></label>
+            <label class="form-field span-2"><span>食材分类</span>${productOptionButtons("productCategory", productCategories, defaults.productCategory)}</label>
+            <label class="form-field"><span>规格</span><input name="productSpec" type="text" value="散装" required /></label>
+            <label class="form-field"><span>计量单位</span>${productOptionButtons("productUnit", productUnits, defaults.productUnit)}</label>
+            <label class="form-field"><span>单价（元）</span><input name="productPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
+            <label class="form-field"><span>当前库存</span><input name="productStock" type="number" min="0" step="0.01" inputmode="decimal" value="0" /></label>
+            <label class="form-field span-2"><span>供应状态</span>${productOptionButtons("productSupplyStatus", productSupplyStatuses, defaults.productSupplyStatus)}</label>
+            <label class="switch-field"><input name="productActive" type="checkbox" ${defaults.productActive ? "checked" : ""} /> <span>是否上架</span></label>
+          </div>
+          <details class="form-details">
+            <summary>申领规则：最小 ${html(defaults.productMinOrder)} · 步长 ${html(defaults.productStep)} · 预警 ${html(defaults.productWarning)}</summary>
+            <div class="form-grid compact">
+              <label class="form-field"><span>最小申领量</span><input name="productMinOrder" type="number" min="0.01" step="0.01" value="${html(defaults.productMinOrder)}" /></label>
+              <label class="form-field"><span>数量步长</span><input name="productStep" type="number" min="0.01" step="0.01" value="${html(defaults.productStep)}" /></label>
+              <label class="form-field"><span>库存预警值</span><input name="productWarning" type="number" min="0" step="0.01" value="${html(defaults.productWarning)}" /></label>
+            </div>
+          </details>
+          <details class="form-details">
+            <summary>更多资料：编码、产地、供应商、储存方式等</summary>
+            <div class="form-grid compact">
+              <label class="form-field"><span>食材编码</span><input name="productCode" type="text" autocomplete="off" placeholder="不填将自动生成" /></label>
+              <label class="form-field"><span>产地</span><input name="productOrigin" type="text" autocomplete="off" /></label>
+              <label class="form-field"><span>供应商</span><input name="productSupplier" type="text" autocomplete="off" /></label>
+              <label class="form-field span-2"><span>储存方式</span>${productOptionButtons("productStorageMethod", productStorageMethods, defaults.productStorageMethod)}</label>
+              <label class="form-field"><span>保质期说明</span><input name="productShelfLife" type="text" autocomplete="off" /></label>
+              <label class="form-field span-2"><span>商品说明</span><input name="productDescription" type="text" autocomplete="off" /></label>
+            </div>
+          </details>
+          <div class="page-toolbar form-actions">
+            <button class="table-action" type="button" data-cancel-create-product>取消</button>
+            <button class="primary-link secondary" type="submit" data-save-product="continue">保存并继续添加</button>
+            <button class="primary-link" type="submit" data-save-product="close">保存食材</button>
+          </div>
+        </form>
+      </article>
+    `;
+  }
+
+  function bindProductOptionButtons(root) {
+    root.querySelectorAll("[data-option-input]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const name = button.dataset.optionInput;
+        const input = root.querySelector(`input[name="${name}"]`);
+        if (input) input.value = button.dataset.optionValue || "";
+        root.querySelectorAll(`[data-option-input="${name}"]`).forEach((item) => item.classList.toggle("active", item === button));
+      });
+    });
+  }
+
+  function productPayload(form) {
+    const data = new FormData(form);
+    const price = Number(data.get("productPrice") || 0);
+    return {
+      product_code: String(data.get("productCode") || "").trim() || `WEB-${Date.now()}-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
+      name: String(data.get("productName") || "").trim(),
+      category: String(data.get("productCategory") || "蔬菜"),
+      spec: String(data.get("productSpec") || "散装").trim() || "散装",
+      unit: String(data.get("productUnit") || "公斤"),
+      price_cents: Math.round(price * 100),
+      stock_quantity: String(data.get("productStock") || "0"),
+      reserved_quantity: "0",
+      min_order_quantity: String(data.get("productMinOrder") || "1"),
+      quantity_step: String(data.get("productStep") || "1"),
+      warning_quantity: String(data.get("productWarning") || "0"),
+      origin: String(data.get("productOrigin") || "").trim(),
+      supplier: String(data.get("productSupplier") || "").trim(),
+      shelf_life: String(data.get("productShelfLife") || "").trim(),
+      storage_method: String(data.get("productStorageMethod") || "冷藏"),
+      description: String(data.get("productDescription") || "").trim(),
+      supply_status: String(data.get("productSupplyStatus") || "normal"),
+      active: Boolean(data.get("productActive")),
+    };
+  }
+
+  function rememberProductDefaults(form) {
+    const data = new FormData(form);
+    state.productFormDefaults = {
+      productCategory: String(data.get("productCategory") || "蔬菜"),
+      productUnit: String(data.get("productUnit") || "公斤"),
+      productSupplyStatus: String(data.get("productSupplyStatus") || "normal"),
+      productActive: Boolean(data.get("productActive")),
+      productStorageMethod: String(data.get("productStorageMethod") || "冷藏"),
+      productMinOrder: String(data.get("productMinOrder") || "1"),
+      productStep: String(data.get("productStep") || "1"),
+      productWarning: String(data.get("productWarning") || "0"),
+    };
   }
 
   function primaryAction(order) {
@@ -535,9 +680,63 @@
     if (params.get("status") === "tight") {
       rows = products.filter((item) => item.supply_status === "tight" || Number(item.available_quantity || 0) <= Number(item.warning_quantity || 0));
     }
+    content().innerHTML += `
+      <div class="page-toolbar">
+        <button class="primary-link" data-create-product type="button">添加食材</button>
+      </div>
+      ${productFormTemplate()}
+    `;
     content().innerHTML += table(["食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"], rows.map((item) => `
       <tr><td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
     `), "暂无食材");
+    const form = $("productCreateForm");
+    document.querySelectorAll("[data-create-product]").forEach((button) => button.addEventListener("click", () => {
+      state.productFormOpen = true;
+      loadProducts();
+    }));
+    document.querySelectorAll("[data-cancel-create-product]").forEach((button) => button.addEventListener("click", () => {
+      state.productFormOpen = false;
+      loadProducts();
+    }));
+    if (form) {
+      bindProductOptionButtons(form);
+      form.querySelectorAll("[data-save-product]").forEach((button) => {
+        button.addEventListener("click", () => {
+          form.dataset.submitMode = button.dataset.saveProduct || "close";
+        });
+      });
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const submitter = event.submitter;
+        const mode = submitter?.dataset?.saveProduct || form.dataset.submitMode || "close";
+        const activeButton = submitter || form.querySelector(`[data-save-product="${mode}"]`);
+        const payload = productPayload(form);
+        if (!payload.name) return toast("请填写食材名称");
+        if (!Number.isFinite(payload.price_cents) || payload.price_cents < 0) return toast("单价不正确");
+        if (payload.active && ["normal", "tight"].includes(payload.supply_status) && payload.price_cents <= 0) return toast("正常供应并上架时，请先填写单价");
+        if (activeButton) {
+          activeButton.disabled = true;
+          activeButton.textContent = "保存中";
+        }
+        try {
+          await api("/api/v1/admin/products", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          toast("食材已保存");
+          rememberProductDefaults(form);
+          state.productFormOpen = mode === "continue";
+          await loadProducts();
+        } catch (error) {
+          toast(error.message || "保存失败，请稍后重试");
+          if (activeButton) {
+            activeButton.disabled = false;
+            activeButton.textContent = mode === "continue" ? "保存并继续添加" : "保存食材";
+          }
+        }
+      });
+    }
     document.querySelectorAll("[data-price]").forEach((button) => button.addEventListener("click", async () => {
       const value = prompt("请输入新单价，单位：元", (Number(button.dataset.current || 0) / 100).toFixed(2));
       if (value === null) return;
@@ -682,6 +881,58 @@
     `), "暂无网页登录记录");
   }
 
+  async function loadSystemLogs() {
+    pageShell("系统日志", "用户操作、错误记录和服务器日志下载");
+    const params = new URLSearchParams(window.location.search);
+    const query = new URLSearchParams();
+    ["start_date", "end_date", "actor_role", "result", "path", "action", "q"].forEach((key) => {
+      if (params.get(key)) query.set(key, params.get(key));
+    });
+    const data = await api(`/api/v1/admin/system/audit-logs?${query.toString()}`);
+    const rows = data.items || [];
+    const exportQuery = query.toString();
+    content().innerHTML += `
+      <article class="panel section-panel">
+        <div class="panel-header"><div><h2>筛选日志</h2><p>只记录必要操作信息，不展示密码、Token 和 Cookie</p></div></div>
+        <form id="auditFilterForm" class="form-grid compact">
+          <label class="form-field"><span>开始日期</span><input name="start_date" type="date" value="${html(params.get("start_date") || "")}" /></label>
+          <label class="form-field"><span>结束日期</span><input name="end_date" type="date" value="${html(params.get("end_date") || "")}" /></label>
+          <label class="form-field"><span>角色</span><select name="actor_role"><option value="">全部</option><option value="admin" ${params.get("actor_role") === "admin" ? "selected" : ""}>管理员</option><option value="unit_user" ${params.get("actor_role") === "unit_user" ? "selected" : ""}>子单位</option><option value="anonymous" ${params.get("actor_role") === "anonymous" ? "selected" : ""}>未登录</option></select></label>
+          <label class="form-field"><span>结果</span><select name="result"><option value="">全部</option><option value="success" ${params.get("result") === "success" ? "selected" : ""}>成功</option><option value="failure" ${params.get("result") === "failure" ? "selected" : ""}>失败</option></select></label>
+          <label class="form-field"><span>路径</span><input name="path" type="text" value="${html(params.get("path") || "")}" placeholder="/api/v1/admin/products" /></label>
+          <label class="form-field"><span>关键词</span><input name="q" type="text" value="${html(params.get("q") || "")}" placeholder="账号、路径、错误" /></label>
+          <div class="page-toolbar span-2">
+            <button class="primary-link" type="submit">查询日志</button>
+            <a class="primary-link secondary" href="/api/v1/admin/system/audit-logs/export.csv?${exportQuery}">下载当前筛选 CSV</a>
+            <a class="primary-link secondary" href="/api/v1/admin/system/audit-logs/server-log.txt">下载服务器日志</a>
+          </div>
+        </form>
+      </article>
+    `;
+    content().innerHTML += table(["时间", "账号", "角色", "方法", "路径", "结果", "状态码", "错误"], rows.map((row) => `
+      <tr>
+        <td>${dateTime(row.created_at)}</td>
+        <td>${html(row.display_name || row.username || "--")}</td>
+        <td>${row.actor_role === "admin" ? "管理员" : row.actor_role === "unit_user" ? "子单位" : html(row.actor_role || "--")}</td>
+        <td>${html(row.method || "--")}</td>
+        <td>${html(row.path || row.action || "--")}</td>
+        <td>${row.result === "success" ? "成功" : "失败"}</td>
+        <td>${html(row.status_code || "--")}</td>
+        <td>${html(row.error_message || "--")}</td>
+      </tr>
+    `), "暂无系统日志");
+    $("auditFilterForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+      const next = new URLSearchParams();
+      for (const [key, value] of formData.entries()) {
+        const text = String(value || "").trim();
+        if (text) next.set(key, text);
+      }
+      window.location.href = `/admin/system-logs?${next.toString()}`;
+    });
+  }
+
   async function loadInventory() {
     pageShell("库存记录", "当前库存快照");
     await loadProducts();
@@ -709,10 +960,12 @@
       else if (route === "/admin/preparation-summary") await loadPreparationSummary();
       else if (route === "/admin/delivery-sheets") await loadDeliverySheets();
       else if (route === "/admin/system") await loadSystem();
+      else if (route === "/admin/system-logs") await loadSystemLogs();
       else if (route === "/admin/web-sessions") await loadWebSessions();
       else await loadPlaceholder("管理后台", "该页面暂未接入，请从左侧菜单选择可用功能。");
       if (!silent && route !== "/admin/dashboard") toast("数据已刷新");
     } catch (error) {
+      reportClientError(error.message || "页面加载失败", window.location.pathname, { route: currentRoute() });
       content().innerHTML = `<div class="error-banner">数据加载失败：${html(error.message || "请稍后重试")} <button id="retryButton" type="button">重新加载</button></div>`;
       $("retryButton").addEventListener("click", () => loadCurrent(false));
     } finally {

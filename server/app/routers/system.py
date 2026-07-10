@@ -3,18 +3,89 @@ import json
 import os
 import sqlite3
 import tarfile
+import urllib.parse
+from csv import writer
 from datetime import datetime, timezone
+from io import StringIO
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import PlainTextResponse, Response
 
 from ..database import all_rows, backup_dir, connect, database_path, private_upload_dir, upload_dir, write_audit
 from ..dependencies import current_user, require_manage_backups, require_system_status
 from ..metrics import request_snapshot, uptime_seconds
 from ..security import hash_token
+from ..services.audit import append_system_event, client_ip, sanitize_text, system_log_path
 
 router = APIRouter(prefix="/admin/system", tags=["system"])
+
+
+def audit_filters(
+    start_date: str = "",
+    end_date: str = "",
+    actor_role: str = "",
+    result: str = "",
+    path: str = "",
+    action: str = "",
+    q: str = "",
+) -> tuple[str, list]:
+    where = ["1 = 1"]
+    params: list = []
+    if start_date:
+        where.append("date(a.created_at) >= date(?)")
+        params.append(start_date)
+    if end_date:
+        where.append("date(a.created_at) <= date(?)")
+        params.append(end_date)
+    if actor_role:
+        where.append("a.actor_role = ?")
+        params.append(actor_role)
+    if result:
+        where.append("a.result = ?")
+        params.append(result)
+    if path:
+        where.append("a.path LIKE ?")
+        params.append(f"%{path}%")
+    if action:
+        where.append("a.action LIKE ?")
+        params.append(f"%{action}%")
+    if q:
+        where.append("(a.action LIKE ? OR a.path LIKE ? OR a.error_message LIKE ? OR u.username LIKE ? OR u.display_name LIKE ?)")
+        keyword = f"%{q}%"
+        params.extend([keyword, keyword, keyword, keyword, keyword])
+    return " AND ".join(where), params
+
+
+def audit_rows(
+    *,
+    start_date: str = "",
+    end_date: str = "",
+    actor_role: str = "",
+    result: str = "",
+    path: str = "",
+    action: str = "",
+    q: str = "",
+    limit: int = 200,
+) -> list[dict]:
+    where, params = audit_filters(start_date, end_date, actor_role, result, path, action, q)
+    with connect() as conn:
+        return all_rows(
+            conn,
+            f"""
+            SELECT a.id, a.created_at, a.actor_id, a.actor_role, COALESCE(u.username, '') AS username,
+                   COALESCE(u.display_name, '') AS display_name, a.action, a.object_type, a.object_id,
+                   a.method, a.path, a.status_code, a.result, a.ip_address, a.error_message,
+                   a.duration_ms, a.request_id
+            FROM audit_logs a
+            LEFT JOIN users u ON u.id = a.actor_id
+            WHERE {where}
+            ORDER BY a.created_at DESC
+            LIMIT ?
+            """,
+            [*params, max(1, min(limit, 2000))],
+        )
 
 
 def sha256_file(path: Path) -> str:
@@ -389,6 +460,135 @@ def system_overview(detail: bool = Query(default=False), admin=Depends(require_s
         payload["detail_allowed"] = include_detail
         conn.commit()
         return payload
+
+
+@router.get("/audit-logs")
+def list_audit_logs(
+    start_date: str = "",
+    end_date: str = "",
+    actor_role: str = "",
+    result: str = "",
+    path: str = "",
+    action: str = "",
+    q: str = "",
+    limit: int = Query(default=200, ge=1, le=1000),
+    admin=Depends(require_system_status),
+):
+    return {
+        "items": audit_rows(
+            start_date=start_date,
+            end_date=end_date,
+            actor_role=actor_role,
+            result=result,
+            path=path,
+            action=action,
+            q=q,
+            limit=limit,
+        )
+    }
+
+
+@router.get("/audit-logs/export.csv")
+def export_audit_logs_csv(
+    start_date: str = "",
+    end_date: str = "",
+    actor_role: str = "",
+    result: str = "",
+    path: str = "",
+    action: str = "",
+    q: str = "",
+    admin=Depends(require_system_status),
+):
+    rows = audit_rows(
+        start_date=start_date,
+        end_date=end_date,
+        actor_role=actor_role,
+        result=result,
+        path=path,
+        action=action,
+        q=q,
+        limit=2000,
+    )
+    output = StringIO()
+    csv_writer = writer(output)
+    csv_writer.writerow(["时间", "账号", "显示名称", "角色", "方法", "路径", "动作", "结果", "状态码", "IP", "错误", "耗时ms", "请求编号"])
+    for row in rows:
+        csv_writer.writerow(
+            [
+                row["created_at"],
+                row["username"],
+                row["display_name"],
+                row["actor_role"],
+                row["method"],
+                row["path"],
+                row["action"],
+                row["result"],
+                row["status_code"] or "",
+                row["ip_address"],
+                row["error_message"],
+                row["duration_ms"] or "",
+                row["request_id"],
+            ]
+        )
+    filename = f"三公鲜配_系统日志_{datetime.now().strftime('%Y%m%d')}.csv"
+    encoded = urllib.parse.quote(filename)
+    return Response(
+        "\ufeff" + output.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+    )
+
+
+@router.get("/audit-logs/server-log.txt")
+def download_server_log(admin=Depends(require_system_status)):
+    path = system_log_path()
+    if not path.exists():
+        path.write_text("", encoding="utf-8")
+    text = path.read_text(encoding="utf-8")[-512_000:]
+    filename = urllib.parse.quote(f"三公鲜配_服务器日志_{datetime.now().strftime('%Y%m%d')}.txt")
+    return PlainTextResponse(
+        text,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/client-errors")
+def record_client_error(request: Request, payload: dict = Body(default={}), admin=Depends(require_system_status)):
+    message = sanitize_text(payload.get("message", "前端错误"))
+    page_path = sanitize_text(payload.get("path", ""))
+    context = payload.get("context", {})
+    after_json = json.dumps({"path": page_path, "context": context}, ensure_ascii=False)[:1000]
+    ip = client_ip(request)
+    append_system_event(
+        {
+            "actor_id": admin["id"],
+            "actor_role": admin["role"],
+            "action": "WEB_CLIENT_ERROR",
+            "object_type": "web",
+            "path": page_path,
+            "result": "failure",
+            "ip_address": ip,
+            "error_message": message,
+        }
+    )
+    with connect() as conn:
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "WEB_CLIENT_ERROR",
+            "web",
+            after_json=after_json,
+            ip_address=ip,
+            result="failure",
+            method="POST",
+            path=page_path,
+            status_code=0,
+            user_agent=sanitize_text(request.headers.get("user-agent", ""), 300),
+            error_message=message,
+        )
+        conn.commit()
+    return {"ok": True}
 
 
 def add_tar_if_exists(archive: tarfile.TarFile, path: Path, arcname: str):

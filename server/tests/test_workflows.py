@@ -1068,6 +1068,7 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
         "/admin/preparation-summary",
         "/admin/delivery-sheets",
         "/admin/web-sessions",
+        "/admin/system-logs",
         "/admin/system",
     ]
     for route in admin_routes:
@@ -1187,9 +1188,65 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "/ship" in dashboard_js
     assert 'name="photos"' in dashboard_js
     assert "client_request_id" in dashboard_js
+    assert "添加食材" in dashboard_js
+    assert 'data-create-product' in dashboard_js
+    assert 'name="productName"' in dashboard_js
+    assert "productCategory" in dashboard_js
+    assert "productUnit" in dashboard_js
+    assert 'name="productPrice"' in dashboard_js
+    assert 'name="productStock"' in dashboard_js
+    assert 'method: "POST"' in dashboard_js
+    assert '"/api/v1/admin/products"' in dashboard_js
+    assert "保存并继续添加" in dashboard_js
+    assert "系统日志" in dashboard_js
+    assert "/admin/system-logs" in dashboard_js
+    assert "/api/v1/admin/system/audit-logs" in dashboard_js
+    assert "/api/v1/admin/system/audit-logs/export.csv" in dashboard_js
+    assert "/api/v1/admin/system/audit-logs/server-log.txt" in dashboard_js
+    assert "reportClientError" in dashboard_js
     assert "下载 App" in dashboard_html
     assert "/download" in dashboard_html
     assert "/help/admin" in dashboard_html
+
+
+def test_system_audit_logs_record_operations_and_can_be_downloaded(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    csrf = set_web_session(client, admin_me["id"], "admin")
+
+    created = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "LOG-U001", "unit_name": "日志测试单位", "default_delivery_point": "日志测试收货点"},
+    )
+    assert created.status_code == 200, created.text
+
+    logs = client.get("/api/v1/admin/system/audit-logs", headers=csrf)
+    assert logs.status_code == 200, logs.text
+    items = logs.json()["items"]
+    assert any(item["method"] == "POST" and item["path"] == "/api/v1/admin/units" for item in items)
+    assert all("StrongPassword123" not in json.dumps(item, ensure_ascii=False) for item in items)
+
+    csv_export = client.get("/api/v1/admin/system/audit-logs/export.csv", headers=csrf)
+    assert csv_export.status_code == 200, csv_export.text
+    assert "text/csv" in csv_export.headers["content-type"]
+    assert "filename*=UTF-8''" in csv_export.headers["content-disposition"]
+    assert "POST,/api/v1/admin/units" in csv_export.text
+
+    client_error = client.post(
+        "/api/v1/admin/system/client-errors",
+        headers=csrf,
+        json={"message": "前端测试错误", "path": "/admin/products", "context": {"button": "保存食材"}},
+    )
+    assert client_error.status_code == 200, client_error.text
+    error_logs = client.get("/api/v1/admin/system/audit-logs?result=failure", headers=csrf)
+    assert error_logs.status_code == 200
+    assert any(item["action"] == "WEB_CLIENT_ERROR" and item["error_message"] == "前端测试错误" for item in error_logs.json()["items"])
+
+    server_log = client.get("/api/v1/admin/system/audit-logs/server-log.txt", headers=csrf)
+    assert server_log.status_code == 200, server_log.text
+    assert "text/plain" in server_log.headers["content-type"]
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):

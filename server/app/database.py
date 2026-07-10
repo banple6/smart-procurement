@@ -103,13 +103,41 @@ def write_audit(
     after_json: str = "",
     ip_address: str = "",
     result: str = "success",
+    method: str = "",
+    path: str = "",
+    status_code: int | None = None,
+    request_id: str = "",
+    user_agent: str = "",
+    error_message: str = "",
+    duration_ms: int | None = None,
 ):
     conn.execute(
         """
-        INSERT INTO audit_logs(id, actor_id, actor_role, action, object_type, object_id, before_json, after_json, ip_address, result)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO audit_logs(
+          id, actor_id, actor_role, action, object_type, object_id, before_json, after_json, ip_address, result,
+          method, path, status_code, request_id, user_agent, error_message, duration_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (str(uuid4()), actor_id, actor_role, action, object_type, object_id, before_json, after_json, ip_address, result),
+        (
+            str(uuid4()),
+            actor_id,
+            actor_role,
+            action,
+            object_type,
+            object_id,
+            before_json,
+            after_json,
+            ip_address,
+            result,
+            method,
+            path,
+            status_code,
+            request_id,
+            user_agent[:300],
+            error_message[:500],
+            duration_ms,
+        ),
     )
 
 
@@ -895,6 +923,19 @@ def apply_performance_concurrency_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id)")
 
 
+def apply_audit_log_downloads_migration(conn: sqlite3.Connection):
+    add_column(conn, "audit_logs", "method TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "audit_logs", "path TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "audit_logs", "status_code INTEGER")
+    add_column(conn, "audit_logs", "request_id TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "audit_logs", "user_agent TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "audit_logs", "error_message TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "audit_logs", "duration_ms INTEGER")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_result ON audit_logs(result)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_path ON audit_logs(path)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -917,6 +958,7 @@ def migrate() -> list[str]:
             ("0010_unit_web_portal", apply_unit_web_portal_migration),
             ("0011_order_consistency", apply_order_consistency_migration),
             ("0012_performance_concurrency", apply_performance_concurrency_migration),
+            ("0013_audit_log_downloads", apply_audit_log_downloads_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -945,6 +987,7 @@ def migration_status() -> dict:
         "0010_unit_web_portal",
         "0011_order_consistency",
         "0012_performance_concurrency",
+        "0013_audit_log_downloads",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}
