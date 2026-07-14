@@ -390,8 +390,9 @@ def register_with_invite(body: RegisterWithInviteRequest, request: Request):
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request):
+    username = body.username.strip()
     with connect() as conn:
-        user = one(conn, "SELECT * FROM users WHERE username = ?", (body.username,))
+        user = one(conn, "SELECT * FROM users WHERE username = ?", (username,))
         if not user or not verify_password(body.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="账号或密码错误")
         if not user["active"]:

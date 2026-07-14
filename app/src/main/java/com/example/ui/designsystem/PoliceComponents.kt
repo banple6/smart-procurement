@@ -3,6 +3,7 @@ package com.smartprocurement.internal.ui.designsystem
 import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -96,16 +97,24 @@ fun PoliceBrandHeader(
     modifier: Modifier = Modifier,
 ) {
     PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .background(PoliceColors.Navy)
             .statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(12.dp))
+        PoliceHeaderBrandMark()
     }
 }
 
@@ -117,17 +126,48 @@ fun PoliceIdentityHeader(
     modifier: Modifier = Modifier,
 ) {
     PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .background(PoliceColors.Navy)
             .statusBarsPadding()
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(line1, fontSize = 13.sp, color = Color.White.copy(alpha = 0.86f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(line2, fontSize = 13.sp, color = Color.White.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(title, fontSize = 23.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(line1, fontSize = 13.sp, color = Color.White.copy(alpha = 0.86f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(line2, fontSize = 13.sp, color = Color.White.copy(alpha = 0.78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(12.dp))
+        PoliceHeaderBrandMark()
+    }
+}
+
+@Composable
+private fun PoliceHeaderBrandMark() {
+    Column(
+        modifier = Modifier.width(52.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.police_badge_small),
+            contentDescription = "公安徽章",
+            modifier = Modifier.size(40.dp),
+            contentScale = ContentScale.Fit,
+        )
+        Text(
+            text = "三公鲜配",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
+        )
     }
 }
 
@@ -139,15 +179,17 @@ fun PoliceTopBar(
     onAction: (() -> Unit)? = null,
     actionIcon: ImageVector? = null,
 ) {
-    PoliceStatusBar(Color.White, darkIcons = true)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+    PoliceStatusBar(surfaceColor, darkIcons = !isSystemInDarkTheme())
     Surface(
-        color = Color.White,
+        color = surfaceColor,
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .drawBehind {
                 drawLine(
-                    color = PoliceColors.Divider,
+                    color = dividerColor,
                     start = Offset(0f, size.height),
                     end = Offset(size.width, size.height),
                     strokeWidth = 1.dp.toPx(),
@@ -165,18 +207,18 @@ fun PoliceTopBar(
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                 if (onBack != null) {
                     IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = PoliceColors.Primary)
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
-                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = PoliceColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (actionText != null && onAction != null) {
                 TextButton(onClick = onAction, modifier = Modifier.heightIn(min = 48.dp)) {
                     if (actionIcon != null) {
-                        Icon(actionIcon, contentDescription = null, tint = PoliceColors.Primary, modifier = Modifier.size(20.dp))
+                        Icon(actionIcon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(4.dp))
                     }
-                    Text(actionText, color = PoliceColors.Primary, fontWeight = FontWeight.Bold)
+                    Text(actionText, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -192,12 +234,12 @@ fun PoliceInfoBanner(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = PoliceColors.Light,
-        border = BorderStroke(1.dp, PoliceColors.Border),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = PoliceColors.Navy, fontWeight = FontWeight.Bold)
-            Text(message, color = PoliceColors.TextSecondary, fontSize = 14.sp)
+            Text(title, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold)
+            Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         }
     }
 }

@@ -1,5 +1,8 @@
 package com.smartprocurement.internal.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -26,6 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.CartItemEntity
+import com.smartprocurement.internal.notifications.PushNotificationPolicy
 import com.smartprocurement.internal.ui.designsystem.PoliceOpeningBadge
 import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import com.smartprocurement.internal.ui.theme.JrxpColors
@@ -40,6 +44,15 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
     val currentScreen = viewModel.navigationStack.lastOrNull() ?: Screen.Splash
     val cartList by viewModel.cartItems.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted -> viewModel.onNotificationPermissionResult(granted) }
+
+    LaunchedEffect(viewModel.notificationPermissionRequestKey) {
+        if (viewModel.notificationPermissionRequestKey > 0) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
 
     LaunchedEffect(viewModel.snackbarMessage) {
         val message = viewModel.snackbarMessage ?: return@LaunchedEffect
@@ -68,7 +81,65 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             title = { Text("提示", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
             text = { Text(msg, fontSize = 14.sp) },
             shape = RoundedCornerShape(12.dp),
-            containerColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+
+    if (viewModel.showPushConsentDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.declinePushConsent() },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.acceptPushConsent() },
+                    modifier = Modifier.heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("开启订单通知", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.declinePushConsent() },
+                    modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("暂不开启") }
+            },
+            title = { Text("订单通知", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Text(
+                    "开启后，管理员会收到新订单提醒，子单位会收到订单状态变化提醒。通知只包含订单提示，不显示敏感明细，可随时在“我的”中关闭。",
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp
+                )
+            },
+            shape = RoundedCornerShape(10.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        )
+    }
+
+    if (viewModel.showUpdateInstallPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.postponeUpdateInstallPermission() },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.openUpdateInstallPermissionSettings() },
+                    modifier = Modifier.heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("去授权", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.postponeUpdateInstallPermission() },
+                    modifier = Modifier.heightIn(min = 52.dp)
+                ) { Text("稍后安装") }
+            },
+            title = { Text("需要安装授权", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+            text = {
+                Text(
+                    "请在系统设置中允许“三公鲜配”安装未知应用。授权后返回本应用，将继续打开系统安装页面。",
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp
+                )
+            },
+            shape = RoundedCornerShape(10.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 
@@ -111,7 +182,7 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 }
             },
             shape = RoundedCornerShape(12.dp),
-            containerColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     }
 
@@ -262,19 +333,35 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     val cartList by viewModel.cartItems.collectAsState()
     val totalCartCount = cartBadgeCount(cartList)
     val isAdmin = viewModel.canManageIngredients()
+    val pendingOrderBadge = PushNotificationPolicy.pendingOrderBadge(if (isAdmin) viewModel.dashboard.pending else 0)
+    val navigationItemColors = NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer
+    )
+    val navigationDividerColor = MaterialTheme.colorScheme.outlineVariant
     LaunchedEffect(isAdmin) {
         if (isAdmin && viewModel.currentTab == "home") viewModel.currentTab = "dashboard"
         if (!isAdmin && viewModel.currentTab == "dashboard") viewModel.currentTab = "home"
+        if (isAdmin) {
+            while (true) {
+                viewModel.refreshDashboard()
+                viewModel.refreshOrders()
+                delay(15_000)
+            }
+        }
     }
 
     Scaffold(
         bottomBar = {
             NavigationBar(
-                containerColor = JrxpColors.PureSurface,
+                containerColor = MaterialTheme.colorScheme.surfaceContainer,
                 tonalElevation = 0.dp,
                 modifier = Modifier.drawBehind {
                     drawLine(
-                        color = JrxpColors.RuleLine,
+                        color = navigationDividerColor,
                         start = Offset(0f, 0f),
                         end = Offset(size.width, 0f),
                         strokeWidth = 1f
@@ -286,13 +373,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     onClick = { viewModel.currentTab = if (isAdmin) "dashboard" else "home" },
                     icon = { Icon(imageVector = if (isAdmin) Icons.Default.DateRange else JrxpIcons.UnitBuilding, contentDescription = "home") },
                     label = { Text(if (isAdmin) "工作台" else "调度台", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JrxpColors.DutyBlue,
-                        selectedTextColor = JrxpColors.DutyBlue,
-                        unselectedIconColor = JrxpColors.InkTertiary,
-                        unselectedTextColor = JrxpColors.InkTertiary,
-                        indicatorColor = JrxpColors.PaleBlue
-                    )
+                    colors = navigationItemColors
                 )
 
                 NavigationBarItem(
@@ -327,27 +408,27 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                         }
                     },
                     label = { Text(if (isAdmin) "食材台账" else "申领单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JrxpColors.DutyBlue,
-                        selectedTextColor = JrxpColors.DutyBlue,
-                        unselectedIconColor = JrxpColors.InkTertiary,
-                        unselectedTextColor = JrxpColors.InkTertiary,
-                        indicatorColor = JrxpColors.PaleBlue
-                    )
+                    colors = navigationItemColors
                 )
 
                 NavigationBarItem(
                     selected = viewModel.currentTab == "orders",
                     onClick = { viewModel.currentTab = "orders" },
-                    icon = { Icon(imageVector = JrxpIcons.OrderDocument, contentDescription = "orders") },
+                    icon = {
+                        BadgedBox(
+                            badge = {
+                                if (pendingOrderBadge.isNotBlank()) {
+                                    Badge(containerColor = MaterialTheme.colorScheme.error) {
+                                        Text(pendingOrderBadge, color = MaterialTheme.colorScheme.onError)
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(imageVector = JrxpIcons.OrderDocument, contentDescription = "订单")
+                        }
+                    },
                     label = { Text("履约单据", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JrxpColors.DutyBlue,
-                        selectedTextColor = JrxpColors.DutyBlue,
-                        unselectedIconColor = JrxpColors.InkTertiary,
-                        unselectedTextColor = JrxpColors.InkTertiary,
-                        indicatorColor = JrxpColors.PaleBlue
-                    )
+                    colors = navigationItemColors
                 )
 
                 NavigationBarItem(
@@ -355,13 +436,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                     onClick = { viewModel.currentTab = "profile" },
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
                     label = { Text("身份", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JrxpColors.DutyBlue,
-                        selectedTextColor = JrxpColors.DutyBlue,
-                        unselectedIconColor = JrxpColors.InkTertiary,
-                        unselectedTextColor = JrxpColors.InkTertiary,
-                        indicatorColor = JrxpColors.PaleBlue
-                    )
+                    colors = navigationItemColors
                 )
             }
         }

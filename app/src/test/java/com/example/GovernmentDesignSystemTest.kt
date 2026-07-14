@@ -16,7 +16,7 @@ class GovernmentDesignSystemTest {
     @Test
     fun government_design_tokens_match_required_values() {
         assertEquals("三公鲜配", GovernmentThemeDefaults.appName)
-        assertTrue(GovernmentThemeDefaults.forceLightTheme)
+        assertFalse(GovernmentThemeDefaults.forceLightTheme)
 
         assertEquals(0xFF123F82.toInt(), GovernmentColors.GovernmentBlue.toArgb())
         assertEquals(0xFFF3F5F8.toInt(), GovernmentColors.PageBackground.toArgb())

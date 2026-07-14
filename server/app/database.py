@@ -27,7 +27,8 @@ def backup_dir() -> str:
 
 
 def decimal_text(value) -> str:
-    return str(Decimal(str(value)).normalize())
+    normalized = Decimal(str(value)).normalize()
+    return "0" if normalized == 0 else format(normalized, "f")
 
 
 def _decimal_add(left, right) -> str:
@@ -936,6 +937,72 @@ def apply_audit_log_downloads_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_path ON audit_logs(path)")
 
 
+def apply_push_notifications_migration(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS push_devices (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          registration_id TEXT NOT NULL,
+          installation_id TEXT NOT NULL,
+          platform TEXT NOT NULL DEFAULT 'android',
+          app_version TEXT NOT NULL DEFAULT '',
+          active INTEGER NOT NULL DEFAULT 1,
+          session_version INTEGER NOT NULL DEFAULT 1,
+          last_seen_at TEXT,
+          bound_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          unbound_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS push_outbox (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_id TEXT NOT NULL UNIQUE,
+          event_type TEXT NOT NULL CHECK(event_type IN ('ORDER_CREATED', 'ORDER_STATUS_CHANGED')),
+          order_id TEXT REFERENCES orders(id),
+          recipient_scope TEXT NOT NULL CHECK(recipient_scope IN ('admins', 'unit')),
+          recipient_unit_id TEXT REFERENCES units(id),
+          payload_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'retry', 'sent', 'failed')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          next_attempt_at TEXT,
+          processing_started_at TEXT,
+          sent_at TEXT,
+          last_error TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS push_deliveries (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_id TEXT NOT NULL REFERENCES push_outbox(event_id),
+          device_id TEXT NOT NULL REFERENCES push_devices(id),
+          provider_message_id TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'accepted_by_provider', 'failed', 'invalid_device', 'opened')),
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          opened_at TEXT
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_push_devices_registration_id
+          ON push_devices(registration_id);
+        CREATE INDEX IF NOT EXISTS idx_push_devices_user_active
+          ON push_devices(user_id, active);
+        CREATE INDEX IF NOT EXISTS idx_push_devices_installation
+          ON push_devices(installation_id);
+        CREATE INDEX IF NOT EXISTS idx_push_outbox_ready
+          ON push_outbox(status, next_attempt_at, id);
+        CREATE INDEX IF NOT EXISTS idx_push_outbox_order
+          ON push_outbox(order_id, event_type);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_push_delivery_event_device
+          ON push_deliveries(event_id, device_id);
+        """
+    )
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -959,6 +1026,7 @@ def migrate() -> list[str]:
             ("0011_order_consistency", apply_order_consistency_migration),
             ("0012_performance_concurrency", apply_performance_concurrency_migration),
             ("0013_audit_log_downloads", apply_audit_log_downloads_migration),
+            ("0014_push_notifications", apply_push_notifications_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -988,6 +1056,7 @@ def migration_status() -> dict:
         "0011_order_consistency",
         "0012_performance_concurrency",
         "0013_audit_log_downloads",
+        "0014_push_notifications",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

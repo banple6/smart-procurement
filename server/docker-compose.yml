@@ -14,6 +14,16 @@ services:
     expose:
       - "8000"
 
+  push-worker:
+    build: .
+    restart: unless-stopped
+    command: python -m app.workers.push_worker
+    env_file:
+      - .env
+    volumes:
+      - ../data:/app/data
+      - ../logs:/app/logs
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped

@@ -26,6 +26,9 @@
         </div>
         <div class="top-actions">
           <span id="refreshTime">尚未更新</span>
+          <a id="orderReminderButton" class="secondary-button as-link order-reminder-button" href="/admin/orders?status=pending">
+            订单提醒 <span id="orderReminderBadge" class="order-reminder-badge" hidden>0</span>
+          </a>
           <button id="refreshButton" class="secondary-button" type="button">刷新</button>
           <a class="secondary-button as-link" href="/download">下载 App</a>
           <a class="ghost-button as-link" href="/help/admin">帮助</a>
@@ -158,6 +161,7 @@
         </section>
       </main>
     </div>
+    <a id="orderReminderNotice" class="order-reminder-notice" href="/admin/orders?status=pending" hidden></a>
     <div id="toast" class="toast" hidden></div>
     <script src="/admin-assets/dashboard.js" defer></script>
   </body>

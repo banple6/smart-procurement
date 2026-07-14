@@ -6,7 +6,7 @@ import secrets
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -239,6 +239,22 @@ def test_auth_and_disabled_account(tmp_path):
     stopped = client.patch(f"/api/v1/admin/users/{user['id']}/status", headers=admin_headers, json={"active": False})
     assert stopped.status_code == 200
     assert client.post("/api/v1/auth/login", json={"username": "disabled", "password": "Disabled123"}).status_code == 403
+
+
+def test_login_trims_username_but_preserves_password(tmp_path):
+    client = make_client(tmp_path)
+
+    trimmed_username = client.post(
+        "/api/v1/auth/login",
+        json={"username": "  root_admin  ", "password": "StrongPassword123"},
+    )
+    assert trimmed_username.status_code == 200, trimmed_username.text
+
+    padded_password = client.post(
+        "/api/v1/auth/login",
+        json={"username": "root_admin", "password": " StrongPassword123 "},
+    )
+    assert padded_password.status_code == 401
 
 
 def test_login_and_me_return_unit_profile_fields(tmp_path):
@@ -769,6 +785,32 @@ def test_product_restore_price_and_inventory_adjustment_are_logged(tmp_path):
     assert stock_logs == 1
 
 
+def test_quantities_are_returned_without_scientific_notation(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
+
+    stock = client.patch(
+        f"/api/v1/admin/products/{product_id}/stock",
+        headers=admin_headers,
+        json={"stock_quantity": "20.0", "detail": "数量格式验证"},
+    )
+    assert stock.status_code == 200, stock.text
+    assert stock.json()["stock_quantity"] == "20"
+    assert stock.json()["available_quantity"] == "20"
+
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "20.0"}]},
+    )
+    assert order.status_code == 200, order.text
+    assert order.json()["items"][0]["quantity"] == "20"
+
+    ledger = client.get("/api/v1/admin/ledger", headers=admin_headers)
+    assert ledger.status_code == 200, ledger.text
+    assert ledger.json()[0]["quantity"] == "20"
+
+
 def test_cancel_releases_inventory_summary_and_excel(tmp_path):
     client = make_client(tmp_path)
     admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
@@ -1166,6 +1208,7 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     dashboard_js = (admin_root / "dashboard.js").read_text(encoding="utf-8")
     login_html = (admin_root / "login.html").read_text(encoding="utf-8")
     unit_js = (unit_root / "unit.js").read_text(encoding="utf-8")
+    unit_base = (Path(__file__).resolve().parents[1] / "app" / "templates" / "unit" / "base.html").read_text(encoding="utf-8")
 
     combined_dashboard_source = dashboard_html + dashboard_js
     assert "http://" not in combined_dashboard_source
@@ -1204,6 +1247,12 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "/api/v1/admin/system/audit-logs/export.csv" in dashboard_js
     assert "/api/v1/admin/system/audit-logs/server-log.txt" in dashboard_js
     assert "reportClientError" in dashboard_js
+    assert "orderReminderBadge" in dashboard_html
+    assert "checkAdminOrderReminders" in dashboard_js
+    assert "/api/v1/admin/orders?status=pending" in dashboard_js
+    assert "unitOrderReminderBadge" in unit_base
+    assert "checkUnitOrderReminders" in unit_js
+    assert "/unit/orders/data" in unit_js
     assert "下载 App" in dashboard_html
     assert "/download" in dashboard_html
     assert "/help/admin" in dashboard_html
@@ -1247,6 +1296,155 @@ def test_system_audit_logs_record_operations_and_can_be_downloaded(tmp_path):
     server_log = client.get("/api/v1/admin/system/audit-logs/server-log.txt", headers=csrf)
     assert server_log.status_code == 200, server_log.text
     assert "text/plain" in server_log.headers["content-type"]
+
+
+def test_push_notification_migration_uses_uuid_events_and_safe_indexes(tmp_path):
+    client = make_client(tmp_path)
+    assert client.get("/api/v1/health").status_code == 200
+
+    from app.database import connect
+
+    with connect() as conn:
+        migrations = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations")}
+        tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        indexes = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+        device_columns = {row["name"]: row["type"] for row in conn.execute("PRAGMA table_info(push_devices)")}
+        outbox_columns = {row["name"]: row["type"] for row in conn.execute("PRAGMA table_info(push_outbox)")}
+        delivery_columns = {row["name"]: row["type"] for row in conn.execute("PRAGMA table_info(push_deliveries)")}
+
+    assert "0014_push_notifications" in migrations
+    assert {"push_devices", "push_outbox", "push_deliveries"} <= tables
+    assert device_columns["id"] == "TEXT"
+    assert device_columns["user_id"] == "TEXT"
+    assert outbox_columns["event_id"] == "TEXT"
+    assert outbox_columns["order_id"] == "TEXT"
+    assert delivery_columns["device_id"] == "TEXT"
+    assert {
+        "idx_push_devices_registration_id",
+        "idx_push_devices_user_active",
+        "idx_push_devices_installation",
+        "idx_push_outbox_ready",
+        "idx_push_outbox_order",
+        "idx_push_delivery_event_device",
+    } <= indexes
+
+
+def test_push_device_binding_follows_authenticated_account_and_switches_safely(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, _ = create_unit_user_product_order(client)
+    installation_id = "install-switch-0001"
+
+    admin_register = client.post(
+        "/api/v1/push/devices/register",
+        headers=admin_headers,
+        json={
+            "registration_id": "registration-admin-0001",
+            "installation_id": installation_id,
+            "platform": "android",
+            "app_version": "1.1.5",
+        },
+    )
+    assert admin_register.status_code == 200, admin_register.text
+
+    forged = client.post(
+        "/api/v1/push/devices/register",
+        headers=unit_headers,
+        json={
+            "registration_id": "registration-unit-0001",
+            "installation_id": installation_id,
+            "platform": "android",
+            "app_version": "1.1.5",
+            "role": "admin",
+            "unit_id": "forged-unit",
+        },
+    )
+    assert forged.status_code == 422
+
+    unit_register = client.post(
+        "/api/v1/push/devices/register",
+        headers=unit_headers,
+        json={
+            "registration_id": "registration-unit-0001",
+            "installation_id": installation_id,
+            "platform": "android",
+            "app_version": "1.1.5",
+        },
+    )
+    assert unit_register.status_code == 200, unit_register.text
+
+    from app.database import all_rows, connect
+
+    with connect() as conn:
+        rows = all_rows(
+            conn,
+            "SELECT d.*, u.role, u.unit_id FROM push_devices d JOIN users u ON u.id = d.user_id WHERE d.installation_id = ? ORDER BY d.created_at",
+            (installation_id,),
+        )
+    assert len(rows) == 2
+    assert sum(int(row["active"]) for row in rows) == 1
+    active = next(row for row in rows if row["active"])
+    assert active["role"] == "unit_user"
+    assert active["unit_id"] == unit_id
+
+    unbound = client.delete(
+        f"/api/v1/push/devices/current?installation_id={installation_id}",
+        headers=unit_headers,
+    )
+    assert unbound.status_code == 200, unbound.text
+    with connect() as conn:
+        remaining = conn.execute(
+            "SELECT COUNT(*) FROM push_devices WHERE installation_id = ? AND active = 1",
+            (installation_id,),
+        ).fetchone()[0]
+    assert remaining == 0
+
+
+def test_order_transactions_enqueue_uuid_push_events_without_sensitive_payload(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)
+
+    created = client.post(
+        "/api/v1/orders",
+        headers={**unit_headers, "Idempotency-Key": "push-order-create-1"},
+        json={"items": [{"product_id": product_id, "quantity": "1"}], "note": "不要进入推送"},
+    )
+    assert created.status_code == 200, created.text
+    order = created.json()
+
+    from app.database import all_rows, connect, one
+
+    with connect() as conn:
+        events = all_rows(conn, "SELECT * FROM push_outbox WHERE order_id = ? ORDER BY id", (order["id"],))
+    assert len(events) == 1
+    created_event = events[0]
+    assert created_event["event_type"] == "ORDER_CREATED"
+    assert created_event["recipient_scope"] == "admins"
+    assert created_event["recipient_unit_id"] is None
+    assert str(UUID(created_event["event_id"])) == created_event["event_id"]
+    payload = json.loads(created_event["payload_json"])
+    assert payload == {"order_id": order["id"], "order_no": order["order_no"]}
+    assert "不要进入推送" not in created_event["payload_json"]
+
+    accepted = client.patch(
+        f"/api/v1/admin/orders/{order['id']}/status",
+        headers=admin_headers,
+        json={"status": "accepted", "expected_status": "pending", "expected_version": order["version"]},
+    )
+    assert accepted.status_code == 200, accepted.text
+    with connect() as conn:
+        status_event = one(
+            conn,
+            "SELECT * FROM push_outbox WHERE order_id = ? AND event_type = 'ORDER_STATUS_CHANGED'",
+            (order["id"],),
+        )
+    assert status_event
+    assert status_event["recipient_scope"] == "unit"
+    assert status_event["recipient_unit_id"] == unit_id
+    assert json.loads(status_event["payload_json"]) == {
+        "order_id": order["id"],
+        "order_no": order["order_no"],
+        "status": "accepted",
+    }
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):

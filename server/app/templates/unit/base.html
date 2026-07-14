@@ -20,7 +20,7 @@
         <a href="/unit/home" data-route="/unit/home">首页</a>
         <a href="/unit/products" data-route="/unit/products">食材申领</a>
         <a href="/unit/cart" data-route="/unit/cart">采购清单</a>
-        <a href="/unit/orders" data-route="/unit/orders">我的订单</a>
+        <a href="/unit/orders" data-route="/unit/orders">我的订单 <span id="unitOrderReminderBadge" class="unit-order-badge" hidden>0</span></a>
         <a href="/unit/profile" data-route="/unit/profile">我的</a>
       </nav>
     </aside>
@@ -39,6 +39,7 @@
       </header>
       <main class="unit-content">{{content}}</main>
     </div>
+    <a id="unitOrderReminderNotice" class="unit-order-notice" href="/unit/orders" hidden></a>
     <div id="toast" class="unit-toast" hidden></div>
     <script src="/unit-assets/unit.js" defer></script>
   </body>

@@ -19,7 +19,15 @@ import com.smartprocurement.internal.domain.validation.IngredientFormInput
 import com.smartprocurement.internal.domain.validation.IngredientValidator
 import com.smartprocurement.internal.domain.validation.LoginInput
 import com.smartprocurement.internal.domain.validation.PasswordChangeInput
+import com.smartprocurement.internal.notifications.PushDeepLinkPolicy
+import com.smartprocurement.internal.notifications.PushEvent
+import com.smartprocurement.internal.notifications.PushNotificationManager
+import com.smartprocurement.internal.notifications.PushNotificationPolicy
+import com.smartprocurement.internal.notifications.PushNotificationState
+import com.smartprocurement.internal.notifications.PushRegistrationWorker
+import com.smartprocurement.internal.notifications.OrderSyncWorker
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -94,7 +102,10 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     private val imageStorage = IngredientImageStorage(application)
     private val appUpdateInstaller = AppUpdateInstaller(application)
     private val apiClient = ProcurementApiClient()
+    private val pushPreferences = PushPreferences(application)
+    private val pushNotificationManager = PushNotificationManager(application)
     private var authToken by mutableStateOf("")
+    private var pendingPushEvent: PushEvent? = null
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -113,6 +124,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                             refreshProducts()
                             refreshOrders()
                             refreshDashboard()
+                            preparePushNotifications()
+                            OrderSyncWorker.schedule(getApplication())
+                            processPendingPushEvent()
                         }
                     }.onFailure {
                         sessionStore.clearSession()
@@ -163,6 +177,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var activeOrderActionId by mutableStateOf("")
     var activeShippingUploadId by mutableStateOf("")
     var isSavingIngredient by mutableStateOf(false)
+    var isRefreshingProducts by mutableStateOf(false)
+        private set
     var dashboard by mutableStateOf(AdminDashboard())
     var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
     var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
@@ -174,6 +190,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var isCheckingAppUpdate by mutableStateOf(false)
     var isDownloadingAppUpdate by mutableStateOf(false)
     var appUpdateDownloadProgress by mutableStateOf(0)
+    var showUpdateInstallPermissionDialog by mutableStateOf(false)
+        private set
+    private var pendingUpdateInstallFile: File? = null
     var selectedOnboardingPath by mutableStateOf("")
     var inviteInspectResult by mutableStateOf<InviteInspectResult?>(null)
     var inviteRegistrationLoading by mutableStateOf(false)
@@ -184,6 +203,12 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var webLoginResultMessage by mutableStateOf("")
     var webSessionRecords by mutableStateOf<List<WebSessionRecord>>(emptyList())
     var pendingCameraUri by mutableStateOf<Uri?>(null)
+    var showPushConsentDialog by mutableStateOf(false)
+        private set
+    var notificationPermissionRequestKey by mutableStateOf(0)
+        private set
+    var pushNotificationState by mutableStateOf(PushNotificationState.NOT_CONSENTED)
+        private set
 
     // Alert dialog message helper
     var alertMessage by mutableStateOf<String?>(null)
@@ -223,13 +248,14 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun login(username: String, password: String, rememberLogin: Boolean) {
-        val validation = AuthValidator.validateLogin(LoginInput(username, password))
+        val normalizedUsername = AuthValidator.normalizeUsername(username)
+        val validation = AuthValidator.validateLogin(LoginInput(normalizedUsername, password))
         loginErrors.clear()
         loginErrors.putAll(validation.errors)
         if (!validation.isValid) return
         isAuthLoading = true
         viewModelScope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { apiClient.login(username, password) } }
+            val result = runCatching { withContext(Dispatchers.IO) { apiClient.login(normalizedUsername, password) } }
             isAuthLoading = false
             result.onSuccess { login ->
                 authToken = login.token
@@ -258,6 +284,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     refreshProducts()
                     refreshOrders()
                     refreshDashboard()
+                    preparePushNotifications()
+                    OrderSyncWorker.schedule(getApplication())
+                    processPendingPushEvent()
                     popToRootAndNavigate(Screen.Home)
                 }
             }.onFailure {
@@ -285,9 +314,14 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             }
             isChangingPassword = false
             result.onSuccess {
+                unbindPushDevice(authToken)
                 sessionStore.clearSession()
                 repository.clearCart()
                 repository.clearOrderCache()
+                pushPreferences.clearAccountState()
+                pushNotificationManager.stop()
+                OrderSyncWorker.cancel(getApplication())
+                PushRegistrationWorker.cancel(getApplication())
                 authToken = ""
                 currentUser = null
                 mustChangePassword = false
@@ -303,11 +337,16 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val tokenToRevoke = authToken
             if (tokenToRevoke.isNotBlank()) {
+                unbindPushDevice(tokenToRevoke)
                 runCatching { withContext(Dispatchers.IO) { apiClient.logout(tokenToRevoke) } }
             }
             sessionStore.clearSession()
             repository.clearCart()
             repository.clearOrderCache()
+            pushPreferences.clearAccountState()
+            pushNotificationManager.stop()
+            OrderSyncWorker.cancel(getApplication())
+            PushRegistrationWorker.cancel(getApplication())
             currentUser = null
             userName = "未登录"
             userId = ""
@@ -321,6 +360,18 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             authToken = ""
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
+        }
+    }
+
+    private suspend fun unbindPushDevice(token: String) {
+        val installationId = pushPreferences.state.first().installationId
+        if (token.isBlank() || installationId.isBlank()) return
+        runCatching {
+            withContext(Dispatchers.IO) { apiClient.unbindPushDevice(token, installationId) }
+        }.onSuccess {
+            pushPreferences.clearPendingUnbind()
+        }.onFailure {
+            pushPreferences.markPendingUnbind()
         }
     }
 
@@ -347,14 +398,19 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun refreshProducts() {
-        if (authToken.isBlank()) return
+        if (authToken.isBlank() || isRefreshingProducts) return
+        isRefreshingProducts = true
         viewModelScope.launch {
-            runCatching {
-                val products = withContext(Dispatchers.IO) { apiClient.products(authToken) }
-                repository.replaceProducts(products)
-                lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-            }.onFailure {
-                alertMessage = it.toUserMessage("商品同步失败")
+            try {
+                runCatching {
+                    val products = withContext(Dispatchers.IO) { apiClient.products(authToken) }
+                    repository.replaceProducts(products)
+                    lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+                }.onFailure {
+                    alertMessage = it.toUserMessage("商品同步失败")
+                }
+            } finally {
+                isRefreshingProducts = false
             }
         }
     }
@@ -403,6 +459,178 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         refreshProducts()
         refreshOrders()
         refreshDashboard()
+    }
+
+    fun onAppResumed() {
+        refreshActiveData()
+        retryPushRegistration()
+        processPendingPushEvent()
+        continuePendingUpdateInstall()
+    }
+
+    fun preparePushNotifications() {
+        if (BuildConfig.JPUSH_APP_KEY.isBlank()) {
+            pushNotificationState = PushNotificationState.NOT_CONFIGURED
+            return
+        }
+        if (authToken.isBlank() || currentUser == null || mustChangePassword) return
+        viewModelScope.launch {
+            val state = pushPreferences.state.first()
+            if (!state.privacyConsented) {
+                pushNotificationState = PushNotificationState.NOT_CONSENTED
+                showPushConsentDialog = true
+                return@launch
+            }
+            initializeAndRegisterPush()
+        }
+    }
+
+    fun acceptPushConsent() {
+        showPushConsentDialog = false
+        viewModelScope.launch {
+            pushPreferences.setPrivacyConsented(true)
+            pushNotificationManager.initialize()
+            if (!pushNotificationManager.hasRuntimePermission()) {
+                pushNotificationState = PushNotificationState.PERMISSION_REQUIRED
+                notificationPermissionRequestKey += 1
+            } else {
+                initializeAndRegisterPush()
+            }
+        }
+    }
+
+    fun declinePushConsent() {
+        showPushConsentDialog = false
+        viewModelScope.launch { pushPreferences.setPrivacyConsented(false) }
+        pushNotificationState = PushNotificationState.NOT_CONSENTED
+    }
+
+    fun onNotificationPermissionResult(granted: Boolean) {
+        if (!granted) {
+            pushNotificationState = PushNotificationState.DISABLED
+            return
+        }
+        retryPushRegistration()
+    }
+
+    fun retryPushRegistration() {
+        if (authToken.isBlank() || currentUser == null || mustChangePassword) return
+        viewModelScope.launch {
+            val state = pushPreferences.state.first()
+            if (!state.privacyConsented) return@launch
+            initializeAndRegisterPush()
+        }
+    }
+
+    private suspend fun initializeAndRegisterPush() {
+        if (!PushNotificationPolicy.canInitialize(
+                consented = true,
+                loggedIn = authToken.isNotBlank(),
+                appKey = BuildConfig.JPUSH_APP_KEY
+            )
+        ) return
+        pushNotificationManager.initialize()
+        if (!pushNotificationManager.hasRuntimePermission() || !pushNotificationManager.notificationsEnabled()) {
+            pushNotificationState = PushNotificationState.DISABLED
+            return
+        }
+        pushNotificationState = PushNotificationState.REGISTERING
+        PushRegistrationWorker.schedule(getApplication())
+        var registrationId = pushPreferences.state.first().registrationId
+        repeat(12) {
+            if (registrationId.isNotBlank()) return@repeat
+            registrationId = pushNotificationManager.registrationId()
+            if (registrationId.isNotBlank()) {
+                pushPreferences.saveRegistrationId(registrationId)
+            } else {
+                delay(500)
+            }
+        }
+        if (registrationId.isBlank()) {
+            pushNotificationState = PushNotificationState.CONNECTION_FAILED
+            return
+        }
+        val installationId = pushPreferences.getOrCreateInstallationId()
+        runCatching {
+            withContext(Dispatchers.IO) {
+                apiClient.registerPushDevice(
+                    token = authToken,
+                    registrationId = registrationId,
+                    installationId = installationId,
+                    appVersion = BuildConfig.VERSION_NAME
+                )
+            }
+        }.onSuccess {
+            pushPreferences.markRegistered()
+            pushPreferences.clearPendingUnbind()
+            pushNotificationState = PushNotificationState.ENABLED
+        }.onFailure {
+            pushNotificationState = PushNotificationState.CONNECTION_FAILED
+        }
+    }
+
+    fun openNotificationSettings() = pushNotificationManager.openSettings()
+
+    fun onPushNotificationMenuClick() {
+        when (pushNotificationState) {
+            PushNotificationState.NOT_CONSENTED -> showPushConsentDialog = true
+            PushNotificationState.PERMISSION_REQUIRED -> notificationPermissionRequestKey += 1
+            PushNotificationState.DISABLED, PushNotificationState.ENABLED -> openNotificationSettings()
+            PushNotificationState.REGISTERING, PushNotificationState.CONNECTION_FAILED -> retryPushRegistration()
+            PushNotificationState.NOT_CONFIGURED -> alertMessage = "订单通知尚未配置"
+        }
+    }
+
+    fun pushNotificationStatusText(): String = when (pushNotificationState) {
+        PushNotificationState.NOT_CONSENTED -> "未开启"
+        PushNotificationState.PERMISSION_REQUIRED -> "需要授权"
+        PushNotificationState.DISABLED -> "系统已关闭"
+        PushNotificationState.REGISTERING -> "正在连接"
+        PushNotificationState.CONNECTION_FAILED -> "连接失败，请点击重试"
+        PushNotificationState.ENABLED -> "已开启"
+        PushNotificationState.NOT_CONFIGURED -> "暂不可用"
+    }
+
+    fun handlePushIntent(extras: Map<String, String>) {
+        val event = PushDeepLinkPolicy.fromExtras(extras) ?: return
+        pendingPushEvent = event
+        processPendingPushEvent()
+    }
+
+    private fun processPendingPushEvent() {
+        val event = pendingPushEvent ?: return
+        if (currentUser == null || authToken.isBlank()) {
+            popToRootAndNavigate(Screen.Login)
+            return
+        }
+        if (mustChangePassword) {
+            popToRootAndNavigate(Screen.ChangePassword)
+            return
+        }
+        viewModelScope.launch {
+            if (pushPreferences.state.first().processedEventIds.contains(event.eventId)) {
+                pendingPushEvent = null
+                return@launch
+            }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.orderDetail(authToken, event.orderId, currentUser?.role == "admin")
+                }
+            }.onSuccess { bundle ->
+                repository.upsertOrder(bundle)
+                pendingPushEvent = null
+                pushPreferences.addProcessedEvent(event.eventId)
+                navigateTo(Screen.OrderDetails(event.orderId))
+                if (!event.eventId.startsWith("sync:")) {
+                    runCatching {
+                        withContext(Dispatchers.IO) { apiClient.markPushOpened(authToken, event.eventId) }
+                    }
+                }
+            }.onFailure {
+                pendingPushEvent = null
+                alertMessage = it.toUserMessage("无法查看这份订单")
+            }
+        }
     }
 
     fun refreshUnits() {
@@ -730,14 +958,40 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     val apk = appUpdateInstaller.inspect(file)
                     val verify = AppUpdateVerifier.verify(apk, release, BuildConfig.VERSION_CODE, android.os.Build.VERSION.SDK_INT)
                     if (!verify.isValid) throw IllegalStateException(AppUpdatePolicy.userFacingError(verify.failureCode))
-                    appUpdateDownloadProgress = 90
-                    appUpdateInstaller.openSystemInstaller(file)
                 }
                 appUpdateDownloadProgress = 100
+                requestInstallOrOpenInstaller(file)
             }
             isDownloadingAppUpdate = false
             result.onFailure { alertMessage = it.toUserMessage("更新下载失败") }
         }
+    }
+
+    fun openUpdateInstallPermissionSettings() {
+        showUpdateInstallPermissionDialog = false
+        appUpdateInstaller.openInstallPermissionSettings()
+    }
+
+    fun postponeUpdateInstallPermission() {
+        showUpdateInstallPermissionDialog = false
+    }
+
+    private fun requestInstallOrOpenInstaller(file: File) {
+        if (appUpdateInstaller.requiresInstallPermission()) {
+            pendingUpdateInstallFile = file
+            showUpdateInstallPermissionDialog = true
+            return
+        }
+        pendingUpdateInstallFile = null
+        appUpdateInstaller.openSystemInstaller(file)
+    }
+
+    private fun continuePendingUpdateInstall() {
+        val file = pendingUpdateInstallFile ?: return
+        if (!file.exists() || appUpdateInstaller.requiresInstallPermission()) return
+        pendingUpdateInstallFile = null
+        showUpdateInstallPermissionDialog = false
+        appUpdateInstaller.openSystemInstaller(file)
     }
 
     fun viewOnboardingGuide() {

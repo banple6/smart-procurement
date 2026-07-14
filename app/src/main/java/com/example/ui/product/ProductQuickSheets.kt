@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.domain.quantity.QuantityFormatter
 import com.smartprocurement.internal.domain.validation.InventoryAdjustMode
 import com.smartprocurement.internal.domain.validation.ProductQuickActionValidator
 
@@ -131,9 +132,9 @@ fun QuickInventorySheet(
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("调整库存", fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text(product.name, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Text("当前总库存：${product.stockQuantity} ${product.unit}", fontSize = 14.sp)
-            Text("已预占库存：${product.reservedQuantity} ${product.unit}", fontSize = 14.sp)
-            Text("当前可用库存：${product.availableQuantity.ifBlank { product.stockQuantity }} ${product.unit}", fontSize = 14.sp)
+            Text("当前总库存：${QuantityFormatter.format(product.stockQuantity)} ${product.unit}", fontSize = 14.sp)
+            Text("已预占库存：${QuantityFormatter.format(product.reservedQuantity)} ${product.unit}", fontSize = 14.sp)
+            Text("当前可用库存：${QuantityFormatter.format(product.availableQuantity.ifBlank { product.stockQuantity })} ${product.unit}", fontSize = 14.sp)
             InventoryAdjustMode.entries.forEach { option ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = mode == option, onClick = { mode = option }, enabled = !loading)

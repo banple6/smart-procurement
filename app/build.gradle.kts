@@ -8,6 +8,9 @@ plugins {
 val configuredReleaseApiUrl = providers.gradleProperty("API_BASE_URL")
   .orElse(providers.environmentVariable("API_BASE_URL"))
   .getOrElse("")
+val configuredJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
+  .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
+  .getOrElse("")
 val allowInsecureHttpRelease = providers.gradleProperty("ALLOW_INSECURE_HTTP_RELEASE")
   .orElse(providers.environmentVariable("ALLOW_INSECURE_HTTP_RELEASE"))
   .map { it.equals("true", ignoreCase = true) || it == "1" || it.equals("yes", ignoreCase = true) || it.equals("on", ignoreCase = true) }
@@ -27,12 +30,16 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 12
-    versionName = "1.1.5"
+    versionCode = 19
+    versionName = "1.1.12"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
+    manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal"
+    manifestPlaceholders["JPUSH_APPKEY"] = configuredJpushAppKey
+    manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
     buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
+    buildConfigField("String", "JPUSH_APP_KEY", "\"$configuredJpushAppKey\"")
   }
 
   signingConfigs {
@@ -100,6 +107,7 @@ dependencies {
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.datastore.preferences)
+  implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -110,6 +118,7 @@ dependencies {
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
+  implementation(libs.jpush)
   implementation(libs.moshi.kotlin)
   implementation(libs.mlkit.barcode.scanning)
   implementation(libs.okhttp)
@@ -138,6 +147,9 @@ gradle.taskGraph.whenReady {
   if (allTasks.any { it.name.contains("Release") }) {
     if (!configuredReleaseApiUrl.startsWith("https://") && !allowInsecureHttpRelease) {
       throw GradleException("Release build requires API_BASE_URL starting with https:// unless ALLOW_INSECURE_HTTP_RELEASE=true")
+    }
+    if (configuredJpushAppKey.isBlank()) {
+      throw GradleException("Release build requires JPUSH_APP_KEY from a Gradle property or environment variable")
     }
   }
 }

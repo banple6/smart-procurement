@@ -12,6 +12,11 @@ import org.junit.Test
 
 class AuthValidationTest {
     @Test
+    fun login_normalizes_username() {
+        assertEquals("sangong_admin01", AuthValidator.normalizeUsername("  sangong_admin01  "))
+    }
+
+    @Test
     fun login_requires_username_and_password() {
         val result = AuthValidator.validateLogin(LoginInput("", ""))
 

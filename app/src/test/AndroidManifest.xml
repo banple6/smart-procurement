@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <receiver
+            android:name="cn.jpush.android.service.PushReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="cn.jpush.android.service.AlarmReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="cn.jpush.android.service.SchedulerReceiver"
+            tools:node="remove" />
+        <receiver
+            android:name="cn.jpush.android.asus.AsusPushMessageReceiver"
+            tools:node="remove" />
+    </application>
+</manifest>

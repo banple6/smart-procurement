@@ -1,8 +1,7 @@
 package com.smartprocurement.internal
 
-import android.graphics.Color
+import android.content.Intent
 import android.os.Bundle
-import androidx.activity.SystemBarStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,12 +15,10 @@ class MainActivity : ComponentActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    enableEdgeToEdge(
-      statusBarStyle = SystemBarStyle.light(Color.WHITE, Color.WHITE),
-      navigationBarStyle = SystemBarStyle.light(Color.WHITE, Color.WHITE)
-    )
+    enableEdgeToEdge()
 
     viewModel = ViewModelProvider(this)[SupplyViewModel::class.java]
+    dispatchPushIntent(intent)
 
     setContent {
       MyApplicationTheme {
@@ -33,7 +30,24 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     if (::viewModel.isInitialized) {
-      viewModel.refreshActiveData()
+      viewModel.onAppResumed()
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    dispatchPushIntent(intent)
+  }
+
+  private fun dispatchPushIntent(intent: Intent?) {
+    if (!::viewModel.isInitialized || intent == null) return
+    viewModel.handlePushIntent(
+      mapOf(
+        "event_id" to intent.getStringExtra("event_id").orEmpty(),
+        "event_type" to intent.getStringExtra("event_type").orEmpty(),
+        "order_id" to intent.getStringExtra("order_id").orEmpty()
+      )
+    )
   }
 }

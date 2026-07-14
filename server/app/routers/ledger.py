@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Response
 from datetime import date
 from urllib.parse import quote
 
-from ..database import all_rows, connect
+from ..database import all_rows, connect, decimal_text
 from ..dependencies import require_admin_user
 from ..services.exports import ledger_workbook
 
@@ -34,7 +34,7 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
     if order_no:
         where.append("orders.order_no LIKE ?")
         params.append(f"%{order_no}%")
-    return all_rows(
+    rows = all_rows(
         conn,
         f"""
         SELECT orders.*, order_items.*
@@ -45,6 +45,14 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
         """,
         params,
     )
+    for row in rows:
+        quantity = decimal_text(row.get("quantity") or "0")
+        row["quantity"] = quantity
+        if "requested_quantity" in row:
+            row["requested_quantity"] = decimal_text(row.get("requested_quantity") or quantity)
+        if "actual_quantity" in row:
+            row["actual_quantity"] = decimal_text(row.get("actual_quantity") or quantity)
+    return rows
 
 
 @router.get("/ledger")

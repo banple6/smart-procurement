@@ -13,6 +13,7 @@ from ..schemas import OrderCreate, OrderStatusPatch
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
 from ..services.order_status import order_status_payload
+from ..services.push_outbox import enqueue_order_created, enqueue_order_status_changed
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 
 router = APIRouter(tags=["orders"])
@@ -34,8 +35,19 @@ def get_unit(conn, unit_id: str):
     return unit
 
 
+def order_item_out(item: dict) -> dict:
+    result = {**item}
+    quantity = decimal_text(item.get("quantity") or "0")
+    result["quantity"] = quantity
+    if "requested_quantity" in result:
+        result["requested_quantity"] = decimal_text(item.get("requested_quantity") or quantity)
+    if "actual_quantity" in result:
+        result["actual_quantity"] = decimal_text(item.get("actual_quantity") or quantity)
+    return result
+
+
 def order_items(conn, order_id: str):
-    return all_rows(conn, "SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid", (order_id,))
+    return [order_item_out(item) for item in all_rows(conn, "SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid", (order_id,))]
 
 
 def shipping_photo_rows(conn, order_id: str):
@@ -127,7 +139,7 @@ def order_list_out(conn, orders: list[dict], include_items: bool) -> list[dict]:
             f"SELECT * FROM order_items WHERE order_id IN ({_placeholders(order_ids)}) ORDER BY rowid",
             order_ids,
         ):
-            items_by_order.setdefault(item["order_id"], []).append(item)
+            items_by_order.setdefault(item["order_id"], []).append(order_item_out(item))
     payloads = []
     for order in orders:
         payload = {
@@ -240,6 +252,13 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
 def create_order(body: OrderCreate, user=Depends(require_unit_user), idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
     with transaction() as conn:
         order = create_order_rows(conn, body, user, idempotency_key=idempotency_key)
+        existing_event = one(
+            conn,
+            "SELECT event_id FROM push_outbox WHERE order_id = ? AND event_type = 'ORDER_CREATED'",
+            (order["id"],),
+        )
+        if not existing_event:
+            enqueue_order_created(conn, order)
         invalidate_dashboard_cache()
         return order_out(conn, order)
 
@@ -400,8 +419,10 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'status', ?, ?)",
             (str(uuid4()), order_id, admin["id"], order["status"], body.status),
         )
+        updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
+        enqueue_order_status_changed(conn, updated_order, body.status)
         invalidate_dashboard_cache()
-        return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
+        return order_out(conn, updated_order)
 
 
 @router.post("/admin/orders/{order_id}/ship")
@@ -494,8 +515,10 @@ async def ship_order(
                     json.dumps({"shipping_photo_count": len(processed), "client_request_id": request_id}, ensure_ascii=False),
                 ),
             )
+            updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
+            enqueue_order_status_changed(conn, updated_order, "shipped")
             invalidate_dashboard_cache()
-            return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
+            return order_out(conn, updated_order)
     except Exception:
         cleanup_photos(processed)
         raise

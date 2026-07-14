@@ -181,6 +181,15 @@ class OrderStatusPatch(BaseModel):
     expected_version: Optional[int] = None
 
 
+class PushDeviceRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    registration_id: str = Field(min_length=8, max_length=255)
+    installation_id: str = Field(min_length=8, max_length=80)
+    platform: str = Field(default="android", pattern="^android$")
+    app_version: str = Field(default="", max_length=40)
+
+
 class WebQrScanRequest(BaseModel):
     qr_token: str = ""
     qr_content: str = ""

@@ -42,6 +42,9 @@
     loading: false,
     lastData: null,
     timer: null,
+    reminderTimer: null,
+    pendingOrderIds: null,
+    baseTitle: document.title,
     rangeDays: 7,
     unitSort: "amount",
     productFormOpen: false,
@@ -123,6 +126,37 @@
     window.setTimeout(() => {
       box.hidden = true;
     }, 2200);
+  }
+
+  function renderAdminOrderReminder(orders, total) {
+    const count = Math.max(0, Number(total || 0));
+    const badge = $("orderReminderBadge");
+    const notice = $("orderReminderNotice");
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.hidden = count === 0;
+    notice.hidden = count === 0;
+    notice.textContent = count === 0 ? "" : `新订单提醒：有 ${count} 笔采购单等待接单，点击查看`;
+    document.title = count > 0 ? `(${count}) ${state.baseTitle}` : state.baseTitle;
+
+    const ids = orders.map((order) => order.id);
+    if (Array.isArray(state.pendingOrderIds)) {
+      const previous = new Set(state.pendingOrderIds);
+      const created = orders.filter((order) => !previous.has(order.id));
+      if (created.length > 0) {
+        const first = created[0];
+        toast(created.length === 1 ? `收到新订单 ${first.order_no}` : `收到 ${created.length} 笔新订单`);
+      }
+    }
+    state.pendingOrderIds = ids;
+  }
+
+  async function checkAdminOrderReminders() {
+    try {
+      const data = await api("/api/v1/admin/orders?status=pending&page=1&page_size=100");
+      renderAdminOrderReminder(data.items || [], data.total || 0);
+    } catch (error) {
+      reportClientError(error.message || "订单提醒同步失败", "/api/v1/admin/orders", { reminder: true });
+    }
   }
 
   function empty(text) {
@@ -987,15 +1021,23 @@
     state.timer = window.setInterval(() => {
       if (!document.hidden) loadCurrent(true);
     }, 60000);
+    window.clearInterval(state.reminderTimer);
+    state.reminderTimer = window.setInterval(() => {
+      if (!document.hidden) checkAdminOrderReminders();
+    }, 10000);
   }
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) loadCurrent(true);
+    if (!document.hidden) {
+      loadCurrent(true);
+      checkAdminOrderReminders();
+    }
   });
 
   $("refreshButton").addEventListener("click", () => loadCurrent(false));
   $("logoutButton").addEventListener("click", logout);
   renderNav();
   loadCurrent(true);
+  checkAdminOrderReminders();
   schedule();
 })();

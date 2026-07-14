@@ -3,11 +3,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
-from ..database import one
-
-
-def decimal_text(value) -> str:
-    return str(Decimal(str(value)).normalize())
+from ..database import decimal_text, one
 
 
 def as_decimal(value) -> Decimal:

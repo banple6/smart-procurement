@@ -1,7 +1,7 @@
 package com.smartprocurement.internal
 
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.File
 
@@ -18,14 +18,16 @@ class AppUpdateUiPolicyTest {
     }
 
     @Test
-    fun update_install_uses_system_confirmation_without_broad_storage_permission() {
+    fun update_install_requests_only_package_install_permission_and_guides_user_to_system_settings() {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         val service = File("src/main/java/com/example/data/AppUpdateInstaller.kt").readText()
 
-        assertFalse(manifest.contains("REQUEST_INSTALL_PACKAGES"))
-        assertFalse(manifest.contains("WRITE_EXTERNAL_STORAGE"))
+        assertTrue(manifest.contains("REQUEST_INSTALL_PACKAGES"))
+        assertTrue(!manifest.contains("WRITE_EXTERNAL_STORAGE"))
         assertTrue(service.contains("ACTION_VIEW"))
         assertTrue(service.contains("application/vnd.android.package-archive"))
+        assertTrue(service.contains("canRequestPackageInstalls"))
+        assertTrue(service.contains("ACTION_MANAGE_UNKNOWN_APP_SOURCES"))
     }
 
     @Test

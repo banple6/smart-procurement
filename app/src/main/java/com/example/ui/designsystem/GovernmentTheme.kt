@@ -6,7 +6,7 @@ import androidx.compose.ui.unit.Dp
 object GovernmentThemeDefaults {
     const val appName = PoliceBrandConfig.appName
     const val appDescription = PoliceBrandConfig.systemName
-    const val forceLightTheme = PoliceBrandConfig.forceLightTheme
+    const val forceLightTheme = false
 }
 
 object GovernmentColors {
