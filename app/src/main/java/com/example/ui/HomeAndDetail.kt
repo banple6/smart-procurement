@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +41,7 @@ import coil.compose.AsyncImage
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.product.ProductOptions
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.domain.quantity.QuantityFormatter
 import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
 import com.smartprocurement.internal.ui.theme.JrxpColors
 import com.smartprocurement.internal.ui.theme.JrxpTheme
@@ -135,18 +137,18 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(JrxpColors.ReadingSurface, RoundedCornerShape(JrxpDimensions.cornerLg))
-                        .border(JrxpDimensions.ruleLineWidth, JrxpColors.RuleLine, RoundedCornerShape(JrxpDimensions.cornerLg))
+                        .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(JrxpDimensions.cornerLg))
+                        .border(JrxpDimensions.ruleLineWidth, MaterialTheme.colorScheme.outline, RoundedCornerShape(JrxpDimensions.cornerLg))
                         .padding(JrxpDimensions.spacingLg),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("当前可供调度品种：${products.count { it.isAvailable && !it.isDeleted }}", style = MaterialTheme.typography.titleMedium, color = JrxpColors.InkPrimary, fontWeight = FontWeight.Bold)
-                        Text("台账最后更新：${viewModel.lastSyncText.ifBlank { "等待同步" }}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkTertiary, modifier = Modifier.padding(top = 2.dp))
+                        Text("当前可供调度品种：${products.count { it.isAvailable && !it.isDeleted }}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("台账最后更新：${viewModel.lastSyncText.ifBlank { "等待同步" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
                     }
                     IconButton(onClick = { viewModel.refreshProducts() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = JrxpColors.DutyBlue)
+                        Icon(Icons.Default.Refresh, contentDescription = "刷新", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -188,12 +190,12 @@ private fun FilterRow(options: List<String>, selected: String, onSelected: (Stri
         items(options, key = { it }) { option ->
             val isSelected = selected == option
             val backgroundColor by androidx.compose.animation.animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else JrxpColors.PureSurface,
+                targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                 animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
                 label = "chipBg"
             )
             val textColor by androidx.compose.animation.animateColorAsState(
-                targetValue = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else JrxpColors.InkPrimary,
+                targetValue = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                 animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
                 label = "chipText"
             )
@@ -230,7 +232,9 @@ private fun IngredientCard(
     onOpen: () -> Unit,
     onQtyChange: (Double) -> Unit
 ) {
-    val available = product.availableQuantity.ifBlank { product.stockQuantity }
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+    val stock = QuantityFormatter.format(product.stockQuantity)
+    val available = QuantityFormatter.format(product.availableQuantity.ifBlank { stock })
     val availableNumber = available.toDoubleOrNull() ?: 0.0
     val nextQuantity = if (cartQuantity == 0.0) product.minQty else cartQuantity + product.stepQty
     val disabledReason = when {
@@ -247,12 +251,12 @@ private fun IngredientCard(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .background(JrxpColors.PureSurface)
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .clickable(enabled = !canOrder, onClick = onOpen)
             .padding(vertical = JrxpDimensions.spacingMd)
             .drawBehind {
                 drawLine(
-                    color = JrxpColors.SoftDivider,
+                    color = dividerColor,
                     start = Offset(0f, size.height),
                     end = Offset(size.width, size.height),
                     strokeWidth = 1f
@@ -269,7 +273,7 @@ private fun IngredientCard(
                     Text(
                         text = product.name,
                         style = JrxpTypography.titleMedium,
-                        color = JrxpColors.InkPrimary,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -277,7 +281,7 @@ private fun IngredientCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     if (canOrder) {
-                        if (disabledReason.isNotBlank()) Text(disabledReason, style = JrxpTypography.labelMedium, color = JrxpColors.CriticalRed, fontWeight = FontWeight.Bold)
+                        if (disabledReason.isNotBlank()) Text(disabledReason, style = JrxpTypography.labelMedium, color = JrxpTheme.colors.criticalRed, fontWeight = FontWeight.Bold)
                     } else {
                         androidx.compose.animation.AnimatedContent(
                             targetState = product.displayStatus(),
@@ -288,17 +292,17 @@ private fun IngredientCard(
                     }
                 }
 
-                Text(product.spec, style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(product.spec, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
                 if (canOrder) {
-                    Text("内控价 ${Money.formatYuan(product.price)} / ${product.unit}", style = JrxpTypography.bodyMedium, fontWeight = FontWeight.SemiBold, color = JrxpColors.DutyBlue, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("内控价 ${Money.formatYuan(product.price)} / ${product.unit}", style = JrxpTypography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
 
                     if (isNarrow) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("当前可用：$available ${product.unit}", style = JrxpTypography.bodySmall, color = JrxpColors.InkTertiary)
+                            Text("当前可用：$available ${product.unit}", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     } else {
-                        Text("当前可用：$available ${product.unit}", style = JrxpTypography.bodySmall, color = JrxpColors.InkTertiary)
+                        Text("当前可用：$available ${product.unit}", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
 
                     Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
@@ -312,18 +316,18 @@ private fun IngredientCard(
                         )
                     }
                 } else {
-                    Text("内控价 ${Money.formatYuan(product.price)} / ${product.unit}", style = JrxpTypography.bodyMedium, fontWeight = FontWeight.SemiBold, color = JrxpColors.DutyBlue, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("内控价 ${Money.formatYuan(product.price)} / ${product.unit}", style = JrxpTypography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(modifier = Modifier.height(JrxpDimensions.spacingXs))
 
                     if (isNarrow) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("物理总库：${product.stockQuantity.ifBlank { "0" }}", style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary)
-                            Text("调度可用：$available", style = JrxpTypography.bodySmall, color = JrxpColors.SupplyGreen, fontWeight = FontWeight.Medium)
+                            Text("物理总库：$stock", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("调度可用：$available", style = JrxpTypography.bodySmall, color = JrxpTheme.colors.supplyGreen, fontWeight = FontWeight.Medium)
                         }
                     } else {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("物理总库：${product.stockQuantity.ifBlank { "0" }}", style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary)
-                            Text("调度可用：$available", style = JrxpTypography.bodySmall, color = JrxpColors.SupplyGreen, fontWeight = FontWeight.Medium)
+                            Text("物理总库：$stock", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("调度可用：$available", style = JrxpTypography.bodySmall, color = JrxpTheme.colors.supplyGreen, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -363,50 +367,57 @@ fun ProductDetailScreen(productId: String, viewModel: SupplyViewModel) {
             DetailActions(product, selectedQty, viewModel, onQtyChange = { selectedQty = it }, onDelete = { showDeleteDialog = true })
         }
     ) { padding ->
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = viewModel.isRefreshingProducts,
+            onRefresh = { viewModel.refreshProducts() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.background),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                IngredientImage(product.displayImage(), product.name, Modifier.fillMaxWidth().aspectRatio(1.5f))
-            }
-            item {
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = JrxpDimensions.spacingMd)) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(product.name, style = MaterialTheme.typography.headlineSmall, color = JrxpColors.InkPrimary, fontWeight = FontWeight.Bold)
-                            Text("${product.category} · ${product.code.ifBlank { "未编目" }}", style = MaterialTheme.typography.bodyMedium, color = JrxpColors.InkSecondary)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    IngredientImage(product.displayImage(), product.name, Modifier.fillMaxWidth().aspectRatio(1.5f))
+                }
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = JrxpDimensions.spacingMd)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(product.name, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                Text("${product.category} · ${product.code.ifBlank { "未编目" }}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            StatusBadge(product.displayStatus())
                         }
-                        StatusBadge(product.displayStatus())
                     }
                 }
-            }
-            item {
-                DocumentSection(title = "库存与调度", subtitle = "实时同步至各申领单位") {
-                    IngredientDetailRow("规格", product.spec)
-                    IngredientDetailRow("计量单位", product.unit)
-                    IngredientDetailRow("物理总库存", "${product.stockQuantity.ifBlank { "0" }} ${product.unit}")
-                    IngredientDetailRow("预警阈值", product.warningQuantity.ifBlank { "未设置" })
-                    IngredientDetailRow("可用库存", "${product.availableQuantity.ifBlank { product.stockQuantity.ifBlank { "0" } }} ${product.unit}")
-                    IngredientDetailRow("可见状态", if (product.isAvailable) "上架中" else "已隐藏")
-                }
-            }
-            item {
-                DocumentSection(title = "溯源与合规") {
-                    IngredientDetailRow("原产地", product.origin.ifBlank { "未填写" })
-                    IngredientDetailRow("保存方式", product.storageMethod.ifBlank { "未填写" })
-                    IngredientDetailRow("保质期(天)", product.shelfLife.ifBlank { "未填写" })
-                    IngredientDetailRow("是否允许替换", if (product.allowSubstitute) "允许" else "严格不可替换")
-                    IngredientDetailRow("特殊备注", product.remark.ifBlank { "无" })
-                    if (viewModel.canManageIngredients()) {
-                        IngredientDetailRow("内控参考价", Money.formatYuan(product.price))
+                item {
+                    DocumentSection(title = "库存与调度", subtitle = "下拉可同步最新数据") {
+                        IngredientDetailRow("规格", product.spec)
+                        IngredientDetailRow("计量单位", product.unit)
+                        IngredientDetailRow("物理总库存", "${QuantityFormatter.format(product.stockQuantity)} ${product.unit}")
+                        IngredientDetailRow("预警阈值", QuantityFormatter.format(product.warningQuantity.ifBlank { "0" }))
+                        IngredientDetailRow("可用库存", "${QuantityFormatter.format(product.availableQuantity.ifBlank { product.stockQuantity })} ${product.unit}")
+                        IngredientDetailRow("可见状态", if (product.isAvailable) "上架中" else "已隐藏")
                     }
-                    IngredientDetailRow("系统建档", product.createdAt.toTimeText())
-                    IngredientDetailRow("最后更新", product.updatedAt.toTimeText())
+                }
+                item {
+                    DocumentSection(title = "溯源与合规") {
+                        IngredientDetailRow("原产地", product.origin.ifBlank { "未填写" })
+                        IngredientDetailRow("保存方式", product.storageMethod.ifBlank { "未填写" })
+                        IngredientDetailRow("保质期(天)", product.shelfLife.ifBlank { "未填写" })
+                        IngredientDetailRow("是否允许替换", if (product.allowSubstitute) "允许" else "严格不可替换")
+                        IngredientDetailRow("特殊备注", product.remark.ifBlank { "无" })
+                        if (viewModel.canManageIngredients()) {
+                            IngredientDetailRow("内控参考价", Money.formatYuan(product.price))
+                        }
+                        IngredientDetailRow("系统建档", product.createdAt.toTimeText())
+                        IngredientDetailRow("最后更新", product.updatedAt.toTimeText())
+                    }
                 }
             }
         }
@@ -463,7 +474,7 @@ private fun DetailActions(
                     onClick = onDelete,
                     modifier = Modifier.fillMaxWidth().height(JrxpDimensions.touchTargetMin),
                     shape = JrxpDimensions.shapeMd,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = JrxpColors.CriticalRed)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = JrxpTheme.colors.criticalRed)
                 ) {
                     Text("从数据库中删除", fontWeight = FontWeight.Bold)
                 }
@@ -587,13 +598,13 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                         modifier = Modifier
                             .size(88.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(JrxpColors.ReadingSurface)
-                            .border(1.dp, JrxpColors.RuleLine, RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                             .clickable { imageSheet = true },
                         contentAlignment = Alignment.Center
                     ) {
                         if (form.imagePath.isBlank()) {
-                            Text("暂无图片", color = JrxpColors.InkTertiary, fontSize = 13.sp, textAlign = TextAlign.Center)
+                            Text("暂无图片", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, textAlign = TextAlign.Center)
                         } else {
                             AsyncImage(model = form.imagePath, contentDescription = form.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
@@ -635,12 +646,12 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                     val twoColumns = maxWidth >= 420.dp
                     if (twoColumns) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"], Modifier.weight(1f))
+                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"], Modifier.weight(1f), suffix = "元")
                             DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"], Modifier.weight(1f))
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"])
+                            DecimalInput("单价", form.internalPrice, { form = form.copy(internalPrice = it) }, viewModel.ingredientErrors["internalPrice"], suffix = "元")
                             DecimalInput("当前库存", form.stockQuantity, { form = form.copy(stockQuantity = it) }, viewModel.ingredientErrors["stockQuantity"])
                         }
                     }
@@ -704,7 +715,7 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                 FormInput("食材编码", form.code, { form = form.copy(code = it) }, null)
                 FormInput("产地", form.origin, { form = form.copy(origin = it) }, null)
                 FormInput("供应商", form.packagingSpec, { form = form.copy(packagingSpec = it) }, null)
-                Text("储存方式", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = JrxpColors.InkPrimary)
+                Text("储存方式", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 QuickOptionFlow(
                     primary = ProductOptions.storageMethods,
                     extra = emptyList(),
@@ -763,8 +774,8 @@ fun DeletedIngredientsScreen(viewModel: SupplyViewModel) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(JrxpColors.ReadingSurface, RoundedCornerShape(JrxpDimensions.cornerLg))
-                            .border(JrxpDimensions.ruleLineWidth, JrxpColors.RuleLine, RoundedCornerShape(JrxpDimensions.cornerLg))
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(JrxpDimensions.cornerLg))
+                            .border(JrxpDimensions.ruleLineWidth, MaterialTheme.colorScheme.outline, RoundedCornerShape(JrxpDimensions.cornerLg))
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -773,9 +784,9 @@ fun DeletedIngredientsScreen(viewModel: SupplyViewModel) {
                         ) {
                             IngredientImage(product.displayImage(), product.name, Modifier.size(64.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(product.name, style = MaterialTheme.typography.titleMedium, color = JrxpColors.InkPrimary, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("${product.category} · ${product.spec}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkSecondary)
-                                Text("下线时间：${product.updatedAt.toTimeText()}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkTertiary)
+                                Text(product.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${product.category} · ${product.spec}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("下线时间：${product.updatedAt.toTimeText()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             JrxpSecondaryButton(
                                 text = "恢复",
@@ -823,9 +834,9 @@ private fun QuickOptionChip(text: String, selected: Boolean, onClick: () -> Unit
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(8.dp),
-        color = if (selected) JrxpColors.CommandNavy else JrxpColors.PureSurface,
-        contentColor = if (selected) Color.White else JrxpColors.InkPrimary,
-        border = BorderStroke(1.dp, if (selected) JrxpColors.CommandNavy else JrxpColors.RuleLine),
+        color = if (selected) JrxpColors.CommandNavy else MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = if (selected) Color.White else MaterialTheme.colorScheme.onSurface,
+        border = BorderStroke(1.dp, if (selected) JrxpColors.CommandNavy else MaterialTheme.colorScheme.outline),
         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
     ) {
         Text(text, modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp), fontSize = 14.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
@@ -850,7 +861,7 @@ private fun SegmentedOptionRow(options: List<String>, selected: String, onSelect
 @Composable
 private fun PlainSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
+        Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         content()
     }
 }
@@ -862,17 +873,17 @@ private fun SummaryRow(title: String, subtitle: String, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .background(JrxpColors.PureSurface)
-            .border(1.dp, JrxpColors.RuleLine, RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
             .padding(14.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
-            Text(subtitle, fontSize = 13.sp, color = JrxpColors.InkTertiary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = JrxpColors.InkTertiary)
+        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -893,7 +904,7 @@ private fun SheetAction(text: String, enabled: Boolean = true, onClick: () -> Un
 @Composable
 private fun SheetContent(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         content()
         Spacer(Modifier.height(16.dp))
     }
@@ -921,7 +932,14 @@ private fun FormInput(label: String, value: String, onValueChange: (String) -> U
 }
 
 @Composable
-private fun DecimalInput(label: String, value: String, onValueChange: (String) -> Unit, error: String?, modifier: Modifier = Modifier) {
+private fun DecimalInput(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    error: String?,
+    modifier: Modifier = Modifier,
+    suffix: String = ""
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -929,6 +947,7 @@ private fun DecimalInput(label: String, value: String, onValueChange: (String) -
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        suffix = { if (suffix.isNotBlank()) Text(suffix) },
         isError = error != null,
         supportingText = { error?.let { Text(it) } }
     )

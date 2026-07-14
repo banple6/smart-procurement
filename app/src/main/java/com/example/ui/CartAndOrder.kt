@@ -56,6 +56,7 @@ import java.util.*
 // --- CART SCREEN ---
 @Composable
 fun CartScreen(viewModel: SupplyViewModel) {
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val cartList by viewModel.cartItems.collectAsState()
     val products by viewModel.allProducts.collectAsState()
     var note by remember { mutableStateOf("") }
@@ -123,11 +124,11 @@ fun CartScreen(viewModel: SupplyViewModel) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(JrxpColors.PureSurface)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                 .padding(vertical = JrxpDimensions.spacingMd)
                                 .drawBehind {
                                     drawLine(
-                                        color = JrxpColors.SoftDivider,
+                                        color = dividerColor,
                                         start = Offset(0f, size.height),
                                         end = Offset(size.width, size.height),
                                         strokeWidth = 1f
@@ -159,19 +160,19 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                     }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(p.spec, style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(p.spec, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                     IconButton(onClick = { viewModel.deleteCartItem(p.id) }, modifier = Modifier.size(48.dp)) {
-                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "删除", tint = JrxpColors.CriticalRed)
+                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "删除", tint = JrxpTheme.colors.criticalRed)
                                     }
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("单价", color = JrxpColors.InkSecondary, style = MaterialTheme.typography.bodySmall)
+                                    Text("单价", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                     Text(Money.formatYuan(p.price), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 }
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("小计", color = JrxpColors.InkSecondary, style = MaterialTheme.typography.bodySmall)
-                                    Text(Money.formatCents(lineSubtotalCents(p.price, item.quantity)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = JrxpColors.DutyBlue)
+                                    Text("小计", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                                    Text(Money.formatCents(lineSubtotalCents(p.price, item.quantity)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -207,7 +208,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                 PrimaryActionDock {
                     Row(modifier = Modifier.fillMaxWidth().padding(bottom = JrxpDimensions.spacingMd), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("订单合计", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text(Money.formatCents(totalCents), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = JrxpColors.DutyBlue)
+                        Text(Money.formatCents(totalCents), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
                     JrxpPrimaryButton(
                         text = "提交订单",
@@ -278,6 +279,7 @@ fun DetailRow(label: String, value: String) {
 // --- HISTORIC ORDER LIST SCREEN ---
 @Composable
 fun OrderListScreen(viewModel: SupplyViewModel) {
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val orders by viewModel.allOrders.collectAsState()
     val isAdmin = viewModel.canManageIngredients()
     var selectedStatus by remember { mutableStateOf("全部") }
@@ -326,12 +328,12 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                 items(listOf("全部", "待接单", "已接单", "备货中", "已发货", "已完成", "已取消"), key = { it }) { status ->
                                     val isSelected = selectedStatus == status
                                     val backgroundColor by androidx.compose.animation.animateColorAsState(
-                                        targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else JrxpColors.PureSurface,
+                                        targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
                                         animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
                                         label = "chipBg"
                                     )
                                     val textColor by androidx.compose.animation.animateColorAsState(
-                                        targetValue = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else JrxpColors.InkPrimary,
+                                        targetValue = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
                                         animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
                                         label = "chipText"
                                     )
@@ -377,14 +379,14 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                             modifier = Modifier
                                 .animateItem()
                                 .fillMaxWidth()
-                                .background(JrxpColors.PureSurface)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                 .clickable {
                                     viewModel.navigateTo(Screen.OrderDetails(order.orderId))
                                 }
                                 .padding(vertical = JrxpDimensions.spacingMd)
                                 .drawBehind {
                                     drawLine(
-                                        color = JrxpColors.SoftDivider,
+                                        color = dividerColor,
                                         start = Offset(0f, size.height),
                                         end = Offset(size.width, size.height),
                                         strokeWidth = 1f
@@ -401,7 +403,7 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                                         text = orderTitle,
                                         style = JrxpTypography.titleMedium,
                                         fontWeight = FontWeight.Bold,
-                                        color = JrxpColors.InkPrimary,
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.weight(1f),
                                         maxLines = if (isAdmin) 2 else 1,
                                         overflow = TextOverflow.Ellipsis
@@ -426,30 +428,30 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
 
                                 if (isAdmin) {
                                     Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text(order.displayOrderNo, style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, color = JrxpColors.InkPrimary, fontWeight = FontWeight.Medium)
+                                    Text(order.displayOrderNo, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
                                 }
 
                                 Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
 
                                 // Generic DetailRow inline for Order List
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("下单时间", style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary, modifier = Modifier.widthIn(min = 64.dp))
-                                    Text(order.submitTime, style = JrxpTypography.bodySmall, color = JrxpColors.InkPrimary, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("下单时间", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(min = 64.dp))
+                                    Text(order.submitTime, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
 
                                 Row(modifier = Modifier.fillMaxWidth().padding(top = JrxpDimensions.spacingXs), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("配送点", style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary, modifier = Modifier.widthIn(min = 64.dp))
-                                    Text(order.deliveryPoint, style = JrxpTypography.bodySmall, color = JrxpColors.InkPrimary, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("配送点", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(min = 64.dp))
+                                    Text(order.deliveryPoint, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
 
                                 if (order.status == "备货中") {
                                     Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text("订单正在备货", style = JrxpTypography.bodySmall, color = JrxpColors.InkSecondary)
+                                    Text("订单正在备货", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                                 if (order.shippingPhotoCount > 0) {
                                     Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text("发货凭证：${order.shippingPhotoCount} 张", style = JrxpTypography.bodySmall, color = JrxpColors.DutyBlue, fontWeight = FontWeight.SemiBold)
+                                    Text("发货凭证：${order.shippingPhotoCount} 张", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                                 }
 
                                 Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
@@ -466,6 +468,7 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
 // --- ORDER DETAILS SCREEN ---
 @Composable
 fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val orderFlow = remember(orderId) { viewModel.getOrderFlow(orderId) }
     val orderItemsFlow = remember(orderId) { viewModel.getOrderItemsFlow(orderId) }
 
@@ -488,7 +491,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                     .background(MaterialTheme.colorScheme.background)
                     .drawBehind {
                         drawLine(
-                            color = Color(0xFFCAC4D0),
+                            color = dividerColor,
                             start = Offset(0f, size.height),
                             end = Offset(size.width, size.height),
                             strokeWidth = 1f
@@ -549,7 +552,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                                 .padding(vertical = JrxpDimensions.spacingMd)
                                 .drawBehind {
                                     drawLine(
-                                        color = JrxpColors.SoftDivider,
+                                        color = dividerColor,
                                         start = Offset(0f, size.height),
                                         end = Offset(size.width, size.height),
                                         strokeWidth = 1f
@@ -568,14 +571,14 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                                 contentScale = ContentScale.Crop
                             )
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(item.productName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = JrxpColors.InkPrimary)
-                                Text(item.productSpec, style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkSecondary)
+                                Text(item.productName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text(item.productSpec, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("单价：${Money.formatYuan(item.price)}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkSecondary)
-                                    Text("x${item.requestedQty.cleanQty()} ${item.productUnit}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.DutyBlue, fontWeight = FontWeight.SemiBold)
+                                    Text("单价：${Money.formatYuan(item.price)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("x${item.requestedQty.cleanQty()} ${item.productUnit}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                                 }
-                                Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.requestedQty))}", style = MaterialTheme.typography.bodySmall, color = JrxpColors.InkPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.End))
+                                Text("小计：${Money.formatCents(lineSubtotalCents(item.price, item.requestedQty))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.End))
                             }
                         }
                     }

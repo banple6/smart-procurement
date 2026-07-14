@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Response
 from urllib.parse import quote
 
-from ..database import all_rows, connect, one, transaction
+from ..database import all_rows, connect, decimal_text, one, transaction
 from ..dependencies import current_user, require_admin_user
 from ..schemas import CutoffOverridePut, CutoffPatch
 from ..services.exports import delivery_sheets_workbook, preparation_summary_workbook
@@ -105,6 +105,9 @@ def preparation_rows(conn, business_date: str | None, scope: str, category: str 
     """
     total = one(conn, f"SELECT COUNT(*) AS c FROM ({base_sql}) AS grouped", params)["c"]
     rows = all_rows(conn, base_sql + " LIMIT ? OFFSET ?", (*params, page_size, (page - 1) * page_size))
+    for row in rows:
+        row["requested_quantity"] = decimal_text(row.get("requested_quantity") or "0")
+        row["actual_quantity"] = decimal_text(row.get("actual_quantity") or "0")
     return {"items": rows, "total": total, "page": page, "page_size": page_size}
 
 
@@ -208,8 +211,8 @@ def delivery_sheet_rows(conn, business_date: str | None, status: str | None, uni
                 "product_name": row["product_name"],
                 "spec": row["spec"],
                 "unit": row["unit"],
-                "requested_quantity": row["requested_quantity"],
-                "actual_quantity": row["actual_quantity"],
+                "requested_quantity": decimal_text(row["requested_quantity"] or "0"),
+                "actual_quantity": decimal_text(row["actual_quantity"] or "0"),
                 "adjustment_reason": row["adjustment_reason"] or "",
                 "adjusted": str(row["requested_quantity"]) != str(row["actual_quantity"]),
             }

@@ -932,6 +932,46 @@ button.primary-link {
   box-shadow: 0 2px 8px rgba(10, 41, 87, 0.2);
 }
 
+.order-reminder-button {
+  gap: 8px;
+}
+
+.order-reminder-badge {
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 11px;
+  color: #fff;
+  background: var(--critical-red);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.order-reminder-notice {
+  position: fixed;
+  top: 88px;
+  right: 24px;
+  z-index: 40;
+  width: min(360px, calc(100vw - 32px));
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid #e8a4a4;
+  border-radius: 6px;
+  color: #7a1f1f;
+  background: #fff4f4;
+  box-shadow: 0 4px 14px rgba(66, 18, 18, 0.16);
+  font-weight: 700;
+}
+
+.order-reminder-notice[hidden], .order-reminder-badge[hidden] {
+  display: none;
+}
+
 .skeleton {
   min-height: 28px;
   border-radius: 4px;

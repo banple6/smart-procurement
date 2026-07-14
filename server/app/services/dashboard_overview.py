@@ -4,7 +4,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
-from ..database import all_rows, one
+from ..database import all_rows, decimal_text, one
 from ..routers.system import backup_summary, safe_storage_status
 
 
@@ -143,7 +143,7 @@ def inventory_alerts(conn) -> list[dict]:
         """,
     )
     for row in rows:
-        row["available_quantity"] = str(Decimal(str(row["available_quantity"] or 0)).normalize())
+        row["available_quantity"] = decimal_text(row["available_quantity"] or 0)
     return rows
 
 

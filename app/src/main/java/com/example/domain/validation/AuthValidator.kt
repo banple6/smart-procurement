@@ -16,9 +16,11 @@ data class ValidationResult(val errors: Map<String, String>) {
 }
 
 object AuthValidator {
+    fun normalizeUsername(username: String): String = username.trim()
+
     fun validateLogin(input: LoginInput): ValidationResult {
         val errors = linkedMapOf<String, String>()
-        if (input.username.isBlank()) errors["username"] = "账号不能为空"
+        if (normalizeUsername(input.username).isBlank()) errors["username"] = "账号不能为空"
         if (input.password.isBlank()) errors["password"] = "密码不能为空"
         return ValidationResult(errors)
     }

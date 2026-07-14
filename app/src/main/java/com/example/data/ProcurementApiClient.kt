@@ -2,6 +2,7 @@ package com.smartprocurement.internal.data
 
 import com.smartprocurement.internal.BuildConfig
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.domain.quantity.QuantityFormatter
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -12,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.math.BigDecimal
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 data class RemoteUser(
@@ -291,7 +293,7 @@ class ProcurementApiClient(
 
     fun login(username: String, password: String): RemoteLogin {
         val body = JSONObject()
-            .put("username", username)
+            .put("username", username.trim())
             .put("password", password)
             .toString()
             .toRequestBody(JSON)
@@ -307,6 +309,32 @@ class ProcurementApiClient(
 
     fun logout(token: String) {
         request("auth/logout", token = token, method = "POST")
+    }
+
+    fun registerPushDevice(
+        token: String,
+        registrationId: String,
+        installationId: String,
+        appVersion: String
+    ) {
+        val body = JSONObject()
+            .put("registration_id", registrationId)
+            .put("installation_id", installationId)
+            .put("platform", "android")
+            .put("app_version", appVersion)
+            .toString()
+            .toRequestBody(JSON)
+        request("push/devices/register", token = token, method = "POST", body = body)
+    }
+
+    fun unbindPushDevice(token: String, installationId: String) {
+        val encoded = URLEncoder.encode(installationId, Charsets.UTF_8.name())
+        request("push/devices/current?installation_id=$encoded", token = token, method = "DELETE")
+    }
+
+    fun markPushOpened(token: String, eventId: String) {
+        val encoded = URLEncoder.encode(eventId, Charsets.UTF_8.name())
+        request("push/events/$encoded/opened", token = token, method = "POST")
     }
 
     fun changePassword(token: String, oldPassword: String, newPassword: String) {
@@ -462,7 +490,7 @@ class ProcurementApiClient(
                 DemandRankItem(
                     name = item.optString("name"),
                     unit = item.optString("unit"),
-                    quantity = item.optString("quantity")
+                    quantity = QuantityFormatter.format(item.optString("quantity"))
                 )
             }
         )
@@ -565,7 +593,7 @@ class ProcurementApiClient(
                 productName = item.optString("product_name_snapshot"),
                 productSpec = item.optString("spec_snapshot"),
                 productUnit = item.optString("unit_snapshot"),
-                quantity = item.optString("quantity"),
+                quantity = QuantityFormatter.format(item.optString("quantity")),
                 subtotalCents = item.optLong("subtotal_cents", 0),
                 totalCents = item.optLong("total_cents", 0)
             )
@@ -595,8 +623,8 @@ class ProcurementApiClient(
                 productName = item.optString("product_name"),
                 spec = item.optString("spec"),
                 unit = item.optString("unit"),
-                requestedQuantity = item.optString("requested_quantity"),
-                actualQuantity = item.optString("actual_quantity", item.optString("requested_quantity")),
+                requestedQuantity = QuantityFormatter.format(item.optString("requested_quantity")),
+                actualQuantity = QuantityFormatter.format(item.optString("actual_quantity", item.optString("requested_quantity"))),
                 unitCount = item.optInt("unit_count", 0),
                 orderCount = item.optInt("order_count", 0)
             )
@@ -1036,10 +1064,10 @@ class ProcurementApiClient(
             code = json.optString("product_code"),
             imagePath = json.optString("image_path").toAbsoluteImageUrl(),
             packagingSpec = json.optString("supplier"),
-            stockQuantity = json.optString("stock_quantity", "0"),
-            reservedQuantity = json.optString("reserved_quantity", "0"),
-            warningQuantity = json.optString("warning_quantity", "0"),
-            availableQuantity = json.optString("available_quantity", "0"),
+            stockQuantity = QuantityFormatter.format(json.optString("stock_quantity", "0")),
+            reservedQuantity = QuantityFormatter.format(json.optString("reserved_quantity", "0")),
+            warningQuantity = QuantityFormatter.format(json.optString("warning_quantity", "0")),
+            availableQuantity = QuantityFormatter.format(json.optString("available_quantity", "0")),
             storageMethod = json.optString("storage_method"),
             shelfLife = json.optString("shelf_life"),
             status = status.toUiStatus(active),

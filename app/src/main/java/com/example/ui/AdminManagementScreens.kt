@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.domain.quantity.QuantityFormatter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -280,9 +281,9 @@ fun InventoryRecordsScreen(viewModel: SupplyViewModel) {
             AdminFormCard {
                 Text(product.name, fontWeight = FontWeight.Bold)
                 Text("价格：${Money.formatYuan(product.price)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("总库存：${product.stockQuantity} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("预占库存：${product.reservedQuantity} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("可用库存：${product.availableQuantity.ifBlank { product.stockQuantity }} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("总库存：${QuantityFormatter.format(product.stockQuantity)} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("预占库存：${QuantityFormatter.format(product.reservedQuantity)} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("可用库存：${QuantityFormatter.format(product.availableQuantity.ifBlank { product.stockQuantity })} ${product.unit}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

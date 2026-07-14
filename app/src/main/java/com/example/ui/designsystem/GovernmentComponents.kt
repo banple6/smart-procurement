@@ -1,6 +1,7 @@
 package com.smartprocurement.internal.ui.designsystem
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.smartprocurement.internal.ui.theme.JrxpTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,13 +56,14 @@ fun GovernmentTopBar(
     onAction: (() -> Unit)? = null,
     actionIcon: ImageVector? = null
 ) {
-    PoliceStatusBar(color = PoliceColors.SurfaceWhite, darkIcons = true)
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+    PoliceStatusBar(color = MaterialTheme.colorScheme.surface, darkIcons = !isSystemInDarkTheme())
     TopAppBar(
         title = {
             Text(
                 title,
                 style = MaterialTheme.typography.titleLarge,
-                color = GovernmentColors.TextPrimary,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -84,14 +87,14 @@ fun GovernmentTopBar(
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = GovernmentColors.SurfaceWhite,
-            titleContentColor = GovernmentColors.TextPrimary,
-            navigationIconContentColor = GovernmentColors.GovernmentBlue,
-            actionIconContentColor = GovernmentColors.GovernmentBlue
+            containerColor = MaterialTheme.colorScheme.surface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            navigationIconContentColor = MaterialTheme.colorScheme.primary,
+            actionIconContentColor = MaterialTheme.colorScheme.primary
         ),
         modifier = Modifier.drawBehind {
             drawLine(
-                color = GovernmentColors.Divider,
+                color = dividerColor,
                 start = Offset(0f, size.height),
                 end = Offset(size.width, size.height),
                 strokeWidth = 1.dp.toPx()
@@ -110,9 +113,9 @@ fun GovernmentSectionHeader(title: String, modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .size(width = 4.dp, height = 18.dp)
-                .background(GovernmentColors.GovernmentBlue, RoundedCornerShape(GovernmentShapes.SmallRadius))
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(GovernmentShapes.SmallRadius))
         )
-        Text(title, style = MaterialTheme.typography.titleMedium, color = GovernmentColors.TextPrimary)
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -131,10 +134,10 @@ fun GovernmentPrimaryButton(
             .height(GovernmentDimens.PrimaryButtonHeight),
         shape = RoundedCornerShape(6.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = GovernmentColors.GovernmentBlue,
-            contentColor = GovernmentColors.TextOnPrimary,
-            disabledContainerColor = GovernmentColors.TextDisabled,
-            disabledContentColor = GovernmentColors.SurfaceWhite
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         )
     ) {
         Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
@@ -148,29 +151,38 @@ fun GovernmentSecondaryButton(text: String, onClick: () -> Unit, modifier: Modif
         enabled = enabled,
         modifier = modifier.heightIn(min = GovernmentDimens.MinTouchTarget),
         shape = RoundedCornerShape(6.dp),
-        border = BorderStroke(1.dp, GovernmentColors.Border)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
-        Text(text, color = GovernmentColors.GovernmentBlue)
+        Text(text, color = MaterialTheme.colorScheme.primary)
     }
 }
 
 @Composable
 fun GovernmentDangerButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     TextButton(onClick = onClick, modifier = modifier.heightIn(min = GovernmentDimens.MinTouchTarget)) {
-        Text(text, color = GovernmentColors.StatusError, fontWeight = FontWeight.Medium)
+        Text(text, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
 fun GovernmentStatusLabel(status: String, modifier: Modifier = Modifier) {
     val style = GovernmentStatus.fromUiStatus(status)
+    val semanticColor = when (status) {
+        "库存不足" -> MaterialTheme.colorScheme.error
+        "库存紧张", "暂停供应", "备货中" -> JrxpTheme.colors.warningAmber
+        "正常供应", "启用", "当前在线", "使用中", "已接单", "已完成" -> JrxpTheme.colors.supplyGreen
+        "已取消", "停用", "已退出", "已下架" -> JrxpTheme.colors.cancelledGray
+        else -> MaterialTheme.colorScheme.primary
+    }
+    val containerColor = if (isSystemInDarkTheme()) semanticColor.copy(alpha = 0.18f) else style.containerColor
+    val contentColor = if (isSystemInDarkTheme()) semanticColor else style.contentColor
     Text(
         text = style.label,
         modifier = modifier
-            .background(style.containerColor, RoundedCornerShape(GovernmentShapes.SmallRadius))
-            .border(1.dp, style.contentColor.copy(alpha = 0.25f), RoundedCornerShape(GovernmentShapes.SmallRadius))
+            .background(containerColor, RoundedCornerShape(GovernmentShapes.SmallRadius))
+            .border(1.dp, contentColor.copy(alpha = 0.35f), RoundedCornerShape(GovernmentShapes.SmallRadius))
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        color = style.contentColor,
+        color = contentColor,
         style = MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.SemiBold
     )
@@ -183,8 +195,8 @@ fun GovernmentInfoBanner(
     modifier: Modifier = Modifier,
     danger: Boolean = false
 ) {
-    val bg = if (danger) GovernmentColors.StatusErrorBackground else GovernmentColors.GovernmentBlueLight
-    val fg = if (danger) GovernmentColors.StatusError else GovernmentColors.GovernmentBlueDark
+    val bg = if (danger) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+    val fg = if (danger) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(6.dp),
@@ -199,7 +211,7 @@ fun GovernmentInfoBanner(
             Icon(Icons.Default.Info, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, color = fg, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                Text(message, color = GovernmentColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+                Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -210,10 +222,10 @@ fun GovernmentCard(modifier: Modifier = Modifier, content: @Composable () -> Uni
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(GovernmentShapes.MediumRadius),
-        color = GovernmentColors.SurfaceWhite,
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
-        border = BorderStroke(1.dp, GovernmentColors.Border)
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
     ) {
         Box(Modifier.padding(GovernmentDimens.CardPadding)) {
             content()
@@ -222,7 +234,7 @@ fun GovernmentCard(modifier: Modifier = Modifier, content: @Composable () -> Uni
 }
 
 @Composable
-fun GovernmentDataRow(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = GovernmentColors.TextPrimary) {
+fun GovernmentDataRow(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = MaterialTheme.colorScheme.onSurface) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -230,7 +242,7 @@ fun GovernmentDataRow(label: String, value: String, modifier: Modifier = Modifie
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = GovernmentColors.TextSecondary, style = MaterialTheme.typography.bodyMedium)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
         Text(value, color = valueColor, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }
@@ -270,9 +282,9 @@ fun GovernmentEmptyState(title: String, message: String, actionText: String? = n
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Default.Info, contentDescription = null, tint = GovernmentColors.TextTertiary, modifier = Modifier.size(60.dp))
-        Text(title, style = MaterialTheme.typography.titleMedium, color = GovernmentColors.TextPrimary)
-        Text(message, style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+        Icon(Icons.Default.Info, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(60.dp))
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (actionText != null && onAction != null) {
             GovernmentSecondaryButton(text = actionText, onClick = onAction)
         }
@@ -281,12 +293,13 @@ fun GovernmentEmptyState(title: String, message: String, actionText: String? = n
 
 @Composable
 fun GovernmentBottomActionBar(content: @Composable () -> Unit) {
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     Surface(
-        color = GovernmentColors.SurfaceWhite,
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 1.dp,
         modifier = Modifier.drawBehind {
             drawLine(
-                color = GovernmentColors.Divider,
+                color = dividerColor,
                 start = Offset(0f, 0f),
                 end = Offset(size.width, 0f),
                 strokeWidth = 1.dp.toPx()
@@ -305,4 +318,3 @@ fun GovernmentRefreshAction(onRefresh: () -> Unit) {
         Icon(Icons.Default.Refresh, contentDescription = "刷新")
     }
 }
-

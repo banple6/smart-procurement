@@ -8,6 +8,9 @@
     cancelled: "已取消",
   };
   let refreshTimer = null;
+  let reminderTimer = null;
+  let knownOrderStatuses = null;
+  const baseTitle = document.title;
 
   function $(id) { return document.getElementById(id); }
   function money(cents) { return "¥" + (Number(cents || 0) / 100).toFixed(2); }
@@ -40,6 +43,31 @@
     box.textContent = text;
     box.hidden = false;
     window.setTimeout(() => { box.hidden = true; }, 1800);
+  }
+  function renderUnitOrderReminder(orders) {
+    const waiting = orders.filter((order) => order.status === "shipped");
+    const badge = $("unitOrderReminderBadge");
+    const notice = $("unitOrderReminderNotice");
+    const count = waiting.length;
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.hidden = count === 0;
+    notice.hidden = count === 0;
+    notice.textContent = count === 0 ? "" : `收货提醒：有 ${count} 笔订单等待确认收货，点击查看`;
+    document.title = count > 0 ? `(${count}) ${baseTitle}` : baseTitle;
+
+    const current = Object.fromEntries(orders.map((order) => [order.id, order.status]));
+    if (knownOrderStatuses) {
+      const changed = orders.filter((order) => knownOrderStatuses[order.id] && knownOrderStatuses[order.id] !== order.status);
+      if (changed.length > 0) {
+        const first = changed[0];
+        toast(`订单 ${first.order_no} 已更新为${statusLabel(first)}`);
+      }
+    }
+    knownOrderStatuses = current;
+  }
+  async function checkUnitOrderReminders() {
+    const data = await api("/unit/orders/data");
+    renderUnitOrderReminder(data.items || []);
   }
   async function api(path, options = {}) {
     const method = String(options.method || "GET").toUpperCase();
@@ -194,6 +222,10 @@
     refreshTimer = window.setInterval(() => {
       if (!document.hidden) loadCurrent().catch(() => {});
     }, 30000);
+    if (reminderTimer) window.clearInterval(reminderTimer);
+    reminderTimer = window.setInterval(() => {
+      if (!document.hidden) checkUnitOrderReminders().catch(() => {});
+    }, 10000);
   }
 
   activateNav();
@@ -209,8 +241,12 @@
     await action(event.currentTarget, confirmReceipt, "确认中");
   });
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) loadCurrent().catch(() => {});
+    if (!document.hidden) {
+      loadCurrent().catch(() => {});
+      checkUnitOrderReminders().catch(() => {});
+    }
   });
   loadCurrent().catch((error) => toast(error.message || "数据加载失败"));
+  checkUnitOrderReminders().catch(() => {});
   scheduleRefresh();
 })();

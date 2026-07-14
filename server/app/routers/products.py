@@ -19,7 +19,15 @@ router = APIRouter(tags=["products"])
 def product_out(product: dict) -> dict:
     stock = Decimal(product["stock_quantity"])
     reserved = Decimal(product["reserved_quantity"])
-    return {**product, "active": bool(product["active"]), "is_deleted": bool(product["is_deleted"]), "available_quantity": str((stock - reserved).normalize())}
+    result = {
+        **product,
+        "active": bool(product["active"]),
+        "is_deleted": bool(product["is_deleted"]),
+        "available_quantity": decimal_text(stock - reserved),
+    }
+    for field in ("stock_quantity", "reserved_quantity", "min_order_quantity", "quantity_step", "warning_quantity"):
+        result[field] = decimal_text(product.get(field) or "0")
+    return result
 
 
 def product_list_etag(conn, where: list[str], params: list) -> str:

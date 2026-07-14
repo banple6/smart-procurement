@@ -2,6 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV AAPT_PATH=/usr/bin/aapt
+ENV APKSIGNER_PATH=/usr/bin/apksigner
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
@@ -12,7 +14,7 @@ RUN set -eux; \
     printf 'deb https://mirrors.aliyun.com/debian/ %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
     printf 'deb https://mirrors.aliyun.com/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends sqlite3 fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends sqlite3 fonts-noto-cjk aapt apksigner \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir \
     --index-url https://mirrors.aliyun.com/pypi/simple/ \

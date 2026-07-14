@@ -47,9 +47,9 @@ object JrxpColors {
     val PaleBlueBg       = Color(0xFFF0F5FB)
 
     // ── 暗色模式 ────────────────────────────────────
-    val DarkBackground   = Color(0xFF161A1E)
-    val DarkSurface      = Color(0xFF1E2328)
-    val DarkSurfaceHigh  = Color(0xFF272C32)
-    val DarkInkPrimary   = Color(0xFFE3E5E8)
-    val DarkInkSecondary = Color(0xFFB0B8C1)
+    val DarkBackground   = Color(0xFF11161B)
+    val DarkSurface      = Color(0xFF191F25)
+    val DarkSurfaceHigh  = Color(0xFF222A31)
+    val DarkInkPrimary   = Color(0xFFE8EDF2)
+    val DarkInkSecondary = Color(0xFFB7C0CA)
 }

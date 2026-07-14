@@ -80,7 +80,7 @@ fun SystemStatusScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -88,7 +88,7 @@ fun SystemStatusScreen(viewModel: SupplyViewModel) {
             GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(statusTitle(overview.overallStatus), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("数据更新于 ${overview.checkedAt.ifBlank { "尚未同步" }}", color = GovernmentColors.TextSecondary)
+                    Text("数据更新于 ${overview.checkedAt.ifBlank { "尚未同步" }}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     GovernmentDataRow("连续运行", formatDuration(overview.uptimeSeconds))
                     GovernmentDataRow("API 平均响应", "${overview.performance.averageLatencyMs}ms")
                     GovernmentDataRow("API P95 响应", "${overview.performance.p95LatencyMs}ms")
@@ -116,7 +116,7 @@ private fun ResourceSection(overview: SystemOverview) {
     GovernmentCard {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("资源使用", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(if (overview.resources.scope == "container") "应用容器资源" else "服务器资源", color = GovernmentColors.TextSecondary)
+            Text(if (overview.resources.scope == "container") "应用容器资源" else "服务器资源", color = MaterialTheme.colorScheme.onSurfaceVariant)
             MetricProgress("CPU 使用率", overview.resources.cpuPercent, "${overview.resources.cpuPercent}%")
             MetricProgress("内存使用", memoryPercent, "${formatBytes(overview.resources.memoryUsedBytes)} / ${formatBytes(overview.resources.memoryTotalBytes)}")
             MetricProgress("磁盘使用", diskPercent, "${formatBytes(overview.resources.diskUsedBytes)} / ${formatBytes(overview.resources.diskTotalBytes)}")
@@ -134,10 +134,10 @@ private fun MetricProgress(label: String, percent: Double, value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(label, fontWeight = FontWeight.Medium)
-            Text(resourceStatus(percent), color = GovernmentColors.TextSecondary)
+            Text(resourceStatus(percent), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         LinearProgressIndicator(progress = { (percent / 100.0).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth())
-        Text(value, color = GovernmentColors.TextSecondary)
+        Text(value, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -177,11 +177,11 @@ private fun CapacitySection(overview: SystemOverview) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("当前负载评估", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(capacityLabel(overview.capacity.status), fontWeight = FontWeight.Bold)
-            Text(overview.capacity.summary, color = GovernmentColors.TextSecondary)
+            Text(overview.capacity.summary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             GovernmentDataRow("API P95 延迟", "${overview.capacity.apiP95LatencyMs}ms")
             GovernmentDataRow("请求错误率", "${overview.capacity.errorRatePercent}%")
             GovernmentDataRow("SQLite 写锁", overview.capacity.sqliteLockCount24h.toString())
-            Text(overview.capacity.disclaimer, color = GovernmentColors.TextSecondary)
+            Text(overview.capacity.disclaimer, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -207,12 +207,12 @@ private fun AlertSection(overview: SystemOverview) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("风险提醒", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             if (overview.alerts.isEmpty()) {
-                Text("暂无需要处理的系统提醒", color = GovernmentColors.TextSecondary)
+                Text("暂无需要处理的系统提醒", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 overview.alerts.take(5).forEach { alert ->
                     Text("${alertLevel(alert.level)}：${alert.title}", fontWeight = FontWeight.Medium)
-                    Text(alert.impact, color = GovernmentColors.TextSecondary)
-                    if (alert.suggestion.isNotBlank()) Text(alert.suggestion, color = GovernmentColors.TextSecondary)
+                    Text(alert.impact, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (alert.suggestion.isNotBlank()) Text(alert.suggestion, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Divider()
                 }
             }
@@ -329,7 +329,7 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -353,11 +353,11 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("新版本", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     if (release == null) {
-                        Text("暂无可用更新", color = GovernmentColors.TextSecondary)
+                        Text("暂无可用更新", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         GovernmentDataRow("版本号", "${release.versionName} (${release.versionCode})")
                         GovernmentDataRow("更新方式", if (release.mandatory) "必须更新" else "可选更新")
-                        release.releaseNotes.forEach { note -> Text(note, color = GovernmentColors.TextPrimary) }
+                        release.releaseNotes.forEach { note -> Text(note, color = MaterialTheme.colorScheme.onSurface) }
                     }
                 }
             }
@@ -397,7 +397,7 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -408,7 +408,7 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
                     Text(if (isAdmin) "管理员常用流程" else "子单位常用流程", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
                         if (isAdmin) "管理员公测上线操作指引" else "子单位食材申领操作指引",
-                        color = GovernmentColors.TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     GovernmentSecondaryButton(
                         text = if (showFullWorkflow) "收起完整流程图" else "查看完整流程图",
@@ -432,7 +432,7 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${index + 1}. ${section.first}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         section.second.forEach { step ->
-                            Text("• $step", color = GovernmentColors.TextPrimary)
+                            Text("• $step", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -440,8 +440,8 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
             GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("常见问题", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("忘记密码、账号停用或单位信息不正确时，请联系系统管理员处理。", color = GovernmentColors.TextSecondary)
-                    Text("网络失败时请不要重复快速点击，等待页面提示后再重试。", color = GovernmentColors.TextSecondary)
+                    Text("忘记密码、账号停用或单位信息不正确时，请联系系统管理员处理。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("网络失败时请不要重复快速点击，等待页面提示后再重试。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.height(80.dp))
@@ -466,7 +466,7 @@ fun InviteEntryScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -474,7 +474,7 @@ fun InviteEntryScreen(viewModel: SupplyViewModel) {
             GovernmentCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("已有账号", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text("登录成功后由服务器返回真实身份和所属单位。", color = GovernmentColors.TextSecondary)
+                    Text("登录成功后由服务器返回真实身份和所属单位。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     GovernmentPrimaryButton(
                         text = "使用已有账号登录",
                         onClick = { viewModel.openLoginFromOnboarding("account_login") },
@@ -487,7 +487,7 @@ fun InviteEntryScreen(viewModel: SupplyViewModel) {
                     Text("使用邀请码加入", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
                         "邀请码必须由系统管理员签发。管理者权限需要系统管理员审批，单位归属由服务端绑定。",
-                        color = GovernmentColors.TextSecondary
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = inviteToken,
@@ -545,7 +545,7 @@ fun InviteEntryScreen(viewModel: SupplyViewModel) {
             }
             Text(
                 "身份权限由服务端邀请码或已分配账号确定，客户端选择不会改变真实角色。",
-                color = GovernmentColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall
             )
             Spacer(Modifier.height(80.dp))

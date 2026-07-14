@@ -101,7 +101,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
         ) {
             if (hasPermission) {
                 QrCameraPreview(
@@ -119,12 +119,12 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .background(GovernmentColors.SurfaceWhite)
+                        .background(MaterialTheme.colorScheme.surface)
                         .padding(16.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("将网站登录二维码放入框内", style = MaterialTheme.typography.bodyLarge, color = GovernmentColors.TextPrimary)
-                        Text("仅扫描三公鲜配管理平台二维码", style = MaterialTheme.typography.bodySmall, color = GovernmentColors.TextSecondary)
+                        Text("将网站登录二维码放入框内", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+                        Text("仅扫描三公鲜配管理平台二维码", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             } else {
@@ -136,7 +136,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text("需要使用相机扫码", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("系统不会保存或上传相机画面。", style = MaterialTheme.typography.bodyMedium, color = GovernmentColors.TextSecondary)
+                    Text("系统不会保存或上传相机画面。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     GovernmentPrimaryButton(text = "允许相机权限", onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) })
                     GovernmentSecondaryButton(
                         text = "前往设置",
@@ -152,7 +152,7 @@ fun WebQrScannerScreen(viewModel: SupplyViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(GovernmentColors.PageBackground.copy(alpha = 0.72f)),
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.72f)),
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
@@ -282,7 +282,7 @@ fun WebLoginConfirmScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(16.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -338,7 +338,7 @@ fun WebLoginResultScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -349,11 +349,11 @@ fun WebLoginResultScreen(viewModel: SupplyViewModel) {
                 viewModel.webLoginResultTitle.ifBlank { "网页登录请求已处理" },
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = GovernmentColors.TextPrimary
+                color = MaterialTheme.colorScheme.onSurface
             )
             if (viewModel.webLoginResultMessage.isNotBlank()) {
                 Spacer(Modifier.height(8.dp))
-                Text(viewModel.webLoginResultMessage, style = MaterialTheme.typography.bodyLarge, color = GovernmentColors.TextSecondary)
+                Text(viewModel.webLoginResultMessage, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -390,7 +390,7 @@ fun WebSessionsScreen(viewModel: SupplyViewModel) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(GovernmentColors.PageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -425,7 +425,7 @@ private fun WebSessionCard(record: WebSessionRecord, viewModel: SupplyViewModel)
             GovernmentDataRow("最近活动", record.lastSeenAt.ifBlank { "未知" })
             GovernmentDataRow("地址", record.browserIp.ifBlank { "未知" })
             GovernmentDataRow("设备", record.deviceName.ifBlank { "Android 设备" })
-            Divider(color = GovernmentColors.Divider)
+            Divider(color = MaterialTheme.colorScheme.outlineVariant)
             if (record.active) {
                 GovernmentSecondaryButton(
                     text = "退出该设备",
@@ -435,8 +435,8 @@ private fun WebSessionCard(record: WebSessionRecord, viewModel: SupplyViewModel)
                 )
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = null, tint = GovernmentColors.TextTertiary)
-                    Text("该登录已失效", color = GovernmentColors.TextSecondary)
+                    Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("该登录已失效", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }

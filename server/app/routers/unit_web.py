@@ -82,13 +82,17 @@ def product_out(row: dict) -> dict:
     stock = as_decimal(row["stock_quantity"])
     reserved = as_decimal(row["reserved_quantity"])
     available = stock - reserved
-    return {
+    result = {
         **row,
         "active": bool(row["active"]),
         "is_deleted": bool(row["is_deleted"]),
         "available_quantity": decimal_text(available),
         "can_order": bool(row["active"]) and not bool(row["is_deleted"]) and row["supply_status"] in SUPPLY_ALLOWED and available > 0,
     }
+    for field in ("stock_quantity", "reserved_quantity", "min_order_quantity", "quantity_step", "warning_quantity"):
+        if field in result:
+            result[field] = decimal_text(result.get(field) or "0")
+    return result
 
 
 def money_subtotal(price_cents: int, quantity: Decimal) -> int:
@@ -142,6 +146,7 @@ def cart_rows(conn, user: dict) -> list[dict]:
     )
     for row in rows:
         quantity = as_decimal(row["quantity"])
+        row["quantity"] = decimal_text(quantity)
         row["subtotal_cents"] = money_subtotal(int(row["price_cents"]), quantity)
         row["available_quantity"] = decimal_text(as_decimal(row["stock_quantity"]) - as_decimal(row["reserved_quantity"]))
         row["active"] = bool(row["active"])

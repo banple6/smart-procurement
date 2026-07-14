@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -179,7 +180,7 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(JrxpColors.PureSurface)
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
             ) {
                 Column {
                     if (viewModel.canManageIngredients()) {
@@ -188,6 +189,11 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "采购台账") { viewModel.navigateTo(Screen.Ledger) }
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
+                        ProfileMenuItem(
+                            icon = Icons.Default.Notifications,
+                            title = "订单通知",
+                            rightText = viewModel.pushNotificationStatusText()
+                        ) { viewModel.onPushNotificationMenuClick() }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
@@ -198,6 +204,11 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Home, title = "所属单位", rightText = viewModel.currentUnitName) {}
                         ProfileMenuItem(icon = Icons.Default.LocationOn, title = "默认配送点", rightText = viewModel.defaultDeliveryPoint) {}
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "我的订单") { viewModel.currentTab = "orders" }
+                        ProfileMenuItem(
+                            icon = Icons.Default.Notifications,
+                            title = "订单通知",
+                            rightText = viewModel.pushNotificationStatusText()
+                        ) { viewModel.onPushNotificationMenuClick() }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "扫码登录网页版") { viewModel.navigateTo(Screen.WebQrScanner) }
                         ProfileMenuItem(icon = Icons.Default.Person, title = "网页版登录设备") { viewModel.navigateTo(Screen.WebSessions) }
                         ProfileMenuItem(icon = Icons.Default.Lock, title = "修改密码") { viewModel.navigateTo(Screen.ChangePassword) }
