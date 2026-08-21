@@ -211,9 +211,8 @@ def sample_apk_bytes(version_code: int = 10, signer: str = "ABCDEF1234567890ABCD
 def advance_to_preparing(client, admin_headers, order_id):
     accepted = client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "accepted"})
     assert accepted.status_code == 200, accepted.text
-    preparing = client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "preparing"})
-    assert preparing.status_code == 200, preparing.text
-    return preparing.json()
+    assert accepted.json()["status"] == "preparing"
+    return accepted.json()
 
 
 def test_auth_and_disabled_account(tmp_path):
@@ -418,18 +417,15 @@ def test_inventory_reservation_price_snapshot_and_status_flow(tmp_path):
     accepted = client.patch(f"/api/v1/admin/orders/{order['id']}/status", headers=admin_headers, json={"status": "accepted"})
     assert accepted.status_code == 200
     assert accepted.json()["accepted_at"]
-    assert not accepted.json()["preparing_at"]
+    assert accepted.json()["preparing_at"]
+    assert accepted.json()["status"] == "preparing"
     cannot_edit = client.put(
         f"/api/v1/orders/{order['id']}",
         headers=unit_headers,
         json={"items": [{"product_id": product_id, "quantity": "1"}]},
     )
     assert cannot_edit.status_code == 409
-    preparing = client.patch(f"/api/v1/admin/orders/{order['id']}/status", headers=admin_headers, json={"status": "preparing"})
-    assert preparing.status_code == 200
-    assert preparing.json()["accepted_at"]
-    assert preparing.json()["preparing_at"]
-    assert not preparing.json()["shipped_at"]
+    assert not accepted.json()["shipped_at"]
     direct_ship = client.patch(f"/api/v1/admin/orders/{order['id']}/status", headers=admin_headers, json={"status": "shipped"})
     assert direct_ship.status_code == 409
     assert direct_ship.json()["detail"] == "请先拍摄并上传发货照片"
@@ -475,8 +471,8 @@ def test_order_responses_include_unified_status_metadata_and_version(tmp_path):
         json={"status": "accepted", "expected_status": "pending", "expected_version": 1},
     )
     assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["status_label"] == "已接单"
-    assert accepted.json()["status_stage"] == 2
+    assert accepted.json()["status_label"] == "备货中"
+    assert accepted.json()["status_stage"] == 3
     assert accepted.json()["version"] == 2
 
     stale = client.patch(
@@ -488,6 +484,32 @@ def test_order_responses_include_unified_status_metadata_and_version(tmp_path):
     assert stale.json()["detail"] == "订单状态已被其他操作员更新，页面已刷新"
 
 
+def test_order_timestamps_are_returned_in_shanghai_time(tmp_path):
+    client = make_client(tmp_path)
+    _, unit_headers, _, product_id = create_unit_user_product_order(client)
+    created = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "1"}]},
+    )
+    assert created.status_code == 200, created.text
+    order_id = created.json()["id"]
+
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute(
+            "UPDATE orders SET created_at = ?, accepted_at = ? WHERE id = ?",
+            ("2026-07-16 01:23:45", "2026-07-16 02:00:00", order_id),
+        )
+        conn.commit()
+
+    response = client.get(f"/api/v1/orders/{order_id}", headers=unit_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["created_at"] == "2026-07-16 09:23:45"
+    assert response.json()["accepted_at"] == "2026-07-16 10:00:00"
+
+
 def test_cancelled_order_records_cancel_time_and_terminal_status(tmp_path):
     client = make_client(tmp_path)
     _, unit_headers, _, product_id = create_unit_user_product_order(client)
@@ -497,7 +519,11 @@ def test_cancelled_order_records_cancel_time_and_terminal_status(tmp_path):
         json={"items": [{"product_id": product_id, "quantity": "1"}]},
     ).json()
 
-    cancelled = client.post(f"/api/v1/orders/{order['id']}/cancel", headers=unit_headers)
+    cancelled = client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        headers=unit_headers,
+        json={"reason": "数量填写错误"},
+    )
     assert cancelled.status_code == 200, cancelled.text
     body = cancelled.json()
     assert body["status"] == "cancelled"
@@ -506,6 +532,108 @@ def test_cancelled_order_records_cancel_time_and_terminal_status(tmp_path):
     assert body["is_terminal"] is True
     assert body["cancelled_at"]
     assert body["version"] == 2
+
+
+def test_cancel_keeps_formal_order_and_releases_reserved_stock_with_audit(tmp_path):
+    client = make_client(tmp_path)
+    _, unit_headers, _, product_id = create_unit_user_product_order(client)
+    order = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"items": [{"product_id": product_id, "quantity": "2"}]},
+    ).json()
+
+    cancelled = client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        headers=unit_headers,
+        json={"reason": "重复提交"},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+
+    from app.database import connect
+
+    with connect() as conn:
+        persisted = conn.execute("SELECT status, cancel_reason FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        item_count = conn.execute("SELECT COUNT(*) AS c FROM order_items WHERE order_id = ?", (order["id"],)).fetchone()["c"]
+        product = conn.execute("SELECT reserved_quantity FROM products WHERE id = ?", (product_id,)).fetchone()
+        lifecycle_log = conn.execute("SELECT action, detail FROM order_logs WHERE order_id = ? AND action = 'cancel'", (order["id"],)).fetchone()
+        inventory_log = conn.execute("SELECT action, detail FROM inventory_logs WHERE order_id = ? AND action = 'ORDER_CANCEL_RELEASE'", (order["id"],)).fetchone()
+        audit = conn.execute("SELECT action, after_json FROM audit_logs WHERE object_id = ? AND action = 'ORDER_CANCELLED'", (order["id"],)).fetchone()
+    assert persisted["status"] == "cancelled"
+    assert persisted["cancel_reason"] == "重复提交"
+    assert item_count == 1
+    assert product["reserved_quantity"] == "0"
+    assert lifecycle_log["detail"] == "重复提交"
+    assert inventory_log["detail"] == "重复提交"
+    assert audit["action"] == "ORDER_CANCELLED"
+    assert json.loads(audit["after_json"])["reason"] == "重复提交"
+
+
+def test_admin_void_and_archive_keep_order_history_and_cursor_listing(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
+    orders = [
+        client.post(
+            "/api/v1/orders",
+            headers=unit_headers,
+            json={"items": [{"product_id": product_id, "quantity": "1"}]},
+        ).json()
+        for _ in range(3)
+    ]
+    accepted = client.patch(
+        f"/api/v1/admin/orders/{orders[0]['id']}/status",
+        headers=admin_headers,
+        json={"status": "accepted", "expected_status": "pending", "expected_version": 1},
+    )
+    assert accepted.status_code == 200, accepted.text
+    voided = client.post(
+        f"/api/v1/admin/orders/{orders[0]['id']}/void",
+        headers=admin_headers,
+        json={"reason": "重复订单"},
+    )
+    assert voided.status_code == 200, voided.text
+    assert voided.json()["status"] == "voided"
+    assert voided.json()["can_archive"] is True
+
+    rejected_generic_cancel = client.patch(
+        f"/api/v1/admin/orders/{orders[1]['id']}/status",
+        headers=admin_headers,
+        json={"status": "cancelled", "expected_status": "pending", "expected_version": 1},
+    )
+    assert rejected_generic_cancel.status_code == 409
+
+    archived = client.post(f"/api/v1/orders/{orders[0]['id']}/archive", headers=admin_headers)
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["archived"] is True
+    active_list = client.get("/api/v1/admin/orders?limit=2", headers=admin_headers)
+    assert active_list.status_code == 200, active_list.text
+    assert all(row["id"] != orders[0]["id"] for row in active_list.json()["items"])
+    assert active_list.json()["has_more"] is False
+    archived_list = client.get("/api/v1/admin/orders?archived=true&limit=1", headers=admin_headers)
+    assert archived_list.status_code == 200, archived_list.text
+    assert archived_list.json()["items"][0]["id"] == orders[0]["id"]
+
+    restored = client.post(f"/api/v1/orders/{orders[0]['id']}/unarchive", headers=admin_headers)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["archived"] is False
+    first_page = client.get("/api/v1/orders?limit=2", headers=unit_headers)
+    assert first_page.status_code == 200, first_page.text
+    assert len(first_page.json()["items"]) == 2
+    assert first_page.json()["next_cursor"]
+    second_page = client.get(f"/api/v1/orders?limit=2&cursor={first_page.json()['next_cursor']}", headers=unit_headers)
+    assert second_page.status_code == 200, second_page.text
+    assert {row["id"] for row in first_page.json()["items"]}.isdisjoint({row["id"] for row in second_page.json()["items"]})
+
+    from app.database import connect
+
+    with connect() as conn:
+        persisted = conn.execute("SELECT status FROM orders WHERE id = ?", (orders[0]["id"],)).fetchone()
+        released = conn.execute("SELECT COUNT(*) AS c FROM inventory_logs WHERE order_id = ? AND action = 'ORDER_VOID_RELEASE'", (orders[0]["id"],)).fetchone()["c"]
+        audit = conn.execute("SELECT COUNT(*) AS c FROM audit_logs WHERE object_id = ? AND action IN ('ORDER_VOIDED', 'ORDER_ARCHIVED', 'ORDER_UNARCHIVED')", (orders[0]["id"],)).fetchone()["c"]
+    assert persisted["status"] == "voided"
+    assert released == 1
+    assert audit == 3
 
 
 def test_ship_order_requires_private_photos_and_returns_authorized_views(tmp_path):
@@ -632,20 +760,18 @@ def test_ship_order_rejects_wrong_status_large_files_and_unit_users(tmp_path):
     assert pending_ship.status_code == 409
     assert pending_ship.json()["detail"] == "只有备货中的订单才能确认发货"
 
-    accepted_order = client.post(
+    auto_preparing_order = client.post(
         "/api/v1/orders",
         headers=unit_headers,
         json={"items": [{"product_id": product_id, "quantity": "1"}]},
     ).json()
-    client.patch(f"/api/v1/admin/orders/{accepted_order['id']}/status", headers=admin_headers, json={"status": "accepted"})
-    accepted_ship = client.post(
-        f"/api/v1/admin/orders/{accepted_order['id']}/ship",
+    accepted = client.patch(
+        f"/api/v1/admin/orders/{auto_preparing_order['id']}/status",
         headers=admin_headers,
-        data={"client_request_id": str(uuid4())},
-        files=[("photos", ("ship.jpg", sample_image_bytes(), "image/jpeg"))],
+        json={"status": "accepted"},
     )
-    assert accepted_ship.status_code == 409
-    assert accepted_ship.json()["detail"] == "只有备货中的订单才能确认发货"
+    assert accepted.status_code == 200
+    assert accepted.json()["status"] == "preparing"
 
     preparing_order = client.post(
         "/api/v1/orders",
@@ -819,7 +945,11 @@ def test_cancel_releases_inventory_summary_and_excel(tmp_path):
         headers=unit_headers,
         json={"items": [{"product_id": product_id, "quantity": "2"}]},
     ).json()
-    assert client.post(f"/api/v1/orders/{order['id']}/cancel", headers=unit_headers).status_code == 200
+    assert client.post(
+        f"/api/v1/orders/{order['id']}/cancel",
+        headers=unit_headers,
+        json={"reason": "测试取消"},
+    ).status_code == 200
     product = client.get(f"/api/v1/products/{product_id}", headers=unit_headers).json()
     assert product["reserved_quantity"] == "0"
     dashboard = client.get("/api/v1/admin/dashboard", headers=admin_headers)
@@ -1443,7 +1573,7 @@ def test_order_transactions_enqueue_uuid_push_events_without_sensitive_payload(t
     assert json.loads(status_event["payload_json"]) == {
         "order_id": order["id"],
         "order_no": order["order_no"],
-        "status": "accepted",
+        "status": "preparing",
     }
 
 
@@ -1605,8 +1735,9 @@ def test_unit_web_portal_cart_orders_and_isolation(tmp_path):
     assert other_client.get(f"/unit/orders/{order_id}/data").status_code == 404
     assert other_client.post(f"/unit/orders/{order_id}/confirm-receipt", headers=other_csrf).status_code == 404
 
-    client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "accepted"})
-    client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "preparing"})
+    accepted = client.patch(f"/api/v1/admin/orders/{order_id}/status", headers=admin_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["status"] == "preparing"
     shipped = client.post(
         f"/api/v1/admin/orders/{order_id}/ship",
         headers=admin_headers,

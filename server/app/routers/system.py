@@ -357,11 +357,11 @@ def business_stats(conn) -> dict:
         "active_users": conn.execute("SELECT COUNT(*) AS c FROM users WHERE active = 1").fetchone()["c"],
         "active_units": conn.execute("SELECT COUNT(*) AS c FROM units WHERE active = 1").fetchone()["c"],
         "active_products": conn.execute("SELECT COUNT(*) AS c FROM products WHERE active = 1 AND is_deleted = 0").fetchone()["c"],
-        "open_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status NOT IN ('completed', 'cancelled')").fetchone()["c"],
-        "today_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE date(created_at) = date('now')").fetchone()["c"],
-        "pending_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status = 'pending'").fetchone()["c"],
-        "preparing_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status = 'preparing'").fetchone()["c"],
-        "shipped_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE status = 'shipped'").fetchone()["c"],
+        "open_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status NOT IN ('completed', 'cancelled')").fetchone()["c"],
+        "today_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND date(created_at) = date('now')").fetchone()["c"],
+        "pending_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status = 'pending'").fetchone()["c"],
+        "preparing_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status = 'preparing'").fetchone()["c"],
+        "shipped_orders": conn.execute("SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status = 'shipped'").fetchone()["c"],
         "open_receipt_issues": conn.execute("SELECT COUNT(*) AS c FROM receipt_issues WHERE status = 'open'").fetchone()["c"],
     }
 

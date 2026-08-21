@@ -83,6 +83,7 @@ object RemoteOrderMapper {
         "shipped" -> "已发货"
         "completed" -> "已完成"
         "cancelled" -> "已取消"
+        "voided" -> "已作废"
         else -> "待接单"
     }
 

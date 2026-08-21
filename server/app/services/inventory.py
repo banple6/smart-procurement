@@ -65,18 +65,32 @@ def reserve_product(conn, product_id: str, quantity: Decimal, order_id: str | No
     return product
 
 
-def release_product(conn, product_id: str, quantity: Decimal, order_id: str | None, actor_id: str):
-    product = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
-    if not product:
-        raise HTTPException(status_code=404, detail="食材不存在")
-    new_reserved = as_decimal(product["reserved_quantity"]) - quantity
-    if new_reserved < 0:
-        raise HTTPException(status_code=409, detail="预占库存不能小于 0")
-    conn.execute(
-        "UPDATE products SET reserved_quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (decimal_text(new_reserved), product_id),
+def release_product(
+    conn,
+    product_id: str,
+    quantity: Decimal,
+    order_id: str | None,
+    actor_id: str,
+    action: str = "order_release",
+    detail: str = "",
+):
+    cursor = conn.execute(
+        """
+        UPDATE products
+        SET reserved_quantity = decimal_sub(reserved_quantity, ?),
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND CAST(reserved_quantity AS REAL) >= CAST(? AS REAL)
+        """,
+        (decimal_text(quantity), product_id, decimal_text(quantity)),
     )
-    log_inventory(conn, product_id, order_id, "order_release", quantity, actor_id)
+    if cursor.rowcount != 1:
+        product = one(conn, "SELECT id FROM products WHERE id = ?", (product_id,))
+        if not product:
+            raise HTTPException(status_code=404, detail="食材不存在")
+        raise HTTPException(status_code=409, detail="预占库存不能小于 0")
+    log_inventory(conn, product_id, order_id, action, quantity, actor_id, detail)
 
 
 def complete_product(conn, product_id: str, quantity: Decimal, order_id: str, actor_id: str):

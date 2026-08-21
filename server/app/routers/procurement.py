@@ -6,6 +6,7 @@ from ..dependencies import current_user, require_admin_user
 from ..schemas import CutoffOverridePut, CutoffPatch
 from ..services.exports import delivery_sheets_workbook, preparation_summary_workbook
 from ..services.procurement import cutoff_payload, validate_cutoff_time
+from ..services.local_time import display_local_time
 
 router = APIRouter(tags=["procurement"])
 
@@ -76,7 +77,7 @@ def put_cutoff_override(business_date: str, body: CutoffOverridePut, admin=Depen
 
 def preparation_rows(conn, business_date: str | None, scope: str, category: str | None, page: int, page_size: int):
     statuses = scope_statuses(scope)
-    where = [f"orders.status IN ({','.join('?' for _ in statuses)})"]
+    where = ["orders.is_deleted = 0", f"orders.status IN ({','.join('?' for _ in statuses)})"]
     params: list = [*statuses]
     if business_date:
         where.insert(0, business_date_filter())
@@ -151,7 +152,7 @@ def export_preparation_summary(
 
 
 def delivery_sheet_rows(conn, business_date: str | None, status: str | None, unit_id: str | None):
-    where = []
+    where = ["orders.is_deleted = 0"]
     params: list = []
     if business_date:
         where.append(business_date_filter())
@@ -202,7 +203,7 @@ def delivery_sheet_rows(conn, business_date: str | None, status: str | None, uni
         )
         order = unit["orders"].setdefault(
             row["order_id"],
-            {"order_id": row["order_id"], "order_no": row["order_no"], "status": row["status"], "created_at": row["created_at"], "items": []},
+            {"order_id": row["order_id"], "order_no": row["order_no"], "status": row["status"], "created_at": display_local_time(row["created_at"]), "items": []},
         )
         order["items"].append(
             {
@@ -261,10 +262,10 @@ def export_delivery_sheets(
 def notification_badges(user=Depends(current_user)):
     with connect() as conn:
         if user["role"] == "admin":
-            pending = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE status = 'pending'")["c"]
+            pending = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status = 'pending'")["c"]
             issues = one(conn, "SELECT COUNT(*) AS c FROM receipt_issues WHERE status = 'open'")["c"]
             return {"pending_orders": pending, "open_receipt_issues": issues}
-        shipped = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE unit_id = ? AND status = 'shipped'", (user["unit_id"],))["c"]
+        shipped = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE unit_id = ? AND is_deleted = 0 AND status = 'shipped'", (user["unit_id"],))["c"]
         adjusted = one(
             conn,
             f"""
@@ -272,6 +273,7 @@ def notification_badges(user=Depends(current_user)):
             FROM orders
             JOIN order_items ON order_items.order_id = orders.id
             WHERE orders.unit_id = ?
+              AND orders.is_deleted = 0
               AND orders.status NOT IN ('completed', 'cancelled')
               AND CAST({REQUESTED_EXPR} AS TEXT) != CAST({ACTUAL_EXPR} AS TEXT)
             """,
@@ -283,7 +285,8 @@ def notification_badges(user=Depends(current_user)):
             SELECT COUNT(*) AS c
             FROM receipt_issues
             JOIN orders ON orders.id = receipt_issues.order_id
-            WHERE receipt_issues.unit_id = ? AND receipt_issues.status = 'resolved' AND orders.status != 'completed'
+            WHERE receipt_issues.unit_id = ? AND receipt_issues.status = 'resolved'
+              AND orders.is_deleted = 0 AND orders.status != 'completed'
             """,
             (user["unit_id"],),
         )["c"]

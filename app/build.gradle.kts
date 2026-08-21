@@ -8,6 +8,9 @@ plugins {
 val configuredReleaseApiUrl = providers.gradleProperty("API_BASE_URL")
   .orElse(providers.environmentVariable("API_BASE_URL"))
   .getOrElse("")
+val configuredLocalApiUrl = providers.gradleProperty("LOCAL_API_BASE_URL")
+  .orElse(providers.environmentVariable("LOCAL_API_BASE_URL"))
+  .getOrElse("")
 val configuredJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
   .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
   .getOrElse("")
@@ -30,8 +33,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 19
-    versionName = "1.1.12"
+    versionCode = 21
+    versionName = "1.1.14"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -75,6 +78,24 @@ android {
       buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"测试版\"")
     }
+    create("local") {
+      initWith(getByName("debug"))
+      matchingFallbacks += listOf("debug")
+      applicationIdSuffix = ".local"
+      manifestPlaceholders["usesCleartextTraffic"] = "true"
+      buildConfigField("String", "API_BASE_URL", "\"$configuredLocalApiUrl\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"本地验收版\"")
+    }
+    create("orbpreview") {
+      initWith(getByName("debug"))
+      matchingFallbacks += listOf("debug")
+      applicationIdSuffix = ".orbpreview"
+      versionNameSuffix = "-动画预览"
+      manifestPlaceholders["usesCleartextTraffic"] = "true"
+      resValue("string", "app_name", "三公鲜配动画预览")
+      buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"动画预览版\"")
+    }
     debug {
       manifestPlaceholders["usesCleartextTraffic"] = "true"
       buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
@@ -88,6 +109,7 @@ android {
   buildFeatures {
     compose = true
     buildConfig = true
+    resValues = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
@@ -151,5 +173,8 @@ gradle.taskGraph.whenReady {
     if (configuredJpushAppKey.isBlank()) {
       throw GradleException("Release build requires JPUSH_APP_KEY from a Gradle property or environment variable")
     }
+  }
+  if (allTasks.any { it.name.contains("Local", ignoreCase = true) } && !configuredLocalApiUrl.matches(Regex("http://[^/]+/api/v1/"))) {
+    throw GradleException("Local build requires LOCAL_API_BASE_URL such as http://192.168.2.103:8000/api/v1/")
   }
 }

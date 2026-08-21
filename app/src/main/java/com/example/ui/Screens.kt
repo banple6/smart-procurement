@@ -11,9 +11,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
@@ -188,6 +190,8 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "采购台账") { viewModel.navigateTo(Screen.Ledger) }
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
+                        ProfileMenuItem(icon = Icons.Default.Description, title = "Excel 智能导入") { viewModel.navigateTo(Screen.PriceImports) }
+                        ProfileMenuItem(icon = Icons.Default.LocalShipping, title = "配送批次") { viewModel.navigateTo(Screen.DeliveryBatches) }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
                         ProfileMenuItem(
                             icon = Icons.Default.Notifications,

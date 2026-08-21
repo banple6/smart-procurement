@@ -171,7 +171,7 @@ fun GovernmentStatusLabel(status: String, modifier: Modifier = Modifier) {
         "库存不足" -> MaterialTheme.colorScheme.error
         "库存紧张", "暂停供应", "备货中" -> JrxpTheme.colors.warningAmber
         "正常供应", "启用", "当前在线", "使用中", "已接单", "已完成" -> JrxpTheme.colors.supplyGreen
-        "已取消", "停用", "已退出", "已下架" -> JrxpTheme.colors.cancelledGray
+        "已取消", "已作废", "停用", "已退出", "已下架" -> JrxpTheme.colors.cancelledGray
         else -> MaterialTheme.colorScheme.primary
     }
     val containerColor = if (isSystemInDarkTheme()) semanticColor.copy(alpha = 0.18f) else style.containerColor

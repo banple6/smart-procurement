@@ -21,7 +21,9 @@ server/.venv/
 server/.pytest_cache/
 server/data/
 server/uploads/
+server/private_uploads/
 server/backups/
+server/logs/
 debug.keystore
 *.jks
 *.keystore
@@ -29,3 +31,10 @@ debug.keystore
 *.pem
 *.key
 *.apk
+
+# Local deployment evidence and generated validation output.
+artifacts/
+reports/
+deploy-logs-*/
+redmi14c-ai-smooth/
+tests/load/__pycache__/

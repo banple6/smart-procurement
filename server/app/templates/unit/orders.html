@@ -1,3 +1,23 @@
 <section id="ordersView" class="unit-view">
+  <div class="product-actions" aria-label="订单筛选">
+    <input id="orderSearch" type="search" placeholder="搜索订单编号" />
+    <select id="orderStatusFilter">
+      <option value="">全部状态</option>
+      <option value="pending">待接单</option>
+      <option value="accepted">已接单</option>
+      <option value="preparing">备货中</option>
+      <option value="shipped">已发货</option>
+      <option value="completed">已完成</option>
+      <option value="cancelled">已取消</option>
+      <option value="voided">已作废</option>
+    </select>
+    <input id="orderDateFrom" type="date" aria-label="开始日期" />
+    <input id="orderDateTo" type="date" aria-label="结束日期" />
+    <button id="orderSearchButton" type="button">查询</button>
+    <button id="clearOrderFiltersButton" type="button">清除筛选</button>
+    <button id="archivedOrdersButton" type="button">查看归档</button>
+  </div>
+  <div id="orderResultSummary" class="row-sub"></div>
   <div id="orderList" class="simple-list"></div>
+  <button id="loadMoreOrdersButton" class="secondary-action full" type="button" hidden>加载更多订单</button>
 </section>

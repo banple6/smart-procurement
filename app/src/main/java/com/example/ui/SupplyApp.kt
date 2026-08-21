@@ -35,6 +35,8 @@ import com.smartprocurement.internal.ui.designsystem.PoliceStatusBar
 import com.smartprocurement.internal.ui.theme.JrxpColors
 import com.smartprocurement.internal.ui.theme.JrxpTheme
 import com.smartprocurement.internal.ui.components.JrxpIcons
+import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbsShowcaseScreen
+import com.smartprocurement.internal.ui.thinkingorb.isThinkingOrbPreviewBuild
 import kotlinx.coroutines.delay
 
 fun cartBadgeCount(cartList: List<CartItemEntity>): Int = cartList.size
@@ -203,7 +205,11 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
             when (screen) {
                 is Screen.Splash -> {
                     SplashScreen {
-                        viewModel.finishSplash()
+                        if (isThinkingOrbPreviewBuild()) {
+                            viewModel.openThinkingOrbPreview()
+                        } else {
+                            viewModel.finishSplash()
+                        }
                     }
                 }
                 is Screen.Login -> {
@@ -257,6 +263,24 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 is Screen.DeliverySheets -> {
                     DeliverySheetsScreen(viewModel)
                 }
+                is Screen.DeliveryBatches -> {
+                    DeliveryBatchesScreen(viewModel)
+                }
+                is Screen.DeliveryBatchDetail -> {
+                    DeliveryBatchDetailScreen(
+                        batchId = (screen as Screen.DeliveryBatchDetail).batchId,
+                        viewModel = viewModel
+                    )
+                }
+                is Screen.PriceImports -> {
+                    PriceImportsScreen(viewModel)
+                }
+                is Screen.PriceImportDetail -> {
+                    PriceImportDetailScreen(
+                        batchId = (screen as Screen.PriceImportDetail).batchId,
+                        viewModel = viewModel
+                    )
+                }
                 is Screen.InviteEntry -> {
                     InviteEntryScreen(viewModel)
                 }
@@ -277,6 +301,9 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 }
                 is Screen.OnboardingGuide -> {
                     HelpTutorialScreen(viewModel)
+                }
+                is Screen.ThinkingOrbsShowcase -> {
+                    ThinkingOrbsShowcaseScreen(onBack = { viewModel.navigateBack() })
                 }
                 else -> {
                     MainTabFrame(viewModel)

@@ -1003,6 +1003,237 @@ def apply_push_notifications_migration(conn: sqlite3.Connection):
     )
 
 
+def apply_order_lifecycle_migration(conn: sqlite3.Connection):
+    add_column(conn, "orders", "cancelled_by TEXT REFERENCES users(id)")
+    add_column(conn, "orders", "cancel_reason TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "orders", "voided_at TEXT")
+    add_column(conn, "orders", "voided_by TEXT REFERENCES users(id)")
+    add_column(conn, "orders", "void_reason TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "orders", "archived_at TEXT")
+    add_column(conn, "orders", "archived_by TEXT REFERENCES users(id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_archived_created ON orders(archived_at, created_at DESC, id DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_orders_unit_archived_created ON orders(unit_id, archived_at, created_at DESC, id DESC)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_order_no ON orders(order_no)")
+
+
+def apply_smart_price_import_migration(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS excel_import_templates (
+          id TEXT PRIMARY KEY,
+          fingerprint TEXT NOT NULL UNIQUE,
+          prompt_version TEXT NOT NULL,
+          normalized_headers_json TEXT NOT NULL,
+          sheet_signature TEXT NOT NULL,
+          column_mapping_json TEXT NOT NULL,
+          confidence REAL NOT NULL DEFAULT 0,
+          confirmed_by TEXT REFERENCES users(id),
+          confirmed_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          use_count INTEGER NOT NULL DEFAULT 0,
+          last_used_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS product_aliases (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL REFERENCES products(id),
+          alias_normalized TEXT NOT NULL UNIQUE,
+          alias_original TEXT NOT NULL,
+          source TEXT NOT NULL CHECK(source IN ('manual', 'excel_confirmed', 'import_history')),
+          confirmed_by TEXT REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          last_used_at TEXT,
+          use_count INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS price_import_batches (
+          id TEXT PRIMARY KEY,
+          status TEXT NOT NULL CHECK(status IN ('UPLOADED', 'ANALYZING', 'READY_FOR_REVIEW', 'APPLYING', 'APPLIED', 'FAILED', 'CANCELLED')),
+          source_filename TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          file_sha256 TEXT NOT NULL,
+          uploaded_by TEXT NOT NULL REFERENCES users(id),
+          selected_sheet_name TEXT NOT NULL DEFAULT '',
+          header_row INTEGER,
+          column_mapping_json TEXT NOT NULL DEFAULT '{}',
+          template_fingerprint TEXT NOT NULL DEFAULT '',
+          recognition_level TEXT NOT NULL DEFAULT '',
+          llm_called INTEGER NOT NULL DEFAULT 0,
+          llm_model TEXT NOT NULL DEFAULT '',
+          llm_prompt_version TEXT NOT NULL DEFAULT '',
+          llm_latency_ms INTEGER,
+          llm_prompt_tokens INTEGER,
+          llm_completion_tokens INTEGER,
+          summary_json TEXT NOT NULL DEFAULT '{}',
+          matching_duration_ms INTEGER,
+          error_message TEXT NOT NULL DEFAULT '',
+          applied_by TEXT REFERENCES users(id),
+          applied_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS price_import_rows (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL REFERENCES price_import_batches(id) ON DELETE CASCADE,
+          source_sheet_name TEXT NOT NULL,
+          source_row INTEGER NOT NULL,
+          source_product_code TEXT NOT NULL DEFAULT '',
+          source_product_name TEXT NOT NULL DEFAULT '',
+          source_spec TEXT NOT NULL DEFAULT '',
+          source_unit TEXT NOT NULL DEFAULT '',
+          source_price TEXT NOT NULL DEFAULT '',
+          normalized_unit TEXT NOT NULL DEFAULT '',
+          normalized_price_cents INTEGER,
+          conversion_factor TEXT NOT NULL DEFAULT '',
+          matched_product_id TEXT REFERENCES products(id),
+          matched_product_name TEXT NOT NULL DEFAULT '',
+          expected_old_price_cents INTEGER,
+          proposed_price_cents INTEGER,
+          match_method TEXT NOT NULL DEFAULT '',
+          match_confidence REAL NOT NULL DEFAULT 0,
+          validation_status TEXT NOT NULL CHECK(validation_status IN ('READY', 'NEEDS_PRODUCT_SELECTION', 'NEEDS_REVIEW', 'UNMATCHED', 'INVALID', 'IGNORED', 'DUPLICATE_CONFLICT', 'PRICE_CONFLICT')),
+          warning TEXT NOT NULL DEFAULT '',
+          reviewer_note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS product_price_history (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL REFERENCES products(id),
+          old_price_cents INTEGER NOT NULL,
+          new_price_cents INTEGER NOT NULL,
+          unit TEXT NOT NULL,
+          source TEXT NOT NULL CHECK(source IN ('manual', 'excel_import')),
+          batch_id TEXT REFERENCES price_import_batches(id),
+          operator_user_id TEXT REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_price_import_batches_created ON price_import_batches(created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_price_import_rows_batch ON price_import_rows(batch_id, source_row)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_product_aliases_product ON product_aliases(product_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_product_price_history_product ON product_price_history(product_id, created_at DESC)")
+
+
+def apply_price_import_v1_simplification_migration(conn: sqlite3.Connection):
+    schema = one(conn, "SELECT sql FROM sqlite_master WHERE type='table' AND name='price_import_rows'")
+    if not schema or "NEEDS_PRODUCT_SELECTION" in (schema["sql"] or ""):
+        return
+    conn.executescript(
+        """
+        CREATE TABLE price_import_rows_v1 (
+          id TEXT PRIMARY KEY,
+          batch_id TEXT NOT NULL REFERENCES price_import_batches(id) ON DELETE CASCADE,
+          source_sheet_name TEXT NOT NULL,
+          source_row INTEGER NOT NULL,
+          source_product_code TEXT NOT NULL DEFAULT '',
+          source_product_name TEXT NOT NULL DEFAULT '',
+          source_spec TEXT NOT NULL DEFAULT '',
+          source_unit TEXT NOT NULL DEFAULT '',
+          source_price TEXT NOT NULL DEFAULT '',
+          normalized_unit TEXT NOT NULL DEFAULT '',
+          normalized_price_cents INTEGER,
+          conversion_factor TEXT NOT NULL DEFAULT '',
+          matched_product_id TEXT REFERENCES products(id),
+          matched_product_name TEXT NOT NULL DEFAULT '',
+          expected_old_price_cents INTEGER,
+          proposed_price_cents INTEGER,
+          match_method TEXT NOT NULL DEFAULT '',
+          match_confidence REAL NOT NULL DEFAULT 0,
+          validation_status TEXT NOT NULL CHECK(validation_status IN ('READY', 'NEEDS_PRODUCT_SELECTION', 'NEEDS_REVIEW', 'UNMATCHED', 'INVALID', 'IGNORED', 'DUPLICATE_CONFLICT', 'PRICE_CONFLICT')),
+          warning TEXT NOT NULL DEFAULT '',
+          reviewer_note TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO price_import_rows_v1 SELECT * FROM price_import_rows;
+        DROP TABLE price_import_rows;
+        ALTER TABLE price_import_rows_v1 RENAME TO price_import_rows;
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_price_import_rows_batch ON price_import_rows(batch_id, source_row)")
+
+
+def apply_price_import_matching_metrics_migration(conn: sqlite3.Connection):
+    add_column(conn, "price_import_batches", "matching_duration_ms INTEGER")
+
+
+def apply_price_import_product_upsert_migration(conn: sqlite3.Connection):
+    add_column(conn, "price_import_batches", "new_product_defaults_json TEXT NOT NULL DEFAULT '{}'")
+    add_column(conn, "price_import_rows", "operation_type TEXT NOT NULL DEFAULT 'EXISTING_PRODUCT'")
+    add_column(conn, "price_import_rows", "source_category TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "source_stock TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "proposed_product_code TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "proposed_category TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "proposed_spec TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "proposed_unit TEXT NOT NULL DEFAULT ''")
+    add_column(conn, "price_import_rows", "proposed_stock_quantity TEXT NOT NULL DEFAULT '0'")
+    add_column(conn, "price_import_rows", "proposed_supply_status TEXT NOT NULL DEFAULT 'paused'")
+    add_column(conn, "price_import_rows", "proposed_active INTEGER NOT NULL DEFAULT 1")
+
+
+def apply_delivery_batches_migration(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS delivery_batches (
+          id TEXT PRIMARY KEY,
+          batch_no TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL DEFAULT '',
+          note TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open', 'closed', 'cancelled')),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          closed_by TEXT REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          closed_at TEXT,
+          version INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS delivery_batch_orders (
+          batch_id TEXT NOT NULL REFERENCES delivery_batches(id) ON DELETE CASCADE,
+          order_id TEXT NOT NULL REFERENCES orders(id),
+          added_by TEXT NOT NULL REFERENCES users(id),
+          added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY(batch_id, order_id),
+          UNIQUE(order_id)
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_delivery_batches_status_created ON delivery_batches(status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_delivery_batch_orders_batch ON delivery_batch_orders(batch_id, added_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_delivery_batch_orders_order ON delivery_batch_orders(order_id)")
+
+
+def apply_order_soft_delete_migration(conn: sqlite3.Connection):
+    add_column(conn, "orders", "is_deleted INTEGER NOT NULL DEFAULT 0")
+    add_column(conn, "orders", "deleted_at TEXT")
+    add_column(conn, "orders", "deleted_by TEXT REFERENCES users(id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_active_created ON orders(created_at DESC, id DESC) WHERE is_deleted = 0"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orders_unit_active_created ON orders(unit_id, created_at DESC, id DESC) WHERE is_deleted = 0"
+    )
+
+
+def apply_accept_immediately_preparing_migration(conn: sqlite3.Connection):
+    conn.execute(
+        """
+        UPDATE orders
+        SET status = 'preparing',
+            accepted_at = COALESCE(accepted_at, updated_at, created_at),
+            preparing_at = COALESCE(preparing_at, accepted_at, updated_at, created_at),
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'accepted' AND is_deleted = 0
+        """
+    )
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1027,6 +1258,14 @@ def migrate() -> list[str]:
             ("0012_performance_concurrency", apply_performance_concurrency_migration),
             ("0013_audit_log_downloads", apply_audit_log_downloads_migration),
             ("0014_push_notifications", apply_push_notifications_migration),
+            ("0015_order_lifecycle", apply_order_lifecycle_migration),
+            ("0016_smart_price_import", apply_smart_price_import_migration),
+            ("0017_price_import_v1_simplification", apply_price_import_v1_simplification_migration),
+            ("0018_price_import_matching_metrics", apply_price_import_matching_metrics_migration),
+            ("0019_price_import_product_upsert", apply_price_import_product_upsert_migration),
+            ("0020_delivery_batches", apply_delivery_batches_migration),
+            ("0021_order_soft_delete", apply_order_soft_delete_migration),
+            ("0022_accept_immediately_preparing", apply_accept_immediately_preparing_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1057,6 +1296,14 @@ def migration_status() -> dict:
         "0012_performance_concurrency",
         "0013_audit_log_downloads",
         "0014_push_notifications",
+        "0015_order_lifecycle",
+        "0016_smart_price_import",
+        "0017_price_import_v1_simplification",
+        "0018_price_import_matching_metrics",
+        "0019_price_import_product_upsert",
+        "0020_delivery_batches",
+        "0021_order_soft_delete",
+        "0022_accept_immediately_preparing",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

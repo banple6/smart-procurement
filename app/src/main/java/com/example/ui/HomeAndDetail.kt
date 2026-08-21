@@ -7,9 +7,11 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,6 +56,7 @@ import com.smartprocurement.internal.ui.components.SupplyStatusMark
 import com.smartprocurement.internal.ui.components.StatusType
 import com.smartprocurement.internal.ui.components.QuantityStepper
 import com.smartprocurement.internal.ui.components.PrimaryActionDock
+import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbPreviewShortcut
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import java.text.SimpleDateFormat
@@ -63,6 +66,7 @@ import java.util.Locale
 private val IngredientCategories = listOf("全部", "蔬菜", "水果", "肉禽", "水产", "蛋奶", "粮油", "调料", "其他")
 private val SupplyStatuses = listOf("全部", "正常供应", "库存紧张", "库存不足", "暂停供应", "已下架")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: SupplyViewModel) {
     val products by viewModel.allProducts.collectAsState()
@@ -70,6 +74,33 @@ fun HomeScreen(viewModel: SupplyViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("全部") }
     var selectedStatus by remember { mutableStateOf("全部") }
+    var selectedProductIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var waitingForImportSummary by remember { mutableStateOf(false) }
+    var showImportSummary by remember { mutableStateOf(false) }
+    val importTemplateLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri -> uri?.let(viewModel::downloadProductImportTemplate) }
+    val excelLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            waitingForImportSummary = true
+            viewModel.uploadAndAnalyzePriceImport(it, openDetailAfterAnalyze = false)
+        }
+    }
+    val selectionMode = selectedProductIds.isNotEmpty()
+
+    LaunchedEffect(viewModel.activePriceImport?.id, viewModel.isPriceImportLoading, waitingForImportSummary) {
+        if (waitingForImportSummary && !viewModel.isPriceImportLoading && viewModel.activePriceImport != null) {
+            waitingForImportSummary = false
+            showImportSummary = true
+        }
+    }
+
+    LaunchedEffect(products.map { it.id }) {
+        selectedProductIds = selectedProductIds.intersect(products.mapTo(mutableSetOf()) { it.id })
+    }
 
     val filteredProducts = products.filter { product ->
         val matchQuery = product.name.contains(searchQuery, ignoreCase = true) || product.code.contains(searchQuery, ignoreCase = true)
@@ -80,7 +111,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
 
     Scaffold(
         floatingActionButton = {
-            if (viewModel.canManageIngredients()) {
+            if (viewModel.canManageIngredients() && !selectionMode) {
                 var isFabVisible by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) { isFabVisible = true }
 
@@ -116,6 +147,83 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                ThinkingOrbPreviewShortcut(onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) })
+            }
+            if (viewModel.canManageIngredients()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { importTemplateLauncher.launch("三公鲜配_食材导入模板.xlsx") },
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("下载模板")
+                            }
+                            Button(
+                                onClick = {
+                                    excelLauncher.launch(
+                                        arrayOf(
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "application/vnd.ms-excel",
+                                            "text/csv"
+                                        )
+                                    )
+                                },
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                enabled = !viewModel.isPriceImportLoading
+                            ) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text(if (viewModel.isPriceImportLoading) "正在识别" else "选择 Excel")
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.navigateTo(Screen.DeliveryBatches) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.LocalShipping, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("配送批次与备货单")
+                        }
+                    }
+                }
+                if (selectionMode) {
+                    item {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text("已选择 ${selectedProductIds.size} 项食材", fontWeight = FontWeight.Bold)
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { selectedProductIds = filteredProducts.mapTo(mutableSetOf()) { it.id } },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                                    ) { Text("全选当前结果") }
+                                    OutlinedButton(
+                                        onClick = { selectedProductIds = emptySet() },
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                                    ) { Text("取消多选") }
+                                }
+                                Button(
+                                    onClick = { showBatchDeleteConfirm = true },
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                    enabled = !viewModel.isDeletingIngredients
+                                ) { Text(if (viewModel.isDeletingIngredients) "正在删除" else "删除已选食材") }
+                            }
+                        }
+                    }
+                }
+            }
             item {
                 OutlinedTextField(
                     value = searchQuery,
@@ -164,7 +272,19 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                         product = product,
                         cartQuantity = cartQty,
                         canOrder = !viewModel.canManageIngredients(),
+                        selectionMode = selectionMode,
+                        isSelected = product.id in selectedProductIds,
                         onOpen = { viewModel.navigateTo(Screen.ProductDetail(product.id)) },
+                        onLongPress = {
+                            if (viewModel.canManageIngredients()) selectedProductIds = selectedProductIds + product.id
+                        },
+                        onToggleSelection = {
+                            selectedProductIds = if (product.id in selectedProductIds) {
+                                selectedProductIds - product.id
+                            } else {
+                                selectedProductIds + product.id
+                            }
+                        },
                         onQtyChange = { newVal ->
                             if (newVal == 0.0) {
                                 viewModel.updateCartQty(product.id, 0.0)
@@ -175,6 +295,53 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                         }
                     )
                 }
+            }
+        }
+    }
+
+    if (showBatchDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text("确认删除已选食材？") },
+            text = { Text("将从当前商品目录移除 ${selectedProductIds.size} 项食材。历史订单、库存流水和价格记录仍会保留。") },
+            dismissButton = { TextButton(onClick = { showBatchDeleteConfirm = false }) { Text("取消") } },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBatchDeleteConfirm = false
+                    viewModel.deleteIngredientsBatch(selectedProductIds) { selectedProductIds = emptySet() }
+                }) { Text("确认删除", color = MaterialTheme.colorScheme.error) }
+            }
+        )
+    }
+
+    if (showImportSummary) {
+        val batch = viewModel.activePriceImport
+        ModalBottomSheet(onDismissRequest = { showImportSummary = false }) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Excel 识别完成", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                if (batch != null) {
+                    Text("新增商品：${batch.metrics.newProductRows}")
+                    Text("更新价格：${batch.metrics.existingProductRows}")
+                    Text("需要确认：${batch.metrics.needsReviewRows}")
+                    Text("数据异常：${batch.metrics.exceptionRows}")
+                    Button(
+                        onClick = {
+                            showImportSummary = false
+                            viewModel.navigateTo(Screen.PriceImportDetail(batch.id))
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) { Text("查看并确认导入结果") }
+                }
+                OutlinedButton(
+                    onClick = { showImportSummary = false },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) { Text("稍后处理") }
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -224,12 +391,17 @@ private fun FilterRow(options: List<String>, selected: String, onSelected: (Stri
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun IngredientCard(
     modifier: Modifier = Modifier,
     product: ProductEntity,
     cartQuantity: Double,
     canOrder: Boolean,
+    selectionMode: Boolean,
+    isSelected: Boolean,
     onOpen: () -> Unit,
+    onLongPress: () -> Unit,
+    onToggleSelection: () -> Unit,
     onQtyChange: (Double) -> Unit
 ) {
     val dividerColor = MaterialTheme.colorScheme.outlineVariant
@@ -252,7 +424,11 @@ private fun IngredientCard(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-            .clickable(enabled = !canOrder, onClick = onOpen)
+            .combinedClickable(
+                enabled = !canOrder,
+                onClick = { if (selectionMode) onToggleSelection() else onOpen() },
+                onLongClick = onLongPress
+            )
             .padding(vertical = JrxpDimensions.spacingMd)
             .drawBehind {
                 drawLine(
@@ -266,6 +442,13 @@ private fun IngredientCard(
         val isNarrow = maxWidth < 360.dp
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(JrxpDimensions.spacingMd)) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelection() },
+                    modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                )
+            }
             IngredientImage(product.displayImage(), product.name, Modifier.size(88.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 // Name and Status
@@ -530,6 +713,7 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
     fun resetForNext(saved: IngredientFormState): IngredientFormState = IngredientFormState(
         category = saved.category,
         unit = saved.unit,
+        spec = ProductOptions.defaultSpecForUnit(saved.unit),
         minOrderQuantity = saved.minOrderQuantity,
         quantityStep = saved.quantityStep,
         warningQuantity = saved.warningQuantity,
@@ -537,6 +721,11 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
         status = saved.status,
         isAvailable = saved.isAvailable
     )
+
+    LaunchedEffect(form.unit) {
+        val resolvedSpec = ProductOptions.resolveSpecForUnit(form.unit, form.spec)
+        if (resolvedSpec != form.spec) form = form.copy(spec = resolvedSpec)
+    }
     fun openCamera() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
             takePicture.launch(viewModel.createCameraUri())

@@ -1,19 +1,70 @@
 import os
 import hashlib
+import json
 from decimal import Decimal, InvalidOperation
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, UploadFile
 
-from ..database import all_rows, connect, one
+from ..database import all_rows, connect, one, transaction, write_audit
 from ..dependencies import current_user, require_admin_user
-from ..models import EDITABLE_SUPPLY_STATUSES, PRODUCT_CATEGORIES, PRODUCT_STORAGE_METHODS, PRODUCT_UNITS
-from ..schemas import ProductCreate, ProductPricePatch, ProductStatusPatch, ProductStockPatch, ProductUpdate
+from ..models import EDITABLE_SUPPLY_STATUSES, PRODUCT_CATEGORIES, PRODUCT_STORAGE_METHODS, PRODUCT_UNITS, resolve_product_spec
+from ..schemas import (
+    ProductBatchDelete,
+    ProductCreate,
+    ProductDeleteAll,
+    ProductPricePatch,
+    ProductStatusPatch,
+    ProductStockPatch,
+    ProductUpdate,
+)
 from ..services.dashboard_cache import invalidate_dashboard_cache
+from ..services.exports import product_import_template_workbook
 from ..services.images import save_upload
 from ..services.inventory import as_decimal, decimal_text, log_inventory
 
 router = APIRouter(tags=["products"])
+
+
+def _archive_products(conn, product_ids: list[str], admin: dict, action: str) -> dict:
+    unique_ids = list(dict.fromkeys(product_ids))
+    placeholders = ",".join("?" for _ in unique_ids)
+    rows = all_rows(conn, f"SELECT id, name, is_deleted FROM products WHERE id IN ({placeholders})", unique_ids)
+    found_ids = {row["id"] for row in rows}
+    missing = [product_id for product_id in unique_ids if product_id not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404, detail="部分食材不存在，请刷新后重试")
+    active_ids = [row["id"] for row in rows if not bool(row["is_deleted"])]
+    if active_ids:
+        active_placeholders = ",".join("?" for _ in active_ids)
+        conn.execute(
+            f"""
+            UPDATE products
+            SET is_deleted = 1, active = 0, supply_status = 'off_shelf',
+                version = version + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id IN ({active_placeholders}) AND is_deleted = 0
+            """,
+            active_ids,
+        )
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            action,
+            "product_batch",
+            after_json=json.dumps(
+                {"archived_count": len(active_ids), "product_ids": active_ids},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+        )
+    return {
+        "ok": True,
+        "archived_count": len(active_ids),
+        "already_archived_count": len(unique_ids) - len(active_ids),
+        "requested_count": len(unique_ids),
+    }
 
 
 def product_out(product: dict) -> dict:
@@ -141,6 +192,15 @@ def admin_list_products(category: str | None = None, q: str | None = None, admin
     return [product_out(row) for row in rows]
 
 
+@router.get("/admin/products/import-template.xlsx")
+def download_product_import_template(admin=Depends(require_admin_user)):
+    return Response(
+        product_import_template_workbook(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('三公鲜配_食材导入模板.xlsx')}"},
+    )
+
+
 @router.get("/products/{product_id}")
 def product_detail(product_id: str, user=Depends(current_user)):
     with connect() as conn:
@@ -152,7 +212,9 @@ def product_detail(product_id: str, user=Depends(current_user)):
 
 @router.post("/admin/products")
 def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
-    validate_product_payload(body.model_dump())
+    fields = body.model_dump()
+    fields["spec"] = resolve_product_spec(fields["unit"], fields.get("spec"))
+    validate_product_payload(fields)
     product_id = str(uuid4())
     with connect() as conn:
         conn.execute(
@@ -163,15 +225,15 @@ def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                product_id, body.product_code, body.name, body.category, body.spec, body.unit, body.price_cents,
-                body.stock_quantity, body.reserved_quantity, body.min_order_quantity, body.quantity_step,
-                body.warning_quantity, body.origin, body.supplier, body.shelf_life, body.storage_method,
-                body.description, body.supply_status, int(body.active), admin["id"],
+                product_id, fields["product_code"], fields["name"], fields["category"], fields["spec"], fields["unit"], fields["price_cents"],
+                fields["stock_quantity"], fields["reserved_quantity"], fields["min_order_quantity"], fields["quantity_step"],
+                fields["warning_quantity"], fields["origin"], fields["supplier"], fields["shelf_life"], fields["storage_method"],
+                fields["description"], fields["supply_status"], int(fields["active"]), admin["id"],
             ),
         )
         conn.execute(
             "INSERT INTO product_price_logs(id, product_id, old_price_cents, new_price_cents, actor_id) VALUES (?, ?, NULL, ?, ?)",
-            (str(uuid4()), product_id, body.price_cents, admin["id"]),
+            (str(uuid4()), product_id, fields["price_cents"], admin["id"]),
         )
         conn.commit()
         invalidate_dashboard_cache()
@@ -187,6 +249,9 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
         if not existing:
             raise HTTPException(status_code=404, detail="食材不存在")
         ensure_expected_product_version(existing, expected_version)
+        if "unit" in fields or "spec" in fields:
+            next_unit = fields.get("unit", existing["unit"])
+            fields["spec"] = resolve_product_spec(next_unit, fields.get("spec"), existing.get("spec"))
         validate_product_payload(fields, existing)
         if fields:
             assignments = ", ".join(f"{key} = ?" for key in fields)
@@ -294,10 +359,35 @@ def patch_stock(product_id: str, body: ProductStockPatch, admin=Depends(require_
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 
 
+@router.delete("/admin/products/batch")
+def delete_products_batch(body: ProductBatchDelete, admin=Depends(require_admin_user)):
+    if not body.confirmed:
+        raise HTTPException(status_code=400, detail="请确认后再批量删除食材")
+    with transaction() as conn:
+        result = _archive_products(conn, body.ids, admin, "PRODUCTS_BATCH_ARCHIVED")
+        invalidate_dashboard_cache()
+        return result
+
+
+@router.delete("/admin/products/all")
+def delete_all_products(body: ProductDeleteAll, admin=Depends(require_admin_user)):
+    if not body.confirmed or body.confirmation_text.strip() != "确认删除":
+        raise HTTPException(status_code=400, detail="请输入“确认删除”后再清空食材")
+    with transaction() as conn:
+        rows = all_rows(conn, "SELECT id FROM products WHERE is_deleted = 0 ORDER BY id")
+        current_count = len(rows)
+        if current_count != body.expected_count:
+            raise HTTPException(status_code=409, detail="食材数量已变化，请刷新后重新确认")
+        if not rows:
+            return {"ok": True, "archived_count": 0, "already_archived_count": 0, "requested_count": 0}
+        result = _archive_products(conn, [row["id"] for row in rows], admin, "PRODUCT_CATALOG_ARCHIVED")
+        invalidate_dashboard_cache()
+        return result
+
+
 @router.delete("/admin/products/{product_id}")
 def delete_product(product_id: str, admin=Depends(require_admin_user)):
-    with connect() as conn:
-        conn.execute("UPDATE products SET is_deleted = 1, active = 0, supply_status = 'off_shelf', version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (product_id,))
-        conn.commit()
+    with transaction() as conn:
+        result = _archive_products(conn, [product_id], admin, "PRODUCT_ARCHIVED")
         invalidate_dashboard_cache()
-    return {"ok": True}
+        return result

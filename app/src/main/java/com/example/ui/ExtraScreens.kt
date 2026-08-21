@@ -347,6 +347,13 @@ fun AboutUpdateScreen(viewModel: SupplyViewModel) {
                         onClick = { viewModel.viewOnboardingGuide() },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (BuildConfig.DEBUG) {
+                        GovernmentSecondaryButton(
+                            text = "Thinking Orbs 调试预览",
+                            onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
             GovernmentCard {

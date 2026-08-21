@@ -10,6 +10,7 @@ ORDER_STATUS_DEFINITIONS = {
     "shipped": {"label": "已发货", "stage": 4, "terminal": False},
     "completed": {"label": "已完成", "stage": 5, "terminal": True},
     "cancelled": {"label": "已取消", "stage": 0, "terminal": True},
+    "voided": {"label": "已作废", "stage": 0, "terminal": True},
 }
 
 

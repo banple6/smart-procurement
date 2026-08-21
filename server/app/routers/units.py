@@ -20,8 +20,8 @@ def list_units(admin=Depends(require_admin_user)):
             """
             SELECT u.*,
               (SELECT COUNT(*) FROM users WHERE unit_id = u.id) AS account_count,
-              (SELECT COUNT(*) FROM orders WHERE unit_id = u.id) AS order_count,
-              (SELECT MAX(created_at) FROM orders WHERE unit_id = u.id) AS last_order_at
+              (SELECT COUNT(*) FROM orders WHERE unit_id = u.id AND is_deleted = 0) AS order_count,
+              (SELECT MAX(created_at) FROM orders WHERE unit_id = u.id AND is_deleted = 0) AS last_order_at
             FROM units u
             ORDER BY u.created_at DESC
             """,

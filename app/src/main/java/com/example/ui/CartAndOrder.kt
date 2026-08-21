@@ -1,5 +1,7 @@
 package com.smartprocurement.internal.ui
 
+import android.app.DatePickerDialog
+import android.content.Context
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -276,18 +278,35 @@ fun DetailRow(label: String, value: String) {
     }
 }
 
-// --- HISTORIC ORDER LIST SCREEN ---
+// --- ORDER LIST SCREEN ---
 @Composable
 fun OrderListScreen(viewModel: SupplyViewModel) {
-    val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val orders by viewModel.allOrders.collectAsState()
     val isAdmin = viewModel.canManageIngredients()
     var selectedStatus by remember { mutableStateOf("全部") }
-    val visibleOrders = remember(orders, selectedStatus) {
-        if (selectedStatus == "全部") orders else orders.filter { it.status == selectedStatus }
+    var orderQuery by remember { mutableStateOf("") }
+    var dateFrom by remember { mutableStateOf("") }
+    var dateTo by remember { mutableStateOf("") }
+    var appliedStatus by remember { mutableStateOf("全部") }
+    var appliedQuery by remember { mutableStateOf("") }
+    var appliedDateFrom by remember { mutableStateOf("") }
+    var appliedDateTo by remember { mutableStateOf("") }
+    var filterError by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val loadedOrders = remember(orders, viewModel.orderListOrderIds) {
+        val byId = orders.associateBy { it.orderId }
+        viewModel.orderListOrderIds.mapNotNull(byId::get)
     }
+    val groupedOrders = remember(loadedOrders) { loadedOrders.groupBy(::orderMonthKey) }
+    val expandedMonths = remember { mutableStateMapOf<String, Boolean>() }
+
     LaunchedEffect(viewModel.userId, viewModel.userRole) {
-        viewModel.refreshOrders()
+        viewModel.loadOrderList(reset = true)
+    }
+    LaunchedEffect(groupedOrders.keys.toList()) {
+        groupedOrders.keys.forEachIndexed { index, month ->
+            if (month !in expandedMonths) expandedMonths[month] = index == 0
+        }
     }
 
     Scaffold(
@@ -302,167 +321,220 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (orders.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(imageVector = Icons.Default.Warning, contentDescription = "No order", modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.outlineVariant)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("暂无订单记录", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (isAdmin) {
-                        item {
-                            androidx.compose.foundation.lazy.LazyRow(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentPadding = PaddingValues(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(listOf("全部", "待接单", "已接单", "备货中", "已发货", "已完成", "已取消"), key = { it }) { status ->
-                                    val isSelected = selectedStatus == status
-                                    val backgroundColor by androidx.compose.animation.animateColorAsState(
-                                        targetValue = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
-                                        label = "chipBg"
-                                    )
-                                    val textColor by androidx.compose.animation.animateColorAsState(
-                                        targetValue = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
-                                        animationSpec = androidx.compose.animation.core.tween(durationMillis = 150),
-                                        label = "chipText"
-                                    )
-
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { selectedStatus = status },
-                                        label = {
-                                            Text(
-                                                text = status,
-                                                style = JrxpTypography.labelMedium,
-                                                color = textColor,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = backgroundColor,
-                                            selectedContainerColor = backgroundColor,
-                                            labelColor = textColor,
-                                            selectedLabelColor = textColor
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    if (visibleOrders.isEmpty()) {
-                        item {
-                            Text(
-                                "暂无该状态订单",
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(24.dp),
-                                textAlign = TextAlign.Center,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    items(visibleOrders, key = { it.orderId }) { order ->
-                        val orderTitle = if (isAdmin) order.department.ifBlank { "未命名单位" } else order.displayOrderNo
-                        Box(
-                            modifier = Modifier
-                                .animateItem()
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                .clickable {
-                                    viewModel.navigateTo(Screen.OrderDetails(order.orderId))
-                                }
-                                .padding(vertical = JrxpDimensions.spacingMd)
-                                .drawBehind {
-                                    drawLine(
-                                        color = dividerColor,
-                                        start = Offset(0f, size.height),
-                                        end = Offset(size.width, size.height),
-                                        strokeWidth = 1f
-                                    )
-                                }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = orderQuery,
+                            onValueChange = { orderQuery = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text(if (isAdmin) "订单编号或单位" else "订单编号") },
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            singleLine = true
+                        )
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Text(
-                                        text = orderTitle,
-                                        style = JrxpTypography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.weight(1f),
-                                        maxLines = if (isAdmin) 2 else 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    androidx.compose.animation.AnimatedContent(
-                                        targetState = order.status,
-                                        label = "order_status"
-                                    ) { status ->
-                                        SupplyStatusMark(
-                                            label = status,
-                                            type = when (status) {
-                                                "待接单" -> StatusType.PENDING
-                                                "备货中" -> StatusType.ACTIVE
-                                                "已发货", "已接单", "已完成" -> StatusType.SUCCESS
-                                                "已取消" -> StatusType.CANCELLED
-                                                else -> StatusType.CANCELLED
-                                            }
-                                        )
+                            items(listOf("全部", "待接单", "已接单", "备货中", "已发货", "已完成", "已取消", "已作废"), key = { it }) { status ->
+                                FilterChip(
+                                    selected = selectedStatus == status,
+                                    onClick = { selectedStatus = status },
+                                    label = { Text(status, maxLines = 1) }
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = { showOrderDatePicker(context, dateFrom) { dateFrom = it } },
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            ) { Text(dateFrom.ifBlank { "开始日期" }, maxLines = 1) }
+                            OutlinedButton(
+                                onClick = { showOrderDatePicker(context, dateTo) { dateTo = it } },
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            ) { Text(dateTo.ifBlank { "结束日期" }, maxLines = 1) }
+                        }
+                        if (filterError.isNotBlank()) {
+                            Text(filterError, color = MaterialTheme.colorScheme.error, style = JrxpTypography.bodySmall)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    selectedStatus = "全部"
+                                    orderQuery = ""
+                                    dateFrom = ""
+                                    dateTo = ""
+                                    appliedStatus = "全部"
+                                    appliedQuery = ""
+                                    appliedDateFrom = ""
+                                    appliedDateTo = ""
+                                    filterError = ""
+                                    viewModel.loadOrderList(reset = true)
+                                },
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            ) { Text("清除筛选") }
+                            Button(
+                                onClick = {
+                                    if (dateFrom.isNotBlank() && dateTo.isNotBlank() && dateFrom > dateTo) {
+                                        filterError = "开始日期不能晚于结束日期"
+                                    } else {
+                                        filterError = ""
+                                        appliedStatus = selectedStatus
+                                        appliedQuery = orderQuery.trim()
+                                        appliedDateFrom = dateFrom
+                                        appliedDateTo = dateTo
+                                        viewModel.loadOrderList(appliedStatus, appliedDateFrom, appliedDateTo, appliedQuery, reset = true)
                                     }
-                                }
+                                },
+                                enabled = !viewModel.isOrderListLoading,
+                                modifier = Modifier.weight(1f).heightIn(min = 52.dp)
+                            ) { Text("筛选订单") }
+                        }
+                        Text(
+                            "共 ${viewModel.orderListTotal} 笔，已显示 ${loadedOrders.size} 笔",
+                            style = JrxpTypography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
-                                if (isAdmin) {
-                                    Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text(order.displayOrderNo, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
-                                }
+                if (loadedOrders.isEmpty() && !viewModel.isOrderListLoading) {
+                    item {
+                        Text(
+                            "没有符合条件的订单",
+                            modifier = Modifier.fillMaxWidth().padding(32.dp),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
 
-                                Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
-
-                                // Generic DetailRow inline for Order List
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("下单时间", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(min = 64.dp))
-                                    Text(order.submitTime, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                groupedOrders.forEach { (month, monthOrders) ->
+                    item(key = "month-$month") {
+                        val expanded = expandedMonths[month] == true
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().clickable { expandedMonths[month] = !expanded },
+                            color = MaterialTheme.colorScheme.surfaceContainer,
+                            tonalElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(orderMonthLabel(month), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    Text("${monthOrders.size} 笔订单", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
-
-                                Row(modifier = Modifier.fillMaxWidth().padding(top = JrxpDimensions.spacingXs), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("配送点", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.widthIn(min = 64.dp))
-                                    Text(order.deliveryPoint, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
-
-                                if (order.status == "备货中") {
-                                    Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text("订单正在备货", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                if (order.shippingPhotoCount > 0) {
-                                    Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
-                                    Text("发货凭证：${order.shippingPhotoCount} 张", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                                }
-
-                                Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
-                                OrderActionButton(order = order, viewModel = viewModel)
+                                Icon(
+                                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (expanded) "收起本月订单" else "展开本月订单"
+                                )
                             }
                         }
                     }
+                    if (expandedMonths[month] == true) {
+                        items(monthOrders, key = { it.orderId }) { order ->
+                            OrderListRow(order = order, isAdmin = isAdmin, viewModel = viewModel)
+                        }
+                    }
+                }
+
+                if (viewModel.orderListHasMore) {
+                    item {
+                        OutlinedButton(
+                            onClick = { viewModel.loadOrderList(appliedStatus, appliedDateFrom, appliedDateTo, appliedQuery, reset = false) },
+                            enabled = !viewModel.isOrderListLoading,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                        ) { Text(if (viewModel.isOrderListLoading) "加载中" else "加载更多订单") }
+                    }
+                } else if (viewModel.isOrderListLoading) {
+                    item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth()) }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun OrderListRow(order: OrderEntity, isAdmin: Boolean, viewModel: SupplyViewModel) {
+    val dividerColor = MaterialTheme.colorScheme.outlineVariant
+    val orderTitle = if (isAdmin) order.department.ifBlank { "未命名单位" } else order.displayOrderNo
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+            .clickable { viewModel.navigateTo(Screen.OrderDetails(order.orderId)) }
+            .padding(vertical = JrxpDimensions.spacingMd)
+            .drawBehind {
+                drawLine(
+                    color = dividerColor,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = 1f
+                )
+            }
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                Text(orderTitle, style = JrxpTypography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = if (isAdmin) 2 else 1, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.width(8.dp))
+                SupplyStatusMark(
+                    label = order.status,
+                    type = when (order.status) {
+                        "待接单" -> StatusType.PENDING
+                        "备货中" -> StatusType.ACTIVE
+                        "已发货", "已接单", "已完成" -> StatusType.SUCCESS
+                        else -> StatusType.CANCELLED
+                    }
+                )
+            }
+            if (isAdmin) {
+                Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
+                Text(order.displayOrderNo, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, fontWeight = FontWeight.Medium)
+            }
+            Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
+            DetailRow("下单时间", order.submitTime)
+            DetailRow("配送点", order.deliveryPoint)
+            if (order.status == "备货中") Text("订单正在备货", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (order.shippingPhotoCount > 0) Text("发货凭证：${order.shippingPhotoCount} 张", style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
+            OrderActionButton(order = order, viewModel = viewModel)
+        }
+    }
+}
+
+private fun orderMonthKey(order: OrderEntity): String =
+    order.createdAt.ifBlank { order.submitTime }.take(7).takeIf { it.matches(Regex("\\d{4}-\\d{2}")) } ?: "unknown"
+
+private fun orderMonthLabel(month: String): String = if (month == "unknown") {
+    "时间未记录"
+} else {
+    val parts = month.split("-")
+    "${parts[0]}年${parts[1].toIntOrNull() ?: parts[1]}月"
+}
+
+private fun showOrderDatePicker(context: Context, initial: String, onSelected: (String) -> Unit) {
+    val calendar = Calendar.getInstance()
+    runCatching { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).parse(initial) }
+        .getOrNull()
+        ?.let(calendar::setTime)
+    DatePickerDialog(
+        context,
+        { _, year, month, day -> onSelected(String.format(Locale.CHINA, "%04d-%02d-%02d", year, month + 1, day)) },
+        calendar.get(Calendar.YEAR),
+        calendar.get(Calendar.MONTH),
+        calendar.get(Calendar.DAY_OF_MONTH)
+    ).show()
 }
 
 // --- ORDER DETAILS SCREEN ---
@@ -679,9 +751,9 @@ private fun OrderTimeline(order: OrderEntity) {
 private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, modifier: Modifier = Modifier) {
     val label = viewModel.nextOrderActionLabel(order) ?: return
     var showConfirm by remember(order.orderId, label) { mutableStateOf(false) }
+    var cancelReason by remember(order.orderId) { mutableStateOf("数量填写错误") }
     val targetStatus = when (label) {
         "接单" -> "已接单"
-        "开始备货" -> "备货中"
         "确认发货" -> "已发货"
         "完成订单" -> "已完成"
         "取消订单" -> "已取消"
@@ -705,10 +777,25 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
             onDismissRequest = { showConfirm = false },
             title = { Text("确认将订单改为“$targetStatus”吗？") },
             dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("取消") } },
+            text = {
+                if (label == "取消订单") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("取消后将释放本订单预占库存。")
+                        OutlinedTextField(
+                            value = cancelReason,
+                            onValueChange = { cancelReason = it },
+                            label = { Text("取消原因") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
+                    if (label == "取消订单" && cancelReason.isBlank()) return@TextButton
                     showConfirm = false
-                    viewModel.performOrderAction(order)
+                    viewModel.performOrderAction(order, cancelReason)
                 }) { Text(label) }
             }
         )

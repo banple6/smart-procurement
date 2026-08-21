@@ -8,8 +8,8 @@ from pydantic import BaseModel
 
 from ..database import all_rows, connect, one, transaction
 from ..dependencies import require_csrf, require_unit_web_session
-from ..routers.orders import fetch_order_for_user, order_items, order_out
-from ..schemas import OrderCreate, OrderItemRequest
+from ..routers.orders import _audit_lifecycle, _cancel_order, fetch_order_for_user, order_items, order_list, order_out
+from ..schemas import OrderCreate, OrderItemRequest, OrderLifecycleReason
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text
 from ..services.procurement import cutoff_payload
@@ -197,14 +197,14 @@ def unit_home_data(user=Depends(require_unit_web_session)):
         unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
         cutoff = cutoff_payload(conn)
         cart_count = one(conn, "SELECT COUNT(*) AS c FROM web_cart_items WHERE user_id = ? AND unit_id = ?", (user["id"], user["unit_id"]))["c"]
-        waiting_receipt = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE unit_id = ? AND status = 'shipped'", (user["unit_id"],))["c"]
-        recent_orders = all_rows(conn, "SELECT * FROM orders WHERE unit_id = ? ORDER BY created_at DESC LIMIT 5", (user["unit_id"],))
+        waiting_receipt = one(conn, "SELECT COUNT(*) AS c FROM orders WHERE unit_id = ? AND is_deleted = 0 AND status = 'shipped'", (user["unit_id"],))["c"]
+        recent_orders = all_rows(conn, "SELECT * FROM orders WHERE unit_id = ? AND is_deleted = 0 ORDER BY created_at DESC LIMIT 5", (user["unit_id"],))
         return {
             "unit": unit,
             "cutoff": cutoff,
             "cart_count": cart_count,
             "waiting_receipt": waiting_receipt,
-            "recent_orders": [order_out(conn, row, include_items=False, include_shipping_photos=False) for row in recent_orders],
+            "recent_orders": [order_out(conn, row, include_items=False, include_shipping_photos=False, viewer=user) for row in recent_orders],
             "tips": ["请按实际需求申领食材", "提交前请核对数量和配送点"],
         }
 
@@ -299,19 +299,40 @@ def submit_unit_order(body: UnitOrderSubmitBody, request: Request, user=Depends(
         order = create_order_rows(conn, order_body, user)
         conn.execute("DELETE FROM web_cart_items WHERE user_id = ? AND unit_id = ?", (user["id"], user["unit_id"]))
         invalidate_dashboard_cache()
-        return order_out(conn, order)
+        return order_out(conn, order, viewer=user)
 
 
 @router.get("/unit/orders/data")
-def unit_orders_data(status: str | None = None, user=Depends(require_unit_web_session)):
+def unit_orders_data(
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    query: str | None = None,
+    archived: bool = False,
+    cursor: str | None = None,
+    limit: int = 20,
+    user=Depends(require_unit_web_session),
+):
+    if limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="每页数量应在 1 到 100 之间")
     with connect() as conn:
-        sql = "SELECT * FROM orders WHERE unit_id = ?"
+        sql = "SELECT * FROM orders WHERE unit_id = ? AND is_deleted = 0"
         params: list[str] = [user["unit_id"]]
         if status:
             sql += " AND status = ?"
             params.append(status)
-        rows = all_rows(conn, sql + " ORDER BY created_at DESC LIMIT 100", params)
-        return {"items": [order_out(conn, row, include_items=False, include_shipping_photos=False) for row in rows]}
+        sql += " AND archived_at IS NOT NULL" if archived else " AND archived_at IS NULL"
+        if date_from:
+            sql += " AND date(datetime(created_at, '+8 hours')) >= date(?)"
+            params.append(date_from)
+        if date_to:
+            sql += " AND date(datetime(created_at, '+8 hours')) <= date(?)"
+            params.append(date_to)
+        if query and query.strip():
+            text = query.strip()
+            sql += " AND order_no LIKE ? ESCAPE '\\'"
+            params.append(text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+        return order_list(conn, sql, params, include_items=False, limit=limit, cursor=cursor, viewer=user)
 
 
 @router.get("/unit/orders/{order_id}", include_in_schema=False)
@@ -323,7 +344,43 @@ def unit_order_detail_page(order_id: str, request: Request, user=Depends(require
 def unit_order_detail_data(order_id: str, user=Depends(require_unit_web_session)):
     with connect() as conn:
         order = fetch_order_for_user(conn, order_id, user)
-        return order_out(conn, order)
+        return order_out(conn, order, viewer=user)
+
+
+@router.post("/unit/orders/{order_id}/cancel")
+def unit_cancel_order(order_id: str, body: OrderLifecycleReason, request: Request, user=Depends(require_unit_web_session)):
+    require_csrf(request)
+    reason = body.reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="请填写取消原因")
+    with transaction() as conn:
+        order = fetch_order_for_user(conn, order_id, user)
+        updated = _cancel_order(conn, order, user, reason, "unit_web")
+        invalidate_dashboard_cache()
+        return order_out(conn, updated, viewer=user)
+
+
+@router.post("/unit/orders/{order_id}/archive")
+def unit_archive_order(order_id: str, request: Request, user=Depends(require_unit_web_session)):
+    require_csrf(request)
+    with transaction() as conn:
+        order = fetch_order_for_user(conn, order_id, user)
+        if order.get("archived_at"):
+            return order_out(conn, order, viewer=user)
+        if order["status"] not in {"completed", "cancelled", "voided"}:
+            raise HTTPException(status_code=409, detail="只有已完成、已取消或已作废订单可以归档")
+        conn.execute(
+            "UPDATE orders SET archived_at = CURRENT_TIMESTAMP, archived_by = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND archived_at IS NULL",
+            (user["id"], order_id),
+        )
+        conn.execute(
+            "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'archive', ?, ?, '')",
+            (str(uuid4()), order_id, user["id"], order["status"], order["status"]),
+        )
+        updated = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
+        _audit_lifecycle(conn, updated, user, "ORDER_ARCHIVED", order["status"], order["status"], "", "unit_web")
+        invalidate_dashboard_cache()
+        return order_out(conn, updated, viewer=user)
 
 
 @router.post("/unit/orders/{order_id}/confirm-receipt")
@@ -337,7 +394,7 @@ def unit_confirm_receipt(order_id: str, request: Request, user=Depends(require_u
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
         conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         invalidate_dashboard_cache()
-        return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)))
+        return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)), viewer=user)
 
 
 @router.post("/unit/orders/{order_id}/receipt-issues")

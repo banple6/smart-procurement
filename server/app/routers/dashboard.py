@@ -61,7 +61,7 @@ def order_summary(admin=Depends(require_admin_user)):
             SELECT product_id, product_name_snapshot AS name, unit_snapshot AS unit, SUM(CAST(quantity AS REAL)) AS quantity
             FROM order_items
             JOIN orders ON orders.id = order_items.order_id
-            WHERE orders.status NOT IN ('cancelled')
+            WHERE orders.is_deleted = 0 AND orders.status NOT IN ('cancelled')
             GROUP BY product_id, product_name_snapshot, unit_snapshot
             ORDER BY quantity DESC
             """,

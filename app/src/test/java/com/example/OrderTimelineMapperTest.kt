@@ -12,7 +12,7 @@ class OrderTimelineMapperTest {
     fun pending_order_marks_submit_completed_waiting_acceptance_current_and_future_steps_pending() {
         val nodes = orderTimelineNodes(order(status = "待接单", createdAt = "2026-07-06 14:32"))
 
-        assertEquals(listOf("订单已提交", "等待管理员接单", "开始备货", "已发货", "已完成"), nodes.map { it.label })
+        assertEquals(listOf("订单已提交", "等待管理员接单", "订单备货", "已发货", "已完成"), nodes.map { it.label })
         assertEquals(listOf(StepState.COMPLETED, StepState.CURRENT, StepState.UPCOMING, StepState.UPCOMING, StepState.UPCOMING), nodes.map { it.state })
         assertEquals("2026-07-06 14:32", nodes[0].timestamp)
         assertNull(nodes[1].timestamp)

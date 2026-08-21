@@ -43,10 +43,13 @@
 
 ### 极光注册
 
+- 使用极光官方当前稳定 Android SDK `6.1.0`，通过 Maven Central 自动集成；不接入任何厂商插件。
 - 用户同意必要隐私说明并登录成功后初始化极光 SDK。
 - SDK 返回 `Registration ID` 后，调用服务端设备注册接口。
 - Registration ID 变化时重新注册，服务端以设备安装标识和 Registration ID 幂等更新。
 - 退出登录时调用设备解绑接口；解绑失败不阻止本地退出，服务端会话失效仍会阻止后续业务访问。
+- 每次安装生成稳定随机 UUID `installation_id` 并保存到 DataStore；不使用 Android ID、IMEI、手机号或用户名。
+- 账号切换时先重试旧账号解绑，再注册新账号；服务端同时按 `installation_id` 停用旧绑定，形成双重保护。
 
 ### 通知点击
 
@@ -61,51 +64,69 @@
 - 使用 WorkManager 进行不高于系统允许频率的低频后台同步，建议 15 分钟一次，并要求有网络连接。
 - 同步发现此前未提示的新订单或状态变化时生成本地通知。
 - 本地保存最后已通知的订单版本或事件编号，避免极光通知和后台同步重复提醒。
+- 登录成功、Activity 回到前台、打开订单列表、网络恢复和通知点击时立即同步；WorkManager 不是即时推送，15 分钟周期也可能被系统延迟。
+- App 被用户强制停止后 WorkManager 不继续运行，不将该情况描述为推送实现缺陷或实时能力。
 
 ## 服务端设计
+
+### 与现有工程对齐
+
+- 当前迁移最高版本为 `0013_audit_log_downloads`，本功能使用下一版本 `0014_push_notifications`。
+- `users.id`、`units.id`、`orders.id` 均为 `TEXT UUID`，新增外键字段继续使用 `TEXT`，不采用评审示例中的整数业务主键。
+- `push_outbox.id` 使用内部自增整数便于任务排序，外部可见事件编号使用独立 UUID4 `event_id`。
+- 现有 `transaction()` 已通过 `BEGIN IMMEDIATE` 获取 SQLite 写锁，Worker 复用相同连接配置和 WAL 数据库文件。
+- 服务端已经依赖 `httpx`，JPush 客户端使用该依赖并通过 mock 测试，不引入新的网络框架。
 
 ### 数据表
 
 新增迁移，建立：
 
 1. `push_devices`
-   - `id`
-   - `user_id`
+   - `id`：TEXT UUID 主键
+   - `user_id`：TEXT，引用现有用户 UUID
    - `registration_id`
    - `installation_id`
    - `platform`
    - `app_version`
    - `active`
+   - `session_version`
    - `last_seen_at`
+   - `bound_at`
+   - `unbound_at`
    - `created_at`
    - `updated_at`
 
 2. `push_outbox`
-   - `id`，同时作为 `event_id`
+   - `id`：内部自增整数
+   - `event_id`：独立 UUID4，唯一且不可预测
    - `event_type`
-   - `order_id`
+   - `order_id`：TEXT，引用现有订单 UUID
    - `recipient_scope`
-   - `recipient_unit_id`
+   - `recipient_unit_id`：TEXT，引用现有单位 UUID
    - `payload_json`
    - `status`
    - `attempt_count`
    - `next_attempt_at`
+   - `processing_started_at`
    - `sent_at`
    - `last_error`
    - `created_at`
 
 3. `push_deliveries`
-   - `id`
+   - `id`：内部自增整数
    - `event_id`
-   - `device_id`
+   - `device_id`：TEXT，引用设备 UUID
    - `provider_message_id`
    - `status`
    - `attempt_count`
    - `last_error`
    - `created_at`
    - `updated_at`
+   - `opened_at`
 
 `event_id + device_id` 建立唯一约束，防止重复发送。
+
+Outbox 状态限定为 `pending`、`processing`、`retry`、`sent`、`failed`。Delivery 状态限定为 `pending`、`accepted_by_provider`、`failed`、`invalid_device`、`opened`。极光 HTTP 接收成功只能记录为 `accepted_by_provider`，不得写成 `delivered`。
 
 ### API
 
@@ -113,13 +134,16 @@
   - 需要有效 App Bearer Token。
   - 接收 Registration ID、安装标识、App 版本。
   - 用户、角色和单位从服务端会话读取。
+  - 同一 `installation_id` 绑定新账号时，先停用该安装的旧用户绑定，再启用当前用户绑定。
 
 - `DELETE /api/v1/push/devices/current`
   - 需要有效 App Bearer Token。
   - 停用当前安装对应的设备绑定。
+  - 退出解绑失败不能阻止本地退出；Android 保存 `pending_push_unbind`，网络恢复后重试。
 
 - `POST /api/v1/push/events/{event_id}/opened`
   - 记录通知点击结果，用于排查未响应和重复点击。
+  - 仅允许事件真实收件人上报，重复上报幂等，不能借此读取事件内容。
 
 上述接口统一返回中文安全错误，不返回极光内部错误、密钥或 Python 异常。
 
@@ -138,11 +162,17 @@
 ### 推送任务
 
 - 独立推送任务读取待发送 outbox，不阻塞订单接口响应。
+- Docker Compose 新增不暴露端口的 `push-worker` 服务，与 API 挂载同一个 SQLite 数据目录。
 - 服务端使用 `JPUSH_APP_KEY` 和 `JPUSH_MASTER_SECRET` 调用极光 REST API。
 - 收件设备发送前重新检查账号启用状态、单位启用状态和角色。
 - 失败采用有限指数退避，达到上限后标记失败并写入现有系统日志页面。
 - 极光返回无效 Registration ID 时停用对应设备记录。
 - 日志只记录事件编号、设备记录 ID、结果和脱敏错误，不记录完整凭据。
+- Worker 使用短事务领取任务：`BEGIN IMMEDIATE` 后选择一条到期的 `pending/retry` 任务，条件更新为 `processing` 并提交；极光网络请求必须发生在事务外。
+- 每次循环将处理超过 `JPUSH_PROCESSING_TIMEOUT_SECONDS` 的 `processing` 任务恢复为 `retry`，避免 Worker 异常退出后永久卡死。
+- 失败按 30 秒、2 分钟、10 分钟、30 分钟有限退避，第五次失败进入 `failed`。
+- 每个 `event_id + device_id` 只创建一条 Delivery；单个无效设备不能阻塞其他设备。
+- 没有任何有效收件设备的事件标记为 `sent`，同时写入“无有效推送设备”审计信息；这表示队列处理完成，不表示手机已送达。
 
 ## 通知文案
 
@@ -211,6 +241,8 @@
 - Android 构建通过 Gradle 配置注入 `JPUSH_APP_KEY`，不在页面或日志显示。
 - 不修改 Android applicationId、现有数据库名称、API 前缀和订单状态机。
 - 发布 APK 前保持签名兼容，并对当前正式签名做单独核验。
+- 服务端新增配置：`JPUSH_ENABLED`、`JPUSH_APP_KEY`、`JPUSH_MASTER_SECRET`、`JPUSH_API_URL`、`JPUSH_TIMEOUT_SECONDS`、`JPUSH_MAX_ATTEMPTS`、`JPUSH_WORKER_POLL_SECONDS`、`JPUSH_PROCESSING_TIMEOUT_SECONDS`。
+- 本轮只在本地和隔离测试环境验证，不修改生产 `.env`、正式数据库或正式容器。
 
 ## 不在本阶段范围
 

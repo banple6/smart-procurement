@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -20,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.notifications.PushNotificationPolicy
 import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
+import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbPreviewShortcut
 
 @Composable
 fun AdminDashboardScreen(viewModel: SupplyViewModel) {
@@ -38,6 +41,9 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            item {
+                ThinkingOrbPreviewShortcut(onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) })
+            }
             if (dashboard.pending > 0) {
                 item {
                     Surface(
@@ -83,6 +89,30 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                         MetricTile("今日金额", Money.formatCents(dashboard.todayTotalCents), Modifier.weight(1f))
                         MetricTile("库存紧张", dashboard.tightInventory.toString(), Modifier.weight(1f))
+                    }
+                }
+            }
+            item {
+                SectionPanel("食材批量维护") {
+                    Text("上传供应商报价，一次建立新食材并同步已有商品价格。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.navigateTo(Screen.PriceImports) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Description, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Excel 智能导入")
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.navigateTo(Screen.DeliveryBatches) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.LocalShipping, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("配送批次与备货单")
                     }
                 }
             }

@@ -6,10 +6,12 @@
     shipped: "已发货",
     completed: "已完成",
     cancelled: "已取消",
+    voided: "已作废",
   };
   let refreshTimer = null;
   let reminderTimer = null;
   let knownOrderStatuses = null;
+  const orderListState = { cursor: "", items: [], archived: false, total: 0, filters: null };
   const baseTitle = document.title;
 
   function $(id) { return document.getElementById(id); }
@@ -33,6 +35,15 @@
   function dateTime(value) {
     const text = display(value, "");
     return text ? text.replace("T", " ").slice(0, 16) : "时间未记录";
+  }
+  function orderMonthKey(order) {
+    const value = display(order.created_at, "");
+    return /^\d{4}-\d{2}/.test(value) ? value.slice(0, 7) : "unknown";
+  }
+  function orderMonthLabel(month) {
+    if (month === "unknown") return "时间未记录";
+    const [year, value] = month.split("-");
+    return `${year}年${Number(value)}月`;
   }
   function cookie(name) {
     const found = document.cookie.split("; ").find((item) => item.startsWith(name + "="));
@@ -181,9 +192,52 @@
     const order = await api("/unit/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
     window.location.replace(`/unit/orders/${order.id}`);
   }
-  async function loadOrders() {
-    const data = await api("/unit/orders/data");
-    $("orderList").innerHTML = (data.items || []).map((order) => `<a class="row-item" href="/unit/orders/${order.id}"><div class="row-head"><strong>${html(order.order_no)}</strong><span>${html(statusLabel(order))}</span></div><div class="row-sub">${money(order.total_cents)} · ${html(dateTime(order.created_at))}</div></a>`).join("") || '<div class="row-sub">暂无订单</div>';
+  function renderOrders() {
+    const groups = new Map();
+    orderListState.items.forEach((order) => {
+      const month = orderMonthKey(order);
+      if (!groups.has(month)) groups.set(month, []);
+      groups.get(month).push(order);
+    });
+    $("orderList").innerHTML = groups.size ? Array.from(groups.entries()).map(([month, orders], index) => `
+      <details class="order-month-group" ${index === 0 ? "open" : ""}>
+        <summary><span>${html(orderMonthLabel(month))}</span><small>${orders.length} 笔订单</small></summary>
+        <div class="order-month-items">
+          ${orders.map((order) => `<a class="row-item" href="/unit/orders/${order.id}"><div class="row-head"><strong>${html(order.order_no)}</strong><span>${html(statusLabel(order))}</span></div><div class="row-sub">${money(order.total_cents)} · ${html(dateTime(order.created_at))}${order.archived ? " · 已归档" : ""}</div></a>`).join("")}
+        </div>
+      </details>
+    `).join("") : '<div class="row-sub empty-order-result">没有符合条件的订单</div>';
+    $("orderResultSummary").textContent = `共 ${orderListState.total || orderListState.items.length} 笔，已显示 ${orderListState.items.length} 笔`;
+    $("loadMoreOrdersButton").hidden = !orderListState.cursor;
+    $("archivedOrdersButton").textContent = orderListState.archived ? "查看当前订单" : "查看归档";
+  }
+  async function loadOrders(reset = true) {
+    const query = new URLSearchParams();
+    if (reset) {
+      orderListState.cursor = "";
+      orderListState.items = [];
+    }
+    const filters = reset || !orderListState.filters ? {
+      status: $("orderStatusFilter")?.value || "",
+      search: $("orderSearch")?.value.trim() || "",
+      dateFrom: $("orderDateFrom")?.value || "",
+      dateTo: $("orderDateTo")?.value || "",
+    } : orderListState.filters;
+    const { status, search, dateFrom, dateTo } = filters;
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new Error("开始日期不能晚于结束日期");
+    if (reset) orderListState.filters = filters;
+    if (status) query.set("status", status);
+    if (search) query.set("query", search);
+    if (dateFrom) query.set("date_from", dateFrom);
+    if (dateTo) query.set("date_to", dateTo);
+    if (orderListState.archived) query.set("archived", "true");
+    if (!reset && orderListState.cursor) query.set("cursor", orderListState.cursor);
+    query.set("limit", "20");
+    const data = await api("/unit/orders/data?" + query.toString());
+    orderListState.items = reset ? (data.items || []) : orderListState.items.concat(data.items || []);
+    orderListState.cursor = data.next_cursor || "";
+    orderListState.total = data.total || 0;
+    renderOrders();
   }
   async function loadOrderDetail() {
     const orderId = window.location.pathname.split("/").pop();
@@ -194,12 +248,29 @@
     $("orderItems").innerHTML = (order.items || []).map((item) => `<div class="row-item"><div class="row-head"><strong>${html(item.product_name_snapshot)}</strong><span>${money(item.subtotal_cents)}</span></div><div class="row-sub">${html(item.spec_snapshot)} · ${html(item.quantity)} ${html(item.unit_snapshot)}</div></div>`).join("");
     $("shippingPhotos").innerHTML = (order.shipping_photos || []).map((photo) => `<a href="${photo.full_url}" target="_blank" rel="noreferrer"><img src="${photo.thumbnail_url}" alt="发货照片" /></a>`).join("") || '<div class="row-sub">暂无发货照片</div>';
     $("confirmReceiptButton").hidden = order.status !== "shipped";
+    $("cancelOrderButton").hidden = !order.can_cancel;
+    $("archiveOrderButton").hidden = !order.can_archive;
   }
   async function confirmReceipt() {
     const orderId = window.location.pathname.split("/").pop();
     await api(`/unit/orders/${orderId}/confirm-receipt`, { method: "POST" });
     toast("已确认收货");
     loadOrderDetail();
+  }
+  async function cancelOrder() {
+    const orderId = window.location.pathname.split("/").pop();
+    const reason = window.prompt("请填写取消原因", "数量填写错误");
+    if (reason === null) return;
+    if (!reason.trim()) { toast("请填写取消原因"); return; }
+    await api(`/unit/orders/${orderId}/cancel`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) });
+    toast("订单已取消，库存已释放");
+    loadOrderDetail();
+  }
+  async function archiveOrder() {
+    const orderId = window.location.pathname.split("/").pop();
+    await api(`/unit/orders/${orderId}/archive`, { method: "POST" });
+    toast("订单已归档");
+    window.location.replace("/unit/orders");
   }
   async function loadProfile() {
     const me = await api("/api/v1/web-auth/me");
@@ -239,6 +310,25 @@
   });
   $("confirmReceiptButton")?.addEventListener("click", async (event) => {
     await action(event.currentTarget, confirmReceipt, "确认中");
+  });
+  $("cancelOrderButton")?.addEventListener("click", async (event) => {
+    await action(event.currentTarget, cancelOrder, "取消中");
+  });
+  $("archiveOrderButton")?.addEventListener("click", async (event) => {
+    await action(event.currentTarget, archiveOrder, "归档中");
+  });
+  $("orderSearchButton")?.addEventListener("click", () => loadOrders(true).catch((error) => toast(error.message)));
+  $("clearOrderFiltersButton")?.addEventListener("click", () => {
+    $("orderSearch").value = "";
+    $("orderStatusFilter").value = "";
+    $("orderDateFrom").value = "";
+    $("orderDateTo").value = "";
+    loadOrders(true).catch((error) => toast(error.message));
+  });
+  $("loadMoreOrdersButton")?.addEventListener("click", () => loadOrders(false).catch((error) => toast(error.message)));
+  $("archivedOrdersButton")?.addEventListener("click", () => {
+    orderListState.archived = !orderListState.archived;
+    loadOrders(true).catch((error) => toast(error.message));
   });
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {

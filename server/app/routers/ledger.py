@@ -5,6 +5,7 @@ from urllib.parse import quote
 from ..database import all_rows, connect, decimal_text
 from ..dependencies import require_admin_user
 from ..services.exports import ledger_workbook
+from ..services.local_time import display_local_time
 
 router = APIRouter(prefix="/admin", tags=["ledger"])
 
@@ -14,13 +15,13 @@ def excel_attachment(filename: str) -> dict[str, str]:
 
 
 def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None, product=None, order_no=None):
-    where = ["1 = 1"]
+    where = ["orders.is_deleted = 0"]
     params = []
     if start_date:
-        where.append("date(orders.created_at) >= date(?)")
+        where.append("date(datetime(orders.created_at, '+8 hours')) >= date(?)")
         params.append(start_date)
     if end_date:
-        where.append("date(orders.created_at) <= date(?)")
+        where.append("date(datetime(orders.created_at, '+8 hours')) <= date(?)")
         params.append(end_date)
     if unit_id:
         where.append("orders.unit_id = ?")
@@ -52,6 +53,8 @@ def ledger_rows(conn, start_date=None, end_date=None, unit_id=None, status=None,
             row["requested_quantity"] = decimal_text(row.get("requested_quantity") or quantity)
         if "actual_quantity" in row:
             row["actual_quantity"] = decimal_text(row.get("actual_quantity") or quantity)
+        for field in ("created_at", "accepted_at", "preparing_at", "shipped_at", "completed_at", "cancelled_at"):
+            row[field] = display_local_time(row.get(field))
     return rows
 
 

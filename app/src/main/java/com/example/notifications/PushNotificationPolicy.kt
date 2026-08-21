@@ -29,6 +29,7 @@ object PushNotificationPolicy {
         event.status == "shipped" -> "订单已发货，请及时确认收货。"
         event.status == "completed" -> "订单已完成。"
         event.status == "cancelled" -> "订单已取消。"
+        event.status == "voided" -> "订单已作废，预占库存已释放。"
         else -> "订单状态已更新。"
     }
 

@@ -6,6 +6,7 @@
     shipped: "已发货",
     completed: "已完成",
     cancelled: "已取消",
+    voided: "已作废",
   };
 
   const supplyText = {
@@ -22,18 +23,18 @@
 
   const nav = [
     ["", [["工作台", "/admin/dashboard", "▦"]]],
-    ["采购管理", [["订单管理", "/admin/orders", "□"], ["当前备货", "/admin/preparation-summary", "▤"], ["单位配送", "/admin/delivery-sheets", "⇄"]]],
-    ["食材管理", [["食材列表", "/admin/products", "◇"], ["库存记录", "/admin/inventory", "≡"]]],
+    ["采购管理", [["订单管理", "/admin/orders", "□"], ["配送批次", "/admin/batches", "▤"]]],
+    ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
     ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统日志", "/admin/system-logs", "▤"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
   ];
 
   const quickActions = [
-    ["当前备货单", "/admin/preparation-summary", "按食材汇总待备货需求"],
-    ["单位配送单", "/admin/delivery-sheets", "按单位查看配送清单"],
+    ["配送批次", "/admin/batches", "按明确批次汇总、备货和出库"],
     ["待接单订单", "/admin/orders?status=pending", "处理新提交采购单"],
     ["食材价格维护", "/admin/products?mode=price", "快速改价和库存"],
+    ["Excel 智能导入", "/admin/price-imports", "批量建立食材并同步供应商报价"],
     ["系统状态", "/admin/system", "查看服务和备份"],
     ["导出今日台账", "/api/v1/admin/ledger/export.xlsx", "保存 Excel 台账"],
   ];
@@ -48,6 +49,8 @@
     rangeDays: 7,
     unitSort: "amount",
     productFormOpen: false,
+    productSelectionMode: false,
+    selectedProductIds: new Set(),
     productFormDefaults: {
       productCategory: "蔬菜",
       productUnit: "公斤",
@@ -105,6 +108,17 @@
   function shortTime(value) {
     if (!display(value, "")) return "时间未记录";
     return String(value).replace("T", " ").slice(5, 16);
+  }
+
+  function orderMonthKey(order) {
+    const value = display(order.created_at, "");
+    return /^\d{4}-\d{2}/.test(value) ? value.slice(0, 7) : "unknown";
+  }
+
+  function orderMonthLabel(month) {
+    if (month === "unknown") return "时间未记录";
+    const [year, value] = month.split("-");
+    return `${year}年${Number(value)}月`;
   }
 
   function cookie(name) {
@@ -367,6 +381,17 @@
     }).join("")}</div><input type="hidden" name="${html(inputName)}" value="${html(selectedValue)}" />`;
   }
 
+  function defaultProductSpec(unit) {
+    return ["公斤", "斤"].includes(String(unit || "").trim()) ? "散装" : "预包装";
+  }
+
+  function syncProductSpec(root, unit) {
+    const input = root.querySelector('input[name="productSpec"]');
+    if (!input) return;
+    const current = String(input.value || "").trim();
+    if (!current || ["散装", "预包装"].includes(current)) input.value = defaultProductSpec(unit);
+  }
+
   function productFormTemplate() {
     const defaults = state.productFormDefaults;
     if (!state.productFormOpen) return "";
@@ -379,7 +404,7 @@
           <div class="form-grid compact">
             <label class="form-field span-2"><span>食材名称</span><input name="productName" type="text" autocomplete="off" required placeholder="例如：青菜" /></label>
             <label class="form-field span-2"><span>食材分类</span>${productOptionButtons("productCategory", productCategories, defaults.productCategory)}</label>
-            <label class="form-field"><span>规格</span><input name="productSpec" type="text" value="散装" required /></label>
+            <label class="form-field"><span>规格</span><input name="productSpec" type="text" value="${defaultProductSpec(defaults.productUnit)}" required /></label>
             <label class="form-field"><span>计量单位</span>${productOptionButtons("productUnit", productUnits, defaults.productUnit)}</label>
             <label class="form-field"><span>单价（元）</span><input name="productPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="0.00" /></label>
             <label class="form-field"><span>当前库存</span><input name="productStock" type="number" min="0" step="0.01" inputmode="decimal" value="0" /></label>
@@ -422,6 +447,7 @@
         const input = root.querySelector(`input[name="${name}"]`);
         if (input) input.value = button.dataset.optionValue || "";
         root.querySelectorAll(`[data-option-input="${name}"]`).forEach((item) => item.classList.toggle("active", item === button));
+        if (name === "productUnit") syncProductSpec(root, button.dataset.optionValue || "");
       });
     });
   }
@@ -433,7 +459,7 @@
       product_code: String(data.get("productCode") || "").trim() || `WEB-${Date.now()}-${Math.random().toString(16).slice(2, 8).toUpperCase()}`,
       name: String(data.get("productName") || "").trim(),
       category: String(data.get("productCategory") || "蔬菜"),
-      spec: String(data.get("productSpec") || "散装").trim() || "散装",
+      spec: String(data.get("productSpec") || "").trim() || defaultProductSpec(data.get("productUnit")),
       unit: String(data.get("productUnit") || "公斤"),
       price_cents: Math.round(price * 100),
       stock_quantity: String(data.get("productStock") || "0"),
@@ -467,7 +493,7 @@
 
   function primaryAction(order) {
     if (order.status === "pending") return ["接单", "accepted"];
-    if (order.status === "accepted") return ["开始备货", "preparing"];
+    if (order.status === "accepted") return ["查看", ""];
     if (order.status === "preparing") return ["确认发货", "ship"];
     if (order.status === "shipped") return ["完成订单", "completed"];
     return ["查看", ""];
@@ -580,6 +606,64 @@
     }
   }
 
+  async function lifecycleOrder(button, action) {
+    const labels = { cancel: "取消", void: "作废", archive: "归档", unarchive: "取消归档" };
+    const label = labels[action] || "处理";
+    let reason = "";
+    if (action === "cancel" || action === "void") {
+      reason = window.prompt(`请填写${label}原因`, action === "cancel" ? "重复提交" : "订单作废");
+      if (reason === null) return;
+      if (!reason.trim()) { toast(`请填写${label}原因`); return; }
+    } else if (!confirm(`确认${label}这笔订单吗？`)) {
+      return;
+    }
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "提交中";
+    try {
+      const path = action === "archive" || action === "unarchive"
+        ? `/api/v1/orders/${button.dataset.order}/${action}`
+        : `/api/v1/admin/orders/${button.dataset.order}/${action}`;
+      await api(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: (action === "cancel" || action === "void") ? JSON.stringify({ reason }) : undefined,
+      });
+      toast(`订单已${label}`);
+      await loadCurrent(true);
+    } catch (error) {
+      toast(error.message || "操作失败，请刷新后重试");
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  async function deleteOrder(button) {
+    const reason = window.prompt(
+      "确认删除该订单？\n删除后将从正常订单列表隐藏，但历史业务及审计记录仍会保留。\n\n请填写删除原因：",
+      "录入错误"
+    );
+    if (reason === null) return;
+    if (!reason.trim()) return toast("请填写删除原因");
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "删除中";
+    try {
+      await api(`/api/v1/admin/orders/${button.dataset.deleteOrder}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+      toast("订单已删除");
+      if (currentRoute().startsWith("/admin/orders/")) window.location.assign("/admin/orders");
+      else await loadCurrent(true);
+    } catch (error) {
+      toast(error.message || "删除失败，请刷新后重试");
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
   async function shipOrder(button, files, note = "") {
     const selected = Array.from(files || []).filter(Boolean);
     if (!selected.length) {
@@ -647,25 +731,108 @@
     const query = new URLSearchParams();
     if (params.get("status")) query.set("status", params.get("status"));
     if (params.get("unit_id")) query.set("unit_id", params.get("unit_id"));
+    if (params.get("date_from")) query.set("date_from", params.get("date_from"));
+    if (params.get("date_to")) query.set("date_to", params.get("date_to"));
+    if (params.get("query")) query.set("query", params.get("query"));
+    if (params.get("archived") === "true") query.set("archived", "true");
+    if (params.get("cursor")) query.set("cursor", params.get("cursor"));
     pageShell("订单管理", "接单、备货和完成订单");
-    const data = await api(`/api/v1/admin/orders?include_items=true&page_size=100&${query.toString()}`);
+    content().innerHTML += `
+      <div class="page-toolbar">
+        <input id="orderQueryInput" type="search" value="${html(params.get("query") || "")}" placeholder="搜索订单编号或单位" />
+        <input id="orderDateFrom" type="date" value="${html(params.get("date_from") || "")}" aria-label="开始日期" />
+        <input id="orderDateTo" type="date" value="${html(params.get("date_to") || "")}" aria-label="结束日期" />
+        <select id="orderStatusSelect">
+          <option value="">全部状态</option>
+          ${["pending", "accepted", "preparing", "shipped", "completed", "cancelled", "voided"].map((status) => `<option value="${status}" ${params.get("status") === status ? "selected" : ""}>${statusText[status]}</option>`).join("")}
+        </select>
+        <button id="orderFilterButton" class="table-action primary" type="button">查询</button>
+        <button id="orderClearFilterButton" class="table-action" type="button">清除筛选</button>
+        <button id="orderArchiveToggle" class="table-action" type="button">${params.get("archived") === "true" ? "查看当前订单" : "查看归档订单"}</button>
+      </div>`;
+    const data = await api(`/api/v1/admin/orders?include_items=true&limit=30&${query.toString()}`);
     const items = data.items || data || [];
-    content().innerHTML += table(["订单编号", "单位", "下单时间", "金额", "状态", "食材", "操作"], items.map((order) => {
+    const orderRows = items.map((order) => {
       const action = primaryAction(order);
       const goods = (order.items || []).slice(0, 3).map((item) => `${html(item.product_name || item.product_name_snapshot)} x ${qty(item.quantity)}`).join("<br>");
       const button = action[1] === "ship"
         ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
         : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
-      return `<tr><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${goods || "--"}</td><td>${button}</td></tr>`;
-    }), "暂无订单");
+      const lifecycle = order.can_cancel ? `<button class="table-action" data-lifecycle="cancel" data-order="${order.id}">取消</button>`
+        : order.can_void ? `<button class="table-action" data-lifecycle="void" data-order="${order.id}">作废</button>`
+        : order.can_archive ? `<button class="table-action" data-lifecycle="archive" data-order="${order.id}">归档</button>`
+        : order.can_unarchive ? `<button class="table-action" data-lifecycle="unarchive" data-order="${order.id}">取消归档</button>` : "";
+      const deleteButton = order.can_delete
+        ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
+        : `<button class="table-action danger" type="button" disabled title="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
+      return { order, row: `<tr><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${goods || "--"}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
+    });
+    const groups = new Map();
+    orderRows.forEach((entry) => {
+      const month = orderMonthKey(entry.order);
+      if (!groups.has(month)) groups.set(month, []);
+      groups.get(month).push(entry.row);
+    });
+    content().innerHTML += items.length ? `
+      <div class="order-result-summary">共 ${num(data.total || items.length)} 笔，本页显示 ${num(items.length)} 笔</div>
+      <div class="order-month-list">
+        ${Array.from(groups.entries()).map(([month, rows], index) => `
+          <details class="order-month-group" ${index === 0 ? "open" : ""}>
+            <summary><span>${html(orderMonthLabel(month))}</span><small>${rows.length} 笔订单</small></summary>
+            ${table(["订单编号", "单位", "下单时间", "金额", "状态", "食材", "操作"], rows, "暂无订单")}
+          </details>
+        `).join("")}
+      </div>` : empty("没有符合条件的订单");
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
     document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
+    document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
+    document.querySelectorAll("[data-delete-order]").forEach((button) => button.addEventListener("click", () => deleteOrder(button)));
+    if (data.has_more && data.next_cursor) {
+      content().innerHTML += `<div class="page-toolbar"><button id="nextOrderPage" class="table-action" type="button">下一页</button></div>`;
+      $("nextOrderPage").addEventListener("click", () => {
+        const next = new URLSearchParams(window.location.search);
+        next.set("cursor", data.next_cursor);
+        window.location.assign(`/admin/orders?${next.toString()}`);
+      });
+    }
+    $("orderFilterButton").addEventListener("click", () => {
+      const next = new URLSearchParams();
+      const text = $("orderQueryInput").value.trim();
+      const status = $("orderStatusSelect").value;
+      const dateFrom = $("orderDateFrom").value;
+      const dateTo = $("orderDateTo").value;
+      if (text) next.set("query", text);
+      if (status) next.set("status", status);
+      if (dateFrom) next.set("date_from", dateFrom);
+      if (dateTo) next.set("date_to", dateTo);
+      if (params.get("unit_id")) next.set("unit_id", params.get("unit_id"));
+      if (params.get("archived") === "true") next.set("archived", "true");
+      window.location.assign(`/admin/orders?${next.toString()}`);
+    });
+    $("orderClearFilterButton").addEventListener("click", () => {
+      const next = new URLSearchParams();
+      if (params.get("archived") === "true") next.set("archived", "true");
+      window.location.assign(`/admin/orders${next.toString() ? `?${next.toString()}` : ""}`);
+    });
+    $("orderArchiveToggle").addEventListener("click", () => {
+      const next = new URLSearchParams(window.location.search);
+      next.delete("cursor");
+      if (next.get("archived") === "true") next.delete("archived"); else next.set("archived", "true");
+      window.location.assign(`/admin/orders?${next.toString()}`);
+    });
   }
 
   async function loadOrderDetail(orderId) {
     pageShell("订单详情", "订单状态和食材明细");
     const order = await api(`/api/v1/admin/orders/${orderId}`);
     const action = primaryAction(order);
+    const lifecycle = order.can_cancel ? `<button class="secondary-button" data-lifecycle="cancel" data-order="${order.id}">取消订单</button>`
+      : order.can_void ? `<button class="secondary-button" data-lifecycle="void" data-order="${order.id}">作废订单</button>`
+      : order.can_archive ? `<button class="secondary-button" data-lifecycle="archive" data-order="${order.id}">归档订单</button>`
+      : order.can_unarchive ? `<button class="secondary-button" data-lifecycle="unarchive" data-order="${order.id}">取消归档</button>` : "";
+    const deleteButton = order.can_delete
+      ? `<button class="danger-button" data-delete-order="${order.id}">删除订单</button>`
+      : `<button class="danger-button" type="button" disabled title="${html(order.delete_reason || "当前状态不能删除")}">删除订单</button>`;
     content().innerHTML += `
       <article class="panel section-panel">
         <div class="panel-header"><div><h2>${html(order.order_no)}</h2><p>${html(order.unit_name_snapshot || "--")} · ${dateTime(order.created_at)}</p></div><div>${statusTag(order.status)}</div></div>
@@ -674,7 +841,7 @@
           <dt>备注</dt><dd>${html(order.remark || "无")}</dd>
           <dt>订单金额</dt><dd>${money(order.total_cents)}</dd>
         </dl>
-        ${action[1] && action[1] !== "ship" ? `<div class="page-toolbar"><button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button></div>` : ""}
+        <div class="page-toolbar">${action[1] && action[1] !== "ship" ? `<button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : ""}${lifecycle}${deleteButton}</div>
       </article>
     `;
     if (order.status === "preparing") {
@@ -701,6 +868,8 @@
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.unit_price_cents)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
+    document.querySelectorAll("[data-delete-order]").forEach((button) => button.addEventListener("click", () => deleteOrder(button)));
     document.querySelectorAll("[data-ship-detail]").forEach((button) => button.addEventListener("click", () => {
       shipOrder(button, $("shippingPhotosInput").files, $("shippingNoteInput").value || "");
     }));
@@ -714,14 +883,23 @@
     if (params.get("status") === "tight") {
       rows = products.filter((item) => item.supply_status === "tight" || Number(item.available_quantity || 0) <= Number(item.warning_quantity || 0));
     }
+    const visibleIds = new Set(rows.map((item) => item.id));
+    state.selectedProductIds = new Set(Array.from(state.selectedProductIds).filter((id) => visibleIds.has(id)));
     content().innerHTML += `
       <div class="page-toolbar">
         <button class="primary-link" data-create-product type="button">添加食材</button>
+        <a class="secondary-button as-link" href="/api/v1/admin/products/import-template.xlsx">下载标准模板</a>
+        <a class="secondary-button as-link" href="/admin/price-imports">上传 Excel</a>
+        <button class="secondary-button" id="productSelectionToggle" type="button">${state.productSelectionMode ? "退出批量管理" : "批量管理"}</button>
+        ${state.productSelectionMode ? `<button class="danger-button" id="deleteSelectedProducts" type="button" ${state.selectedProductIds.size ? "" : "disabled"}>删除已选（${state.selectedProductIds.size}）</button>` : ""}
+        <button class="danger-button" id="clearProducts" type="button" ${products.length ? "" : "disabled"}>清空食材</button>
       </div>
+      <p class="muted">已进入历史订单的食材只会从当前目录归档，历史订单、台账和审计记录仍会保留。</p>
       ${productFormTemplate()}
     `;
-    content().innerHTML += table(["食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"], rows.map((item) => `
-      <tr><td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
+    const productHeaders = state.productSelectionMode ? ["选择", "食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"] : ["食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"];
+    content().innerHTML += table(productHeaders, rows.map((item) => `
+      <tr>${state.productSelectionMode ? `<td><input class="row-check" type="checkbox" data-product-select="${item.id}" ${state.selectedProductIds.has(item.id) ? "checked" : ""} aria-label="选择${html(item.name)}" /></td>` : ""}<td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
     `), "暂无食材");
     const form = $("productCreateForm");
     document.querySelectorAll("[data-create-product]").forEach((button) => button.addEventListener("click", () => {
@@ -732,6 +910,54 @@
       state.productFormOpen = false;
       loadProducts();
     }));
+    $("productSelectionToggle").addEventListener("click", () => {
+      state.productSelectionMode = !state.productSelectionMode;
+      if (!state.productSelectionMode) state.selectedProductIds.clear();
+      loadProducts();
+    });
+    document.querySelectorAll("[data-product-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.selectedProductIds.add(checkbox.dataset.productSelect);
+      else state.selectedProductIds.delete(checkbox.dataset.productSelect);
+      const button = $("deleteSelectedProducts");
+      if (button) {
+        button.disabled = state.selectedProductIds.size === 0;
+        button.textContent = `删除已选（${state.selectedProductIds.size}）`;
+      }
+    }));
+    const deleteSelected = $("deleteSelectedProducts");
+    if (deleteSelected) deleteSelected.addEventListener("click", async () => {
+      const ids = Array.from(state.selectedProductIds);
+      if (!ids.length || !confirm(`确认删除已选的 ${ids.length} 项食材吗？\n历史业务记录仍会保留。`)) return;
+      deleteSelected.disabled = true;
+      deleteSelected.textContent = "删除中";
+      try {
+        await api("/api/v1/admin/products/batch", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids, confirmed: true }) });
+        state.selectedProductIds.clear();
+        toast("已删除所选食材");
+        await loadProducts();
+      } catch (error) {
+        toast(error.message || "批量删除失败");
+        deleteSelected.disabled = false;
+      }
+    });
+    $("clearProducts").addEventListener("click", async () => {
+      const confirmationText = window.prompt(`即将从当前目录移除 ${products.length} 项食材。请输入“确认删除”继续。`, "");
+      if (confirmationText === null) return;
+      if (confirmationText.trim() !== "确认删除") return toast("未输入正确确认文字，操作已取消");
+      const button = $("clearProducts");
+      button.disabled = true;
+      button.textContent = "删除中";
+      try {
+        await api("/api/v1/admin/products/all", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed: true, confirmation_text: confirmationText.trim(), expected_count: products.length }) });
+        state.selectedProductIds.clear();
+        toast("食材目录已清空");
+        await loadProducts();
+      } catch (error) {
+        toast(error.message || "清空食材失败");
+        button.disabled = false;
+        button.textContent = "清空食材";
+      }
+    });
     if (form) {
       bindProductOptionButtons(form);
       form.querySelectorAll("[data-save-product]").forEach((button) => {
@@ -785,6 +1011,290 @@
     }));
   }
 
+  function priceImportStatus(status) {
+    return ({ UPLOADED: "待分析", ANALYZING: "分析中", READY_FOR_REVIEW: "待审核", APPLYING: "正在应用", APPLIED: "已应用", FAILED: "分析失败", CANCELLED: "已取消" })[status] || display(status, "未知");
+  }
+
+  function priceImportRowStatus(row) {
+    if (row.validation_status === "IGNORED") return "本次忽略";
+    if (row.validation_status === "READY" && row.operation_type === "NEW_PRODUCT") return "待新增";
+    if (row.validation_status === "READY" && row.operation_type === "EXISTING_PRODUCT") return "待同步";
+    if (row.validation_status === "NEEDS_REVIEW") return "需要确认";
+    return ({ NEEDS_PRODUCT_SELECTION: "需要确认", UNMATCHED: "需要确认", INVALID: "数据异常", DUPLICATE_CONFLICT: "数据异常", PRICE_CONFLICT: "需要重新确认" })[row.validation_status] || display(row.validation_status, "未知");
+  }
+
+  function priceImportChange(oldCents, newCents) {
+    if (oldCents == null || newCents == null) return "--";
+    if (Number(oldCents) === 0) return "新增价格";
+    const rate = ((Number(newCents) - Number(oldCents)) / Number(oldCents)) * 100;
+    return `${rate > 0 ? "+" : ""}${rate.toFixed(1)}%`;
+  }
+
+  function priceImportLinkLabel(row) {
+    if (row.match_method === "exact_code" || row.match_method === "exact_name") return "已自动关联";
+    if (row.match_method === "manual_selection" || row.match_method === "manual") return "已选择";
+    return "";
+  }
+
+  function priceImportProductLabel(product) {
+    return `${product.name} · ${product.unit} · 当前 ${money(product.price_cents)}${product.product_code ? ` · ${product.product_code}` : ""}`;
+  }
+
+  function priceImportMapping(raw) {
+    try { return JSON.parse(raw || "{}"); } catch (_) { return {}; }
+  }
+
+  function priceImportActivityPanel(state, title, detail, active = true) {
+    return `<section class="thinking-orb-status-panel${active ? " is-active" : ""}" aria-live="polite"><div class="thinking-orb-host" data-thinking-orb="${html(state)}" data-thinking-orb-active="${active ? "1" : "0"}"></div><div><h2>${html(title)}</h2><p>${html(detail)}</p></div></section>`;
+  }
+
+  function mountThinkingOrbs(root = document) {
+    if (!window.SangongThinkingOrb) return;
+    root.querySelectorAll("[data-thinking-orb]").forEach((host) => {
+      window.SangongThinkingOrb.mount(host, {
+        state: host.dataset.thinkingOrb || "working",
+        active: host.dataset.thinkingOrbActive !== "0"
+      });
+    });
+  }
+
+  function setPriceImportMotion(state, active = true) {
+    const host = document.querySelector("[data-thinking-orb]");
+    if (!host || !window.SangongThinkingOrb) return;
+    host.dataset.thinkingOrb = state;
+    host.dataset.thinkingOrbActive = active ? "1" : "0";
+    host.closest(".thinking-orb-status-panel")?.classList.toggle("is-active", active);
+    window.SangongThinkingOrb.mount(host, { state, active });
+  }
+
+  // The Canvas engine is an ES module. If the dashboard renders before the
+  // module finishes loading, mount the current lifecycle state once it is ready.
+  window.addEventListener("sangong-thinking-orb-ready", () => mountThinkingOrbs(content()));
+
+  async function loadPriceImportHistory() {
+    const result = await api("/api/v1/admin/price-imports");
+    return result.items || [];
+  }
+
+  async function uploadPriceImport(file, button) {
+    if (!file) return toast("请选择供应商报价 Excel");
+    const form = new FormData();
+    form.append("file", file);
+    button.disabled = true;
+    button.textContent = "正在上传";
+    setPriceImportMotion("solving", true);
+    try {
+      const batch = await api("/api/v1/admin/price-imports", { method: "POST", body: form });
+      button.textContent = "正在分析";
+      await api(`/api/v1/admin/price-imports/${batch.id}/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      window.history.pushState({}, "", `/admin/price-imports/${batch.id}`);
+      await loadPriceImportDetail(batch.id);
+    } catch (error) {
+      toast(error.message || "报价表分析失败，请检查文件或手动确认字段");
+      button.disabled = false;
+      button.textContent = "开始分析";
+      await loadPriceImports();
+    }
+  }
+
+  async function loadPriceImports() {
+    pageShell("Excel 智能导入与价格同步", "上传供应商报价，批量建立新食材并同步已有食材价格");
+    const items = await loadPriceImportHistory();
+    content().innerHTML += `
+      ${priceImportActivityPanel("searching", "智能导入已就绪", "选择报价表后将自动识别字段；应用前仍需由管理员确认。")}
+      <article class="panel section-panel">
+        <div class="panel-header"><div><h2>上传供应商报价 Excel</h2><p>支持 .xlsx、.xls、.csv，最大 10 MB。首次可批量建立商品目录，之后会同步已有食材价格；应用前始终需要确认。</p></div></div>
+        <div class="form-grid"><label class="form-field span-2"><span>报价文件</span><input id="priceImportFile" type="file" accept=".xlsx,.xls,.csv" /></label></div>
+        <div class="page-toolbar"><button class="primary-link" id="startPriceImport" type="button">开始分析</button></div>
+      </article>
+      <article class="panel table-panel"><div class="panel-header"><div><h2>导入记录</h2><p>可查看历史导入批次和应用结果</p></div></div>
+      ${table(["上传时间", "文件", "状态", "操作"], items.map((item) => `<tr><td>${dateTime(item.created_at)}</td><td>${html(item.source_filename)}</td><td>${html(priceImportStatus(item.status))}</td><td><a class="table-action" href="/admin/price-imports/${item.id}">查看</a></td></tr>`), "暂无导入记录")}</article>`;
+    mountThinkingOrbs(content());
+    $("startPriceImport").addEventListener("click", () => uploadPriceImport($("priceImportFile").files[0], $("startPriceImport")));
+  }
+
+  function newProductEditor(row) {
+    const categoryOptions = productCategories.map((item) => `<option value="${html(item)}" ${item === row.proposed_category ? "selected" : ""}>${html(item)}</option>`).join("");
+    const unitOptions = productUnits.map((item) => `<option value="${html(item)}" ${item === row.proposed_unit ? "selected" : ""}>${html(item)}</option>`).join("");
+    const statusOptions = productSupplyStatuses.map(([value, label]) => `<option value="${value}" ${value === row.proposed_supply_status ? "selected" : ""}>${label}</option>`).join("");
+    return `<details class="mapping-details"><summary>修改本项资料</summary><div class="form-grid compact-form">
+      <label class="form-field"><span>商品编码</span><input data-new-code="${row.id}" value="${html(row.proposed_product_code || "")}" /></label>
+      <label class="form-field"><span>分类</span><select data-new-category="${row.id}">${categoryOptions}</select></label>
+      <label class="form-field"><span>规格</span><input data-new-spec="${row.id}" value="${html(row.proposed_spec || "散装")}" /></label>
+      <label class="form-field"><span>单位</span><select data-new-unit="${row.id}">${unitOptions}</select></label>
+      <label class="form-field"><span>初始库存</span><input data-new-stock="${row.id}" inputmode="decimal" value="${html(row.proposed_stock_quantity || "0")}" /></label>
+      <label class="form-field"><span>供应状态</span><select data-new-status="${row.id}">${statusOptions}</select></label>
+    </div><button class="table-action" type="button" data-price-save-new="${row.id}">保存本项</button></details>`;
+  }
+
+  function reviewRows(batch, filter = "ALL") {
+    const rows = (batch.rows || []).filter((row) => {
+      if (filter === "EXISTING") return row.operation_type === "EXISTING_PRODUCT";
+      if (filter === "NEW") return row.operation_type === "NEW_PRODUCT";
+      if (filter === "NEEDS_REVIEW") return row.operation_type === "NEEDS_REVIEW" || row.validation_status === "NEEDS_REVIEW";
+      if (filter === "EXCEPTION") return ["INVALID", "DUPLICATE_CONFLICT", "PRICE_CONFLICT"].includes(row.validation_status);
+      return true;
+    });
+    return rows.map((row) => `<tr>
+      <td>${html(row.source_product_name || "--")}${row.source_spec ? `<br><small>${html(row.source_spec)}</small>` : ""}</td>
+      <td data-price-product-cell="${row.id}">${row.operation_type === "NEW_PRODUCT" ? `新增商品${newProductEditor(row)}` : row.matched_product_name ? `${html(row.matched_product_name)}<br><small>${priceImportLinkLabel(row)}${row.system_unit ? ` · ${html(row.system_unit)}` : ""}</small><br><button class="table-action" data-price-change="${row.id}">更换</button>` : `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${row.id}" placeholder="搜索并选择商品" /><button class="table-action" data-price-select="${row.id}">确认</button>`}</td>
+      <td>${html(row.operation_type === "NEW_PRODUCT" ? (row.proposed_spec || "--") : (row.source_spec || "--"))}</td>
+      <td>${html(row.operation_type === "NEW_PRODUCT" ? (row.proposed_unit || "--") : (row.system_unit || row.normalized_unit || "--"))}</td>
+      <td>${row.operation_type === "NEW_PRODUCT" || row.current_price_cents == null ? "--" : money(row.current_price_cents)}</td>
+      <td>${row.proposed_price_cents == null ? "--" : money(row.proposed_price_cents)}${row.conversion_factor && row.conversion_factor !== "1" ? "<br><small>已换算</small>" : ""}</td>
+      <td>${row.operation_type === "NEW_PRODUCT" ? html(row.proposed_stock_quantity || "0") : "--"}</td>
+      <td>${row.operation_type === "NEW_PRODUCT" ? html(supplyText[row.proposed_supply_status] || "--") : "--"}</td>
+      <td>${html(priceImportRowStatus(row))}${row.warning ? `<br><small>${html(row.warning)}</small>` : ""}${!["READY", "IGNORED"].includes(row.validation_status) ? `<br><button class="table-action" data-price-ignore="${row.id}">忽略本项</button>` : ""}</td></tr>`);
+  }
+
+  async function selectPriceImportProduct(batch, rowId, products) {
+    const input = document.querySelector(`[data-price-product-input="${rowId}"]`);
+    const selected = products.find((item) => priceImportProductLabel(item) === input?.value.trim());
+    if (!selected) return toast("请从搜索结果中选择系统商品");
+    await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matched_product_id: selected.id }) });
+    await loadPriceImportDetail(batch.id);
+  }
+
+  function enablePriceImportProductChange(rowId, products, batch) {
+    const cell = document.querySelector(`[data-price-product-cell="${rowId}"]`);
+    if (!cell) return;
+    cell.innerHTML = `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${rowId}" placeholder="搜索并选择商品" /><button class="table-action" data-price-select="${rowId}">确认</button>`;
+    cell.querySelector("[data-price-select]").addEventListener("click", () => selectPriceImportProduct(batch, rowId, products).catch((error) => toast(error.message || "选择系统商品失败")));
+    cell.querySelector("[data-price-product-input]").focus();
+  }
+
+  async function ignorePriceImportRow(batch, rowId) {
+    if (!confirm("确认忽略这一项吗？本次导入不会新增或修改它。")) return;
+    await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ignore: true }) });
+    await loadPriceImportDetail(batch.id);
+  }
+
+  async function reanalyzePriceImport(batch, button) {
+    if (!confirm("将按当前商品目录重新分析这份报价表，尚未应用的新增和价格同步不会直接执行。是否继续？")) return;
+    button.disabled = true;
+    button.textContent = "正在重新分析";
+    setPriceImportMotion("solving", true);
+    try {
+      await api(`/api/v1/admin/price-imports/${batch.id}/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      await loadPriceImportDetail(batch.id);
+    } catch (error) {
+      toast(error.message || "重新分析失败，请稍后重试");
+      button.disabled = false;
+      button.textContent = "重新分析报价表";
+    }
+  }
+
+  async function loadPriceImportDetail(batchId, selectedFilter = "ALL") {
+    pageShell("Excel 智能导入与价格同步", "核对新增商品、价格和异常项后，再确认应用");
+    const batch = await api(`/api/v1/admin/price-imports/${batchId}`);
+    const blockers = (batch.rows || []).filter((row) => !["READY", "IGNORED"].includes(row.validation_status));
+    const mapping = priceImportMapping(batch.column_mapping_json);
+    const products = await api("/api/v1/admin/products");
+    const metrics = batch.metrics || {};
+    const existingCount = Number(metrics.existing_product_rows || 0);
+    const newCount = Number(metrics.new_product_rows || 0);
+    const reviewCount = Number(metrics.needs_review_rows || 0);
+    const exceptionCount = Number(metrics.exception_rows || 0);
+    const readyExisting = (batch.rows || []).filter((row) => row.validation_status === "READY" && row.operation_type === "EXISTING_PRODUCT").length;
+    const readyNew = (batch.rows || []).filter((row) => row.validation_status === "READY" && row.operation_type === "NEW_PRODUCT").length;
+    const applyText = readyExisting && readyNew ? `确认更新 ${num(readyExisting)} 个价格并新增 ${num(readyNew)} 个商品` : readyExisting ? `确认更新 ${num(readyExisting)} 个价格` : `确认新增 ${num(readyNew)} 个商品`;
+    const filters = [["ALL", "全部"], ["EXISTING", "待同步"], ["NEW", "待新增"], ["NEEDS_REVIEW", "需要确认"], ["EXCEPTION", "异常"]];
+    const defaults = batch.new_product_defaults || { category: "其他", spec: "散装", stock_quantity: "0", supply_status: "paused", fallback_unit: "", active: true };
+    const defaultCategoryOptions = productCategories.map((item) => `<option value="${html(item)}" ${item === defaults.category ? "selected" : ""}>${html(item)}</option>`).join("");
+    const defaultUnitOptions = `<option value="" ${!defaults.fallback_unit ? "selected" : ""}>按 Excel 单位</option>${productUnits.map((item) => `<option value="${html(item)}" ${item === defaults.fallback_unit ? "selected" : ""}>${html(item)}</option>`).join("")}`;
+    const defaultStatusOptions = productSupplyStatuses.map(([value, label]) => `<option value="${value}" ${value === defaults.supply_status ? "selected" : ""}>${label}</option>`).join("");
+    content().innerHTML += `
+      ${priceImportActivityPanel(["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "solving" : "working", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在处理导入批次" : "导入结果已就绪", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在与服务端核对商品和价格，请不要关闭当前页面。" : "请完成需要确认的项目，再一次性应用新增商品和价格同步。", true)}
+      <article class="panel section-panel"><div class="panel-header"><div><h2>${html(batch.source_filename)}</h2><p>Excel 提供的信息会预填到新增候选；本次操作不会修改任何历史订单价格。</p></div><a class="table-action" href="/admin/price-imports">返回记录</a></div>
+        <dl class="status-list detail-list"><dt>共识别</dt><dd>${num((batch.rows || []).length)} 条</dd><dt>更新已有商品</dt><dd>${num(existingCount)}</dd><dt>新增商品</dt><dd>${num(newCount)}</dd><dt>需要确认</dt><dd>${num(reviewCount)}</dd><dt>异常</dt><dd>${num(exceptionCount)}</dd></dl>
+        ${products.length === 0 && newCount ? `<p class="notice-banner">系统当前尚无商品，本次识别的 ${num(newCount)} 项将作为新增商品候选。请检查商品资料并补充缺失字段后批量导入。</p>` : ""}
+        ${newCount ? `<details class="mapping-details" open><summary>新增商品默认设置</summary><p>以下设置会应用到本批次缺失对应字段的新增商品；Excel 中明确提供的库存、规格和单位优先保留。</p><form id="newProductDefaultsForm"><div class="form-grid compact-form"><label class="form-field"><span>分类</span><select name="category">${defaultCategoryOptions}</select></label><label class="form-field"><span>规格</span><input name="spec" value="${html(defaults.spec || "散装")}" /></label><label class="form-field"><span>初始库存</span><input name="stock_quantity" inputmode="decimal" value="${html(defaults.stock_quantity || "0")}" /></label><label class="form-field"><span>供应状态</span><select name="supply_status">${defaultStatusOptions}</select></label><label class="form-field"><span>缺失单位时使用</span><select name="fallback_unit">${defaultUnitOptions}</select></label></div><button class="secondary-button" type="submit">应用到本批新增商品</button></form></details>` : ""}
+        <details class="mapping-details"><summary>修改 Excel 字段识别</summary><p>当前使用：商品名称列“${html(mapping.product_name || "--")}”，价格列“${html(mapping.price || "--")}”。</p><a class="table-action" href="/admin/price-imports/${batch.id}/mapping">重新选择字段</a></details>
+        <div class="page-toolbar">${["READY_FOR_REVIEW", "FAILED"].includes(batch.status) ? `<button class="secondary-button" id="reanalyzePriceImport" type="button">重新分析报价表</button>` : ""}${batch.status === "READY_FOR_REVIEW" ? `<button class="primary-link" id="applyPriceImport" type="button" ${blockers.length || (!readyExisting && !readyNew) ? "disabled" : ""}>${applyText}</button>` : ""}${batch.status === "FAILED" ? `<button class="secondary-button" id="manualPriceMapping" type="button">手动确认 Excel 字段</button>` : ""}</div>
+        ${blockers.length ? `<p class="error-banner">还有 ${blockers.length} 项需要处理；请确认商品资料、处理异常或忽略本次不导入的项目。</p>` : ""}</article>
+      <article class="panel table-panel"><div class="page-toolbar">${filters.map(([value, label]) => `<button class="${value === selectedFilter ? "primary-link" : "secondary-button"}" type="button" data-price-filter="${value}">${label}</button>`).join("")}</div>
+        <datalist id="priceImportProducts">${products.map((item) => `<option value="${html(priceImportProductLabel(item))}"></option>`).join("")}</datalist>
+        ${table(["Excel 商品", "系统处理", "规格", "单位", "当前价格", "新价格", "库存", "供应状态", "状态"], reviewRows(batch, selectedFilter), "当前筛选没有报价行")}</article>`;
+    mountThinkingOrbs(content());
+    document.querySelectorAll("[data-price-filter]").forEach((button) => button.addEventListener("click", () => loadPriceImportDetail(batch.id, button.dataset.priceFilter)));
+    document.querySelectorAll("[data-price-select]").forEach((button) => button.addEventListener("click", () => selectPriceImportProduct(batch, button.dataset.priceSelect, products).catch((error) => toast(error.message || "选择系统商品失败"))));
+    document.querySelectorAll("[data-price-change]").forEach((button) => button.addEventListener("click", () => enablePriceImportProductChange(button.dataset.priceChange, products, batch)));
+    document.querySelectorAll("[data-price-ignore]").forEach((button) => button.addEventListener("click", () => ignorePriceImportRow(batch, button.dataset.priceIgnore).catch((error) => toast(error.message || "忽略项目失败"))));
+    document.querySelectorAll("[data-price-save-new]").forEach((button) => button.addEventListener("click", async () => {
+      const rowId = button.dataset.priceSaveNew;
+      const value = (selector) => document.querySelector(`${selector}="${rowId}"]`)?.value || "";
+      button.disabled = true;
+      try {
+        await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_code: value("[data-new-code"), category: value("[data-new-category"), spec: value("[data-new-spec"), unit: value("[data-new-unit"), stock_quantity: value("[data-new-stock"), supply_status: value("[data-new-status") }) });
+        await loadPriceImportDetail(batch.id, selectedFilter);
+      } catch (error) {
+        toast(error.message || "保存商品资料失败");
+        button.disabled = false;
+      }
+    }));
+    const defaultsForm = $("newProductDefaultsForm");
+    if (defaultsForm) defaultsForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(defaultsForm);
+      const submit = defaultsForm.querySelector("button[type=submit]");
+      submit.disabled = true;
+      try {
+        await api(`/api/v1/admin/price-imports/${batch.id}/new-product-defaults`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category: data.get("category"), spec: data.get("spec"), stock_quantity: data.get("stock_quantity"), supply_status: data.get("supply_status"), fallback_unit: data.get("fallback_unit"), active: true }) });
+        await loadPriceImportDetail(batch.id, selectedFilter);
+      } catch (error) {
+        toast(error.message || "应用默认设置失败");
+        submit.disabled = false;
+      }
+    });
+    const reanalyze = $("reanalyzePriceImport");
+    if (reanalyze) reanalyze.addEventListener("click", () => reanalyzePriceImport(batch, reanalyze));
+    const apply = $("applyPriceImport");
+    if (apply) apply.addEventListener("click", async () => {
+      if (!confirm(`确认${applyText}吗？历史订单价格不会变更。`)) return;
+      apply.disabled = true; apply.textContent = "正在应用";
+      setPriceImportMotion("solving", true);
+      try {
+        await api(`/api/v1/admin/price-imports/${batch.id}/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed: true }) });
+        toast("导入已应用，并已记录价格历史");
+        await loadPriceImportDetail(batch.id);
+      } catch (error) {
+        toast(error.message || "应用失败，请重新核对");
+        apply.disabled = false; apply.textContent = applyText;
+      }
+    });
+    const manual = $("manualPriceMapping");
+    if (manual) manual.addEventListener("click", () => loadPriceImportMapping(batch.id));
+  }
+
+  function mappingSelect(name, header, selected) {
+    const labels = { product_name: "商品名称列", product_code: "商品编码列", category: "分类列", spec: "规格列", unit: "单位列", stock: "库存列", price: "本次执行价格列" };
+    return `<label class="form-field"><span>${labels[name] || name}</span><select name="${name}"><option value="">不使用</option>${header.map((value) => `<option value="${html(value)}" ${value === selected ? "selected" : ""}>${html(value)}</option>`).join("")}</select></label>`;
+  }
+
+  async function loadPriceImportMapping(batchId) {
+    pageShell("确认 Excel 字段", "选择报价 Sheet、表头行和本次执行价格列后重新分析");
+    const structure = await api(`/api/v1/admin/price-imports/${batchId}/structure`);
+    const sheets = structure.sheets || [];
+    if (!sheets.length) return toast("文件中没有可用 Sheet");
+    const initial = sheets[0];
+    const render = (sheet) => {
+      const row = sheet.preview[(sheet.header_candidate || 1) - 1] || [];
+      content().innerHTML = `<article class="panel section-panel"><form id="priceMappingForm"><div class="form-grid"><label class="form-field"><span>报价 Sheet</span><select name="sheetName">${sheets.map((item) => `<option value="${html(item.name)}" ${item.name === sheet.name ? "selected" : ""}>${html(item.name)}</option>`).join("")}</select></label><label class="form-field"><span>表头行</span><input name="headerRow" type="number" min="1" max="12" value="${sheet.header_candidate || 1}" /></label>${mappingSelect("product_name", row, "")}${mappingSelect("product_code", row, "")}${mappingSelect("category", row, "")}${mappingSelect("spec", row, "")}${mappingSelect("unit", row, "")}${mappingSelect("stock", row, "")}${mappingSelect("price", row, "")}</div><div class="page-toolbar"><button class="primary-link" type="submit">使用此字段重新分析</button><a class="secondary-button as-link" href="/admin/price-imports/${batchId}">返回</a></div></form><p class="muted">只选择 Excel 中真实存在的列。若多个价格列都可能生效，请选择已确认的本期执行价格。</p>${table(row.map((_, index) => `第 ${index + 1} 列`), sheet.preview.slice(0, 10).map((values) => `<tr>${row.map((_, index) => `<td>${html(values[index] || "")}</td>`).join("")}</tr>`), "暂无预览")}</article>`;
+      const form = $("priceMappingForm");
+      form.sheetName.addEventListener("change", () => render(sheets.find((item) => item.name === form.sheetName.value) || initial));
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = new FormData(form); const mapping = {};
+        ["product_name", "product_code", "category", "spec", "unit", "stock", "price"].forEach((key) => { if (data.get(key)) mapping[key] = data.get(key); });
+        try {
+          await api(`/api/v1/admin/price-imports/${batchId}/analyze`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sheet_name: data.get("sheetName"), header_row: Number(data.get("headerRow")), mapping }) });
+          await loadPriceImportDetail(batchId);
+        } catch (error) { toast(error.message || "字段确认失败"); }
+      });
+    };
+    render(initial);
+  }
+
   async function loadUnits() {
     pageShell("子单位管理", "单位名称、编码、配送点和启用状态");
     const units = await api("/api/v1/admin/units");
@@ -824,6 +1334,115 @@
     content().innerHTML += table(["订单编号", "单位", "下单时间", "状态", "食材", "数量", "单价", "小计"], rows.slice(0, 300).map((row) => `
       <tr><td>${html(row.order_no)}</td><td>${html(row.unit_name_snapshot || "--")}</td><td>${dateTime(row.created_at)}</td><td>${statusTag(row.status)}</td><td>${html(row.product_name_snapshot)}</td><td>${qty(row.quantity)}</td><td>${money(row.unit_price_cents)}</td><td>${money(row.subtotal_cents)}</td></tr>
     `), "暂无台账记录");
+  }
+
+  function deliveryBatchStatus(status) {
+    return ({ open: "进行中", closed: "已完成", cancelled: "已取消" })[status] || "未知状态";
+  }
+
+  async function loadBatches() {
+    pageShell("配送批次", "按明确批次组织备货、单位配送和出库单");
+    const [batchData, eligibleData] = await Promise.all([
+      api("/api/v1/admin/batches"),
+      api("/api/v1/admin/batches/eligible-orders"),
+    ]);
+    const batches = batchData.items || [];
+    const eligible = eligibleData.items || [];
+    content().innerHTML += `
+      <article class="panel section-panel">
+        <div class="panel-header"><div><h2>新建配送批次</h2><p>只列出已接单并进入备货、且尚未加入其他批次的订单。</p></div></div>
+        <form id="batchCreateForm">
+          <div class="form-grid compact">
+            <label class="form-field"><span>批次名称</span><input name="name" type="text" required placeholder="例如：上午第一批" /></label>
+            <label class="form-field"><span>备注</span><input name="note" type="text" placeholder="选填" /></label>
+          </div>
+          ${table(["选择", "订单编号", "单位", "配送点", "状态", "下单时间", "金额"], eligible.map((order) => `
+            <tr><td><input type="checkbox" name="orderId" value="${order.id}" aria-label="选择订单${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot)}</td><td>${html(order.delivery_point_snapshot || "--")}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>
+          `), "当前没有可加入批次的备货订单")}
+          <div class="page-toolbar"><button class="primary-link" type="submit" ${eligible.length ? "" : "disabled"}>创建配送批次</button></div>
+        </form>
+      </article>
+      <article class="panel table-panel">
+        <div class="panel-header"><div><h2>配送批次记录</h2><p>批次范围固定，不使用“今天”代替批次。</p></div></div>
+        ${table(["批次编号", "名称", "订单", "单位", "状态", "创建时间", "操作"], batches.map((batch) => `
+          <tr><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名批次")}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td>${dateTime(batch.created_at)}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看汇总</a></td></tr>
+        `), "暂无配送批次")}
+      </article>`;
+    $("batchCreateForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const orderIds = data.getAll("orderId").map(String);
+      if (!orderIds.length) return toast("请至少选择一笔订单");
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      button.textContent = "创建中";
+      try {
+        const batch = await api("/api/v1/admin/batches", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: String(data.get("name") || "").trim(), note: String(data.get("note") || "").trim(), order_ids: orderIds }),
+        });
+        window.location.assign(`/admin/batches/${batch.id}`);
+      } catch (error) {
+        toast(error.message || "创建批次失败");
+        button.disabled = false;
+        button.textContent = "创建配送批次";
+      }
+    });
+  }
+
+  function batchUnitTable(summary) {
+    const rows = (summary.by_unit || []).flatMap((unit) => (unit.items || []).map((item, index) => `
+      <tr><td>${index === 0 ? html(unit.unit_name) : ""}</td><td>${index === 0 ? html(unit.delivery_point || "--") : ""}</td><td>${html(item.category || "--")}</td><td>${html(item.product_name)}</td><td>${qty(item.quantity)} ${html(item.unit)}</td></tr>
+    `));
+    return table(["单位", "配送点", "分类", "食材", "需求数量"], rows, "该批次暂无有效订单");
+  }
+
+  function batchProductTable(summary) {
+    const rows = (summary.by_product || []).map((item) => `
+      <tr><td>${html(item.category || "--")}</td><td>${html(item.product_name)}</td><td>${html(item.spec || "--")}</td><td><strong>${qty(item.total_quantity)} ${html(item.unit)}</strong></td><td>${(item.unit_breakdown || []).map((unit) => `${html(unit.unit_name)}：${qty(unit.quantity)} ${html(item.unit)}`).join("<br>")}</td></tr>
+    `);
+    return table(["分类", "食材", "规格", "总需求", "单位分解"], rows, "该批次暂无有效订单");
+  }
+
+  async function loadBatchDetail(batchId, selectedTab = "product") {
+    pageShell("配送批次详情", "同一批次统一汇总、备货和出库");
+    const [batch, summary] = await Promise.all([
+      api(`/api/v1/admin/batches/${batchId}`),
+      api(`/api/v1/admin/batches/${batchId}/summary`),
+    ]);
+    const canPick = (batch.orders || []).some((order) => ["accepted", "preparing"].includes(order.status));
+    const canOutbound = (batch.orders || []).some((order) => ["shipped", "completed"].includes(order.status));
+    const downloadOrDisabled = (enabled, href, label, reason) => enabled
+      ? `<a class="primary-link secondary" href="${href}">${label}</a>`
+      : `<span class="secondary-button disabled" title="${html(reason)}">${label}</span>`;
+    content().innerHTML += `
+      <article class="panel section-panel">
+        <div class="panel-header"><div><h2>${html(batch.batch_no)} · ${html(batch.name || "未命名批次")}</h2><p>${num(summary.order_count)} 笔订单 · ${num(summary.unit_count)} 个单位 · ${num(summary.product_count)} 类食材</p></div><span class="status-tag">${html(deliveryBatchStatus(batch.status))}</span></div>
+        <dl class="status-list detail-list"><dt>批次备注</dt><dd>${html(batch.note || "无")}</dd><dt>创建时间</dt><dd>${dateTime(batch.created_at)}</dd><dt>批次金额</dt><dd>${money(summary.total_cents)}</dd></dl>
+        <div class="page-toolbar">
+          <a class="primary-link secondary" href="/api/v1/admin/batches/${batch.id}/summary.xlsx">导出汇总表</a>
+          ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该批次暂无备货中的订单")}
+          ${downloadOrDisabled(canOutbound, `/api/v1/admin/batches/${batch.id}/outbound.xlsx`, "导出出库单", "该批次暂无已发货订单")}
+          ${batch.status === "open" ? `<button class="secondary-button" data-batch-close="${batch.id}" data-version="${batch.version}">完成批次</button>` : ""}
+          <a class="table-action" href="/admin/batches">返回批次列表</a>
+        </div>
+      </article>
+      <article class="panel table-panel">
+        <div class="page-toolbar"><button class="table-action ${selectedTab === "unit" ? "primary" : ""}" data-batch-tab="unit">按单位</button><button class="table-action ${selectedTab === "product" ? "primary" : ""}" data-batch-tab="product">按食材</button></div>
+        <div id="batchSummaryBody">${selectedTab === "unit" ? batchUnitTable(summary) : batchProductTable(summary)}</div>
+      </article>
+      <article class="panel table-panel"><div class="panel-header"><div><h2>批次订单</h2><p>软删除订单不会进入正常批次汇总和单据。</p></div></div>${table(["订单编号", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
+    document.querySelectorAll("[data-batch-tab]").forEach((button) => button.addEventListener("click", () => loadBatchDetail(batchId, button.dataset.batchTab)));
+    document.querySelectorAll("[data-batch-close]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认完成这个配送批次吗？完成后不能再调整订单。")) return;
+      button.disabled = true;
+      try {
+        await api(`/api/v1/admin/batches/${batchId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
+        await loadBatchDetail(batchId, selectedTab);
+      } catch (error) { toast(error.message || "完成批次失败"); button.disabled = false; }
+    }));
   }
 
   async function loadPreparationSummary() {
@@ -986,7 +1605,12 @@
       if (route === "/admin/dashboard") await loadDashboard(silent);
       else if (route === "/admin/orders") await loadOrders();
       else if (route.startsWith("/admin/orders/")) await loadOrderDetail(route.split("/").pop());
+      else if (route === "/admin/batches") await loadBatches();
+      else if (route.startsWith("/admin/batches/")) await loadBatchDetail(route.split("/").pop());
       else if (route === "/admin/products" || route.startsWith("/admin/products/")) await loadProducts();
+      else if (route === "/admin/price-imports") await loadPriceImports();
+      else if (route.endsWith("/mapping") && route.startsWith("/admin/price-imports/")) await loadPriceImportMapping(route.split("/")[3]);
+      else if (route.startsWith("/admin/price-imports/")) await loadPriceImportDetail(route.split("/").pop());
       else if (route === "/admin/inventory") await loadInventory();
       else if (route === "/admin/units") await loadUnits();
       else if (route === "/admin/accounts") await loadAccounts();

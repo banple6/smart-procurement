@@ -23,4 +23,20 @@ class ProductOptionsPolicyTest {
         assertTrue(ProductOptions.allCategories.contains("其他"))
         assertTrue(ProductOptions.allUnits.contains("包"))
     }
+
+    @Test
+    fun default_spec_tracks_bulk_and_prepackaged_units() {
+        assertEquals("散装", ProductOptions.defaultSpecForUnit("公斤"))
+        assertEquals("散装", ProductOptions.defaultSpecForUnit("斤"))
+        assertEquals("预包装", ProductOptions.defaultSpecForUnit("箱"))
+        assertEquals("预包装", ProductOptions.defaultSpecForUnit("瓶"))
+    }
+
+    @Test
+    fun changing_unit_only_replaces_blank_or_automatic_specs() {
+        assertEquals("预包装", ProductOptions.resolveSpecForUnit("箱", ""))
+        assertEquals("预包装", ProductOptions.resolveSpecForUnit("箱", "散装"))
+        assertEquals("散装", ProductOptions.resolveSpecForUnit("公斤", "预包装"))
+        assertEquals("12瓶/箱", ProductOptions.resolveSpecForUnit("瓶", "12瓶/箱"))
+    }
 }

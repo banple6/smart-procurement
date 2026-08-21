@@ -28,6 +28,7 @@ object PoliceStatus {
         "已发货" -> shipped()
         "已完成" -> completed()
         "已取消" -> cancelled()
+        "已作废" -> cancelled("已作废")
         "库存紧张" -> warning("库存紧张")
         "暂停供应" -> warning("暂停供应")
         "已下架" -> cancelled("已下架")

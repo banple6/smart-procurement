@@ -1,0 +1,193 @@
+from collections import OrderedDict
+from decimal import Decimal
+from io import BytesIO
+
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+
+HEADER_FILL = PatternFill("solid", fgColor="DDEAF6")
+TITLE_FILL = PatternFill("solid", fgColor="1F5A94")
+THIN_BORDER = Border(
+    left=Side(style="thin", color="B8C5D1"),
+    right=Side(style="thin", color="B8C5D1"),
+    top=Side(style="thin", color="B8C5D1"),
+    bottom=Side(style="thin", color="B8C5D1"),
+)
+
+
+def _safe_sheet_title(value: str) -> str:
+    title = "".join("_" if char in "[]:*?/\\" else char for char in (value or "其他"))
+    return title[:31] or "其他"
+
+
+def _setup_sheet(ws, title: str, headers: list[str], widths: list[int]):
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
+    title_cell = ws.cell(1, 1, title)
+    title_cell.font = Font(size=16, bold=True, color="FFFFFF")
+    title_cell.fill = TITLE_FILL
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+    for index, header in enumerate(headers, start=1):
+        cell = ws.cell(3, index, header)
+        cell.font = Font(bold=True)
+        cell.fill = HEADER_FILL
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = THIN_BORDER
+        ws.column_dimensions[chr(64 + index)].width = widths[index - 1]
+    ws.freeze_panes = "A4"
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 0
+    ws.page_margins.left = 0.3
+    ws.page_margins.right = 0.3
+    ws.page_margins.top = 0.5
+    ws.page_margins.bottom = 0.5
+    ws.print_title_rows = "1:3"
+
+
+def _style_data_rows(ws, start_row: int, end_row: int, column_count: int):
+    for row in ws.iter_rows(min_row=start_row, max_row=end_row, min_col=1, max_col=column_count):
+        for cell in row:
+            cell.border = THIN_BORDER
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+
+
+def _category_lines(lines: list[dict]) -> OrderedDict[str, list[dict]]:
+    categories: OrderedDict[str, list[dict]] = OrderedDict()
+    for line in sorted(lines, key=lambda item: (item.get("category") or "其他", item.get("product_name") or "", item.get("unit") or "", item.get("price_cents") or 0)):
+        categories.setdefault(line.get("category") or "其他", []).append(line)
+    return categories
+
+
+def _append_signatures(ws, row: int, outbound: bool = False):
+    row += 2
+    if outbound:
+        ws.cell(row, 1, "发货人签字：________________")
+        ws.cell(row, 3, "接收人签字：________________")
+        ws.cell(row, 6, "日期：________________")
+    else:
+        ws.cell(row, 1, "接收人签字：________________")
+        ws.cell(row, 4, "日期：________________")
+    ws.row_dimensions[row].height = 28
+
+
+def _picking_sheet(ws, title: str, lines: list[dict]):
+    headers = ["序号", "商品名称", "规格", "计量单位", "需求数量"]
+    _setup_sheet(ws, title, headers, [10, 24, 20, 14, 16])
+    for index, line in enumerate(lines, start=1):
+        ws.append([index, line["product_name"], line.get("spec") or "", line["unit"], line["actual_quantity"]])
+    end_row = 3 + len(lines)
+    if lines:
+        _style_data_rows(ws, 4, end_row, len(headers))
+        for cell in ws["E"][3:end_row]:
+            cell.number_format = "0.###"
+    _append_signatures(ws, end_row)
+
+
+def batch_picking_workbook(aggregation: dict) -> bytes:
+    lines = aggregation["document_lines"]
+    categories = _category_lines(lines)
+    wb = Workbook()
+    wb.properties.title = f"三公鲜配备货单 {aggregation['batch']['batch_no']}"
+    total = wb.active
+    total.title = "总计"
+    _picking_sheet(total, f"三公鲜配备货单（{aggregation['batch']['batch_no']}）", lines)
+    for category, category_lines in categories.items():
+        ws = wb.create_sheet(_safe_sheet_title(category))
+        _picking_sheet(ws, f"{category}备货单（{aggregation['batch']['batch_no']}）", category_lines)
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def _outbound_sheet(ws, title: str, lines: list[dict], include_category: bool):
+    headers = (["序号", "商品分类"] if include_category else ["序号"]) + ["商品名称", "计量单位", "需求数量", "单价（元）", "小计（元）"]
+    widths = ([10, 16] if include_category else [10]) + [24, 14, 16, 16, 18]
+    _setup_sheet(ws, title, headers, widths)
+    total_cents = 0
+    for index, line in enumerate(lines, start=1):
+        values = [index]
+        if include_category:
+            values.append(line.get("category") or "其他")
+        values.extend(
+            [
+                line["product_name"],
+                line["unit"],
+                line["actual_quantity"],
+                Decimal(int(line["price_cents"])) / Decimal(100),
+                Decimal(int(line["subtotal_cents"])) / Decimal(100),
+            ]
+        )
+        ws.append(values)
+        total_cents += int(line["subtotal_cents"])
+    end_row = 3 + len(lines)
+    if lines:
+        _style_data_rows(ws, 4, end_row, len(headers))
+        for row in range(4, end_row + 1):
+            ws.cell(row, len(headers) - 2).number_format = "0.###"
+            ws.cell(row, len(headers) - 1).number_format = '¥0.00'
+            ws.cell(row, len(headers)).number_format = '¥0.00'
+    total_row = end_row + 1
+    ws.cell(total_row, len(headers) - 1, "合计")
+    ws.cell(total_row, len(headers), Decimal(total_cents) / Decimal(100))
+    ws.cell(total_row, len(headers)).number_format = '¥0.00'
+    ws.cell(total_row, len(headers) - 1).font = Font(bold=True)
+    ws.cell(total_row, len(headers)).font = Font(bold=True)
+    _append_signatures(ws, total_row, outbound=True)
+
+
+def batch_outbound_workbook(aggregation: dict) -> bytes:
+    lines = aggregation["document_lines"]
+    categories = _category_lines(lines)
+    wb = Workbook()
+    wb.properties.title = f"三公鲜配出库单 {aggregation['batch']['batch_no']}"
+    total = wb.active
+    total.title = "总计"
+    _outbound_sheet(total, f"三公鲜配出库单（{aggregation['batch']['batch_no']}）", lines, include_category=True)
+    category_summary_start = 7 + len(lines)
+    total.cell(category_summary_start, 1, "分类金额汇总")
+    total.cell(category_summary_start, 1).font = Font(bold=True)
+    for offset, (category, category_lines) in enumerate(categories.items(), start=1):
+        total.cell(category_summary_start + offset, 1, category)
+        category_cents = sum(int(line["subtotal_cents"]) for line in category_lines)
+        total.cell(category_summary_start + offset, 2, Decimal(category_cents) / Decimal(100))
+        total.cell(category_summary_start + offset, 2).number_format = '¥0.00'
+    for category, category_lines in categories.items():
+        ws = wb.create_sheet(_safe_sheet_title(category))
+        _outbound_sheet(ws, f"{category}出库单（{aggregation['batch']['batch_no']}）", category_lines, include_category=False)
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
+def batch_summary_workbook(aggregation: dict) -> bytes:
+    wb = Workbook()
+    wb.properties.title = f"三公鲜配批次汇总 {aggregation['batch']['batch_no']}"
+    units = aggregation["by_unit"]
+    ws = wb.active
+    ws.title = "按食材汇总"
+    headers = ["商品分类", "商品名称", "规格", "计量单位", "总需求"] + [unit["unit_name"] for unit in units]
+    _setup_sheet(ws, f"批次食材汇总（{aggregation['batch']['batch_no']}）", headers, [16, 24, 20, 14, 16] + [16] * len(units))
+    for product in aggregation["by_product"]:
+        breakdown = {item["unit_id"]: item["actual_quantity"] for item in product["unit_breakdown"]}
+        ws.append(
+            [product["category"], product["product_name"], product["spec"], product["unit"], product["actual_quantity"]]
+            + [breakdown.get(unit["unit_id"], "") for unit in units]
+        )
+    if aggregation["by_product"]:
+        _style_data_rows(ws, 4, 3 + len(aggregation["by_product"]), len(headers))
+
+    unit_ws = wb.create_sheet("按单位汇总")
+    unit_headers = ["单位名称", "配送点", "商品分类", "商品名称", "规格", "计量单位", "需求数量"]
+    _setup_sheet(unit_ws, f"批次单位汇总（{aggregation['batch']['batch_no']}）", unit_headers, [22, 26, 16, 24, 20, 14, 16])
+    row_count = 0
+    for unit in units:
+        for item in unit["items"]:
+            unit_ws.append([unit["unit_name"], unit["delivery_point"], item["category"], item["product_name"], item["spec"], item["unit"], item["actual_quantity"]])
+            row_count += 1
+    if row_count:
+        _style_data_rows(unit_ws, 4, 3 + row_count, len(unit_headers))
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()

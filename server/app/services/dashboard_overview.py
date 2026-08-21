@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from ..database import all_rows, decimal_text, one
 from ..routers.system import backup_summary, safe_storage_status
+from .local_time import display_local_time
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -54,12 +55,12 @@ def wait_seconds(now_utc: datetime, value: str | None) -> int:
 
 def count_status(conn, statuses: tuple[str, ...]) -> int:
     placeholders = ",".join("?" for _ in statuses)
-    return int(one(conn, f"SELECT COUNT(*) AS c FROM orders WHERE status IN ({placeholders})", statuses)["c"])
+    return int(one(conn, f"SELECT COUNT(*) AS c FROM orders WHERE is_deleted = 0 AND status IN ({placeholders})", statuses)["c"])
 
 
 def oldest_timestamp(conn, statuses: tuple[str, ...], field: str = "created_at") -> str | None:
     placeholders = ",".join("?" for _ in statuses)
-    row = one(conn, f"SELECT MIN(COALESCE({field}, created_at)) AS oldest FROM orders WHERE status IN ({placeholders})", statuses)
+    row = one(conn, f"SELECT MIN(COALESCE({field}, created_at)) AS oldest FROM orders WHERE is_deleted = 0 AND status IN ({placeholders})", statuses)
     return row["oldest"] if row else None
 
 
@@ -69,7 +70,7 @@ def today_totals(conn, start_utc: str, end_utc: str) -> dict:
         """
         SELECT COUNT(*) AS order_count, COALESCE(SUM(total_cents), 0) AS amount_cents
         FROM orders
-        WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'
+        WHERE is_deleted = 0 AND created_at >= ? AND created_at < ? AND status != 'cancelled'
         """,
         (start_utc, end_utc),
     )
@@ -87,7 +88,7 @@ def trend_rows(conn, business_day: date, range_days: int) -> list[dict]:
                COUNT(*) AS order_count,
                COALESCE(SUM(total_cents), 0) AS amount_cents
         FROM orders
-        WHERE created_at >= ? AND created_at < ? AND status != 'cancelled'
+        WHERE is_deleted = 0 AND created_at >= ? AND created_at < ? AND status != 'cancelled'
         GROUP BY local_date
         ORDER BY local_date
         """,
@@ -104,7 +105,7 @@ def trend_rows(conn, business_day: date, range_days: int) -> list[dict]:
 
 
 def recent_orders(conn) -> list[dict]:
-    return all_rows(
+    rows = all_rows(
         conn,
         """
         SELECT o.id, o.order_no, o.unit_id, o.unit_name_snapshot, o.created_at, o.status, o.total_cents,
@@ -113,11 +114,15 @@ def recent_orders(conn) -> list[dict]:
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN receipt_issues ri ON ri.order_id = o.id
+        WHERE o.is_deleted = 0
         GROUP BY o.id
         ORDER BY o.created_at DESC
         LIMIT 10
         """,
     )
+    for row in rows:
+        row["created_at"] = display_local_time(row.get("created_at"))
+    return rows
 
 
 def inventory_alerts(conn) -> list[dict]:
@@ -159,7 +164,7 @@ def demand_rank(conn, start_utc: str, end_utc: str) -> list[dict]:
                COUNT(DISTINCT o.id) AS order_count
         FROM order_items oi
         JOIN orders o ON o.id = oi.order_id
-        WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'cancelled'
+        WHERE o.is_deleted = 0 AND o.created_at >= ? AND o.created_at < ? AND o.status != 'cancelled'
         GROUP BY oi.product_id, oi.product_name_snapshot, oi.unit_snapshot
         ORDER BY quantity DESC
         LIMIT 8
@@ -182,7 +187,7 @@ def unit_rank(conn, start_utc: str, end_utc: str, sort_by: str) -> list[dict]:
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN receipt_issues ri ON ri.order_id = o.id
-        WHERE o.created_at >= ? AND o.created_at < ? AND o.status != 'cancelled'
+        WHERE o.is_deleted = 0 AND o.created_at >= ? AND o.created_at < ? AND o.status != 'cancelled'
         GROUP BY o.unit_id, o.unit_name_snapshot
         ORDER BY {order_by}
         LIMIT 8

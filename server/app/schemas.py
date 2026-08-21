@@ -164,6 +164,61 @@ class ProductStockPatch(BaseModel):
     expected_version: Optional[int] = None
 
 
+class ProductBatchDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(min_length=1, max_length=1000)
+    confirmed: bool = False
+
+
+class ProductDeleteAll(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool = False
+    confirmation_text: str = Field(default="", max_length=20)
+    expected_count: int = Field(ge=0, le=100000)
+
+
+class PriceImportAnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sheet_name: Optional[str] = None
+    mapping: dict[str, str] = Field(default_factory=dict)
+    header_row: Optional[int] = Field(default=None, ge=1, le=10000)
+
+
+class PriceImportRowPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    matched_product_id: Optional[str] = None
+    ignore: bool = False
+    reviewer_note: str = Field(default="", max_length=300)
+    product_code: Optional[str] = Field(default=None, max_length=120)
+    category: Optional[str] = Field(default=None, max_length=40)
+    spec: Optional[str] = Field(default=None, max_length=120)
+    unit: Optional[str] = Field(default=None, max_length=20)
+    stock_quantity: Optional[str] = Field(default=None, max_length=40)
+    supply_status: Optional[str] = Field(default=None, max_length=20)
+    active: Optional[bool] = None
+
+
+class PriceImportDefaultsPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    category: str = Field(min_length=1, max_length=40)
+    spec: str = Field(min_length=1, max_length=120)
+    stock_quantity: str = Field(default="0", max_length=40)
+    supply_status: str = Field(default="paused", max_length=20)
+    fallback_unit: str = Field(default="", max_length=20)
+    active: bool = True
+
+
+class PriceImportApplyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmed: bool
+
+
 class OrderItemRequest(BaseModel):
     product_id: str
     quantity: str
@@ -179,6 +234,41 @@ class OrderStatusPatch(BaseModel):
     status: str
     expected_status: Optional[str] = None
     expected_version: Optional[int] = None
+
+
+class OrderLifecycleReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class DeliveryBatchCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=300)
+    order_ids: list[str] = Field(min_length=1, max_length=1000)
+
+
+class DeliveryBatchOrdersPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    add_order_ids: list[str] = Field(default_factory=list, max_length=1000)
+    remove_order_ids: list[str] = Field(default_factory=list, max_length=1000)
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class DeliveryBatchStatusPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(pattern="^(open|closed|cancelled)$")
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class OrderSoftDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(default="管理员删除订单", max_length=300)
 
 
 class PushDeviceRegister(BaseModel):

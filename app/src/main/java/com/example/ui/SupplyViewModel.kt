@@ -2,6 +2,7 @@ package com.smartprocurement.internal.ui
 
 import android.app.Application
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -61,6 +62,10 @@ sealed interface Screen {
     object SystemStatus : Screen
     object PreparationSummary : Screen
     object DeliverySheets : Screen
+    object DeliveryBatches : Screen
+    data class DeliveryBatchDetail(val batchId: String) : Screen
+    object PriceImports : Screen
+    data class PriceImportDetail(val batchId: String) : Screen
     object InviteEntry : Screen
     object WebQrScanner : Screen
     object WebLoginConfirm : Screen
@@ -68,6 +73,7 @@ sealed interface Screen {
     object WebSessions : Screen
     object AboutUpdate : Screen
     object OnboardingGuide : Screen
+    object ThinkingOrbsShowcase : Screen
 }
 
 data class IngredientFormState(
@@ -149,6 +155,16 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     val allOrders: StateFlow<List<OrderEntity>> = repository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    var orderListOrderIds by mutableStateOf<List<String>>(emptyList())
+        private set
+    var orderListHasMore by mutableStateOf(false)
+        private set
+    var orderListTotal by mutableStateOf(0)
+        private set
+    var isOrderListLoading by mutableStateOf(false)
+        private set
+    private var orderListCursor = ""
+
     // --- Router Navigation ---
     val navigationStack = mutableStateListOf<Screen>(Screen.Splash)
 
@@ -177,6 +193,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var activeOrderActionId by mutableStateOf("")
     var activeShippingUploadId by mutableStateOf("")
     var isSavingIngredient by mutableStateOf(false)
+    var isDeletingIngredients by mutableStateOf(false)
+        private set
     var isRefreshingProducts by mutableStateOf(false)
         private set
     var dashboard by mutableStateOf(AdminDashboard())
@@ -185,6 +203,24 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
     var preparationSummaryItems by mutableStateOf<List<PreparationSummaryItem>>(emptyList())
     var deliverySheetUnits by mutableStateOf<List<DeliverySheetUnit>>(emptyList())
+    var deliveryBatches by mutableStateOf<List<DeliveryBatch>>(emptyList())
+        private set
+    var eligibleBatchOrders by mutableStateOf<List<DeliveryBatchOrder>>(emptyList())
+        private set
+    var activeDeliveryBatch by mutableStateOf<DeliveryBatch?>(null)
+        private set
+    var activeDeliveryBatchSummary by mutableStateOf<DeliveryBatchSummary?>(null)
+        private set
+    var isDeliveryBatchLoading by mutableStateOf(false)
+        private set
+    var priceImportBatches by mutableStateOf<List<PriceImportBatch>>(emptyList())
+        private set
+    var activePriceImport by mutableStateOf<PriceImportBatch?>(null)
+        private set
+    var isPriceImportLoading by mutableStateOf(false)
+        private set
+    var isPriceImportApplying by mutableStateOf(false)
+        private set
     var systemOverview by mutableStateOf(SystemOverview())
     var appUpdateCheckResult by mutableStateOf(AppUpdateCheckResult())
     var isCheckingAppUpdate by mutableStateOf(false)
@@ -237,6 +273,11 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     fun popToRootAndNavigate(screen: Screen) {
         navigationStack.clear()
         navigationStack.add(screen)
+    }
+
+    /** Only used by the co-installable animation preview build. */
+    fun openThinkingOrbPreview() {
+        popToRootAndNavigate(Screen.ThinkingOrbsShowcase)
     }
 
     fun finishSplash() {
@@ -415,6 +456,152 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun refreshPriceImports() {
+        if (authToken.isBlank() || !canManageIngredients() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.priceImportBatches(authToken) } }
+                .onSuccess { priceImportBatches = it }
+                .onFailure { alertMessage = it.toUserMessage("导入记录加载失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun openPriceImport(batchId: String) {
+        if (authToken.isBlank() || !canManageIngredients() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.priceImportDetail(authToken, batchId) } }
+                .onSuccess {
+                    activePriceImport = it
+                    navigateTo(Screen.PriceImportDetail(batchId))
+                }
+                .onFailure { alertMessage = it.toUserMessage("导入批次加载失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun uploadAndAnalyzePriceImport(uri: Uri, openDetailAfterAnalyze: Boolean = true) {
+        if (authToken.isBlank() || !canManageIngredients() || isPriceImportLoading) return
+        activePriceImport = null
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val localFile = copyPriceImportToCache(uri)
+                    try {
+                        val uploaded = apiClient.uploadPriceImport(authToken, localFile)
+                        apiClient.analyzePriceImport(authToken, uploaded.id)
+                    } finally {
+                        localFile.delete()
+                    }
+                }
+            }.onSuccess {
+                activePriceImport = it
+                priceImportBatches = listOf(it) + priceImportBatches.filterNot { batch -> batch.id == it.id }
+                if (openDetailAfterAnalyze) navigateTo(Screen.PriceImportDetail(it.id))
+                snackbarMessage = "报价表已识别，请核对后再确认应用"
+            }.onFailure {
+                alertMessage = it.toUserMessage("Excel 识别失败")
+            }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun updatePriceImportDefaults(defaults: PriceImportDefaults) {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.updatePriceImportDefaults(authToken, batch.id, defaults) } }
+                .onSuccess {
+                    activePriceImport = it
+                    snackbarMessage = "新增商品默认设置已应用"
+                }
+                .onFailure { alertMessage = it.toUserMessage("默认设置保存失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun selectPriceImportProduct(rowId: String, productId: String) {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.selectPriceImportProduct(authToken, batch.id, rowId, productId) } }
+                .onSuccess {
+                    activePriceImport = it
+                    snackbarMessage = "系统商品已关联"
+                }
+                .onFailure { alertMessage = it.toUserMessage("关联商品失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun ignorePriceImportRow(rowId: String) {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.ignorePriceImportRow(authToken, batch.id, rowId) } }
+                .onSuccess {
+                    activePriceImport = it
+                    snackbarMessage = "本项已忽略"
+                }
+                .onFailure { alertMessage = it.toUserMessage("忽略项目失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun updatePriceImportNewProduct(rowId: String, patch: PriceImportNewProductPatch) {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.updatePriceImportNewProduct(authToken, batch.id, rowId, patch)
+                }
+            }.onSuccess {
+                activePriceImport = it
+                snackbarMessage = "本项商品资料已保存"
+            }.onFailure {
+                alertMessage = it.toUserMessage("保存商品资料失败")
+            }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun applyPriceImport() {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportApplying) return
+        isPriceImportApplying = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.applyPriceImport(authToken, batch.id) } }
+                .onSuccess {
+                    activePriceImport = it
+                    priceImportBatches = listOf(it) + priceImportBatches.filterNot { item -> item.id == it.id }
+                    refreshProducts()
+                    snackbarMessage = "Excel 导入已应用，价格历史已记录"
+                }
+                .onFailure { alertMessage = it.toUserMessage("批量应用失败") }
+            isPriceImportApplying = false
+        }
+    }
+
+    private fun copyPriceImportToCache(uri: Uri): File {
+        val context = getApplication<Application>()
+        val resolver = context.contentResolver
+        val suppliedName = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            cursor.takeIf { it.moveToFirst() }?.getString(0)
+        }.orEmpty()
+        val suffix = suppliedName.substringAfterLast('.', "xlsx").lowercase().takeIf { it in setOf("xlsx", "xls", "csv") } ?: "xlsx"
+        val localFile = File(context.cacheDir, "price_import_${UUID.randomUUID()}.$suffix")
+        resolver.openInputStream(uri)?.use { input -> localFile.outputStream().use(input::copyTo) }
+            ?: throw IllegalStateException("无法读取所选 Excel 文件")
+        return localFile
+    }
+
     fun refreshOrders() {
         if (authToken.isBlank()) return
         viewModelScope.launch {
@@ -426,6 +613,46 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             }.onFailure {
                 alertMessage = it.toUserMessage("订单同步失败")
             }
+        }
+    }
+
+    fun loadOrderList(
+        status: String = "全部",
+        dateFrom: String = "",
+        dateTo: String = "",
+        query: String = "",
+        reset: Boolean = true
+    ) {
+        if (authToken.isBlank() || isOrderListLoading) return
+        isOrderListLoading = true
+        viewModelScope.launch {
+            runCatching {
+                val page = withContext(Dispatchers.IO) {
+                    apiClient.orderPage(
+                        token = authToken,
+                        isAdmin = currentUser?.role == "admin",
+                        status = status,
+                        dateFrom = dateFrom,
+                        dateTo = dateTo,
+                        queryText = query,
+                        cursor = if (reset) "" else orderListCursor,
+                        limit = 20
+                    )
+                }
+                page.items.forEach { repository.upsertOrder(it) }
+                val pageIds = page.items.map { it.order.orderId }
+                orderListOrderIds = if (reset) {
+                    pageIds
+                } else {
+                    (orderListOrderIds + pageIds).distinct()
+                }
+                orderListCursor = page.nextCursor
+                orderListHasMore = page.hasMore
+                orderListTotal = page.total
+            }.onFailure {
+                alertMessage = it.toUserMessage("订单加载失败")
+            }
+            isOrderListLoading = false
         }
     }
 
@@ -777,6 +1004,119 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 snackbarMessage = "Excel 已保存"
             }.onFailure {
                 alertMessage = it.toUserMessage("Excel 保存失败")
+            }
+        }
+    }
+
+    fun refreshDeliveryBatches() {
+        if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
+        isDeliveryBatchLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.deliveryBatches(authToken) to apiClient.eligibleDeliveryBatchOrders(authToken)
+                }
+            }.onSuccess { (batches, orders) ->
+                deliveryBatches = batches
+                eligibleBatchOrders = orders
+            }.onFailure {
+                alertMessage = it.toUserMessage("配送批次加载失败")
+            }
+            isDeliveryBatchLoading = false
+        }
+    }
+
+    fun createDeliveryBatch(name: String, note: String, orderIds: List<String>, onSuccess: () -> Unit = {}) {
+        if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
+        if (orderIds.isEmpty()) {
+            alertMessage = "请至少选择一笔已接单或备货中的订单"
+            return
+        }
+        isDeliveryBatchLoading = true
+        viewModelScope.launch {
+            var createdBatchId = ""
+            runCatching {
+                withContext(Dispatchers.IO) { apiClient.createDeliveryBatch(authToken, name, note, orderIds) }
+            }.onSuccess { batch ->
+                activeDeliveryBatch = batch
+                activeDeliveryBatchSummary = null
+                createdBatchId = batch.id
+                deliveryBatches = listOf(batch) + deliveryBatches.filterNot { it.id == batch.id }
+                eligibleBatchOrders = eligibleBatchOrders.filterNot { it.id in orderIds }
+                snackbarMessage = "配送批次已创建"
+                onSuccess()
+                navigateTo(Screen.DeliveryBatchDetail(batch.id))
+            }.onFailure {
+                alertMessage = it.toUserMessage("配送批次创建失败")
+            }
+            isDeliveryBatchLoading = false
+            if (createdBatchId.isNotBlank()) loadDeliveryBatch(createdBatchId, navigate = false)
+        }
+    }
+
+    fun openDeliveryBatch(batchId: String) = loadDeliveryBatch(batchId, navigate = true)
+
+    fun refreshDeliveryBatch(batchId: String) = loadDeliveryBatch(batchId, navigate = false)
+
+    private fun loadDeliveryBatch(batchId: String, navigate: Boolean) {
+        if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
+        isDeliveryBatchLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.deliveryBatchDetail(authToken, batchId) to
+                        apiClient.deliveryBatchSummary(authToken, batchId)
+                }
+            }.onSuccess { (batch, summary) ->
+                activeDeliveryBatch = batch
+                activeDeliveryBatchSummary = summary
+                if (navigate) navigateTo(Screen.DeliveryBatchDetail(batchId))
+            }.onFailure {
+                alertMessage = it.toUserMessage("批次汇总加载失败")
+            }
+            isDeliveryBatchLoading = false
+        }
+    }
+
+    fun closeDeliveryBatch(batchId: String) {
+        val batch = activeDeliveryBatch?.takeIf { it.id == batchId } ?: return
+        if (authToken.isBlank() || isDeliveryBatchLoading) return
+        isDeliveryBatchLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.closeDeliveryBatch(authToken, batch) } }
+                .onSuccess {
+                    activeDeliveryBatch = it
+                    deliveryBatches = deliveryBatches.map { existing -> if (existing.id == it.id) it else existing }
+                    snackbarMessage = "配送批次已结束"
+                }
+                .onFailure { alertMessage = it.toUserMessage("结束配送批次失败") }
+            isDeliveryBatchLoading = false
+        }
+    }
+
+    fun exportDeliveryBatchSummary(batchId: String, uri: Uri) = saveWorkbook(uri, "汇总表保存失败") {
+        apiClient.exportDeliveryBatchSummary(authToken, batchId)
+    }
+
+    fun exportDeliveryBatchPickingList(batchId: String, uri: Uri) = saveWorkbook(uri, "备货单保存失败") {
+        apiClient.exportDeliveryBatchPickingList(authToken, batchId)
+    }
+
+    fun exportDeliveryBatchOutbound(batchId: String, uri: Uri) = saveWorkbook(uri, "出库单保存失败") {
+        apiClient.exportDeliveryBatchOutbound(authToken, batchId)
+    }
+
+    private fun saveWorkbook(uri: Uri, failureMessage: String, loader: () -> ByteArray) {
+        if (authToken.isBlank()) return
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) { loader() }
+                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    ?: error("无法写入所选文件")
+            }.onSuccess {
+                snackbarMessage = "Excel 已保存"
+            }.onFailure {
+                alertMessage = it.toUserMessage(failureMessage)
             }
         }
     }
@@ -1229,6 +1569,32 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun deleteIngredientsBatch(productIds: Set<String>, onSuccess: () -> Unit = {}) {
+        if (!canDeleteIngredients()) {
+            alertMessage = "当前账号无权删除食材"
+            return
+        }
+        if (productIds.isEmpty() || isDeletingIngredients) return
+        isDeletingIngredients = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { apiClient.deleteProductsBatch(authToken, productIds.toList()) }
+            }.onSuccess { archivedCount ->
+                refreshProducts()
+                snackbarMessage = "已删除 $archivedCount 项食材，历史业务记录已保留"
+                onSuccess()
+            }.onFailure {
+                alertMessage = it.toUserMessage("批量删除失败")
+            }
+            isDeletingIngredients = false
+        }
+    }
+
+    fun downloadProductImportTemplate(uri: Uri) {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        saveWorkbook(uri, "模板保存失败") { apiClient.downloadProductImportTemplate(authToken) }
+    }
+
     fun restoreIngredient(productId: String) {
         if (!canRestoreIngredients()) {
             alertMessage = "当前账号无权恢复食材"
@@ -1359,7 +1725,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         if (currentUser?.role == "admin") {
             return when (order.status) {
                 "待接单" -> "接单"
-                "已接单" -> "开始备货"
+                "已接单" -> "确认发货"
                 "备货中" -> "确认发货"
                 "已发货" -> "完成订单"
                 else -> null
@@ -1372,7 +1738,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun performOrderAction(order: OrderEntity) {
+    fun performOrderAction(order: OrderEntity, cancelReason: String = "数量填写错误") {
         if (activeOrderActionId == order.orderId) return
         if (authToken.isBlank()) {
             alertMessage = "请重新登录后操作订单"
@@ -1388,7 +1754,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                         apiClient.setAdminOrderStatus(authToken, order, nextStatus)
                     } else {
                         when (order.status) {
-                            "待接单" -> apiClient.cancelOrder(authToken, order.orderId)
+                            "待接单" -> apiClient.cancelOrder(authToken, order.orderId, cancelReason)
                             "已发货" -> apiClient.confirmReceipt(authToken, order.orderId)
                             else -> throw IllegalStateException("当前状态不可操作")
                         }

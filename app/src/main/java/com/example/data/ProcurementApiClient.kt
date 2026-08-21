@@ -37,6 +37,13 @@ data class RemoteLogin(
     val message: String = ""
 )
 
+data class RemoteOrderPage(
+    val items: List<RemoteOrderBundle>,
+    val total: Int,
+    val nextCursor: String,
+    val hasMore: Boolean
+)
+
 data class DashboardOrder(
     val id: String,
     val orderNo: String,
@@ -131,6 +138,82 @@ data class DeliverySheetUnit(
     val deliveryPoint: String,
     val orderCount: Int,
     val itemCount: Int
+)
+
+data class DeliveryBatchOrder(
+    val id: String,
+    val orderNo: String,
+    val unitId: String,
+    val unitName: String,
+    val deliveryPoint: String,
+    val status: String,
+    val totalCents: Long,
+    val createdAt: String,
+    val version: Int = 1
+)
+
+data class DeliveryBatch(
+    val id: String,
+    val batchNo: String,
+    val name: String,
+    val note: String,
+    val status: String,
+    val createdAt: String,
+    val updatedAt: String,
+    val version: Int,
+    val orderCount: Int,
+    val unitCount: Int,
+    val orders: List<DeliveryBatchOrder> = emptyList()
+)
+
+data class BatchSummaryItem(
+    val productId: String,
+    val productName: String,
+    val category: String,
+    val spec: String,
+    val unit: String,
+    val requestedQuantity: String,
+    val actualQuantity: String,
+    val subtotalCents: Long
+)
+
+data class BatchUnitSummary(
+    val unitId: String,
+    val unitName: String,
+    val deliveryPoint: String,
+    val orderCount: Int,
+    val totalCents: Long,
+    val items: List<BatchSummaryItem>
+)
+
+data class BatchUnitBreakdown(
+    val unitId: String,
+    val unitName: String,
+    val requestedQuantity: String,
+    val actualQuantity: String
+)
+
+data class BatchProductSummary(
+    val productId: String,
+    val productName: String,
+    val category: String,
+    val spec: String,
+    val unit: String,
+    val requestedQuantity: String,
+    val actualQuantity: String,
+    val subtotalCents: Long,
+    val unitCount: Int,
+    val unitBreakdown: List<BatchUnitBreakdown>
+)
+
+data class DeliveryBatchSummary(
+    val batch: DeliveryBatch,
+    val orderCount: Int,
+    val unitCount: Int,
+    val productCount: Int,
+    val totalCents: Long,
+    val byUnit: List<BatchUnitSummary>,
+    val byProduct: List<BatchProductSummary>
 )
 
 data class SystemResources(
@@ -275,6 +358,71 @@ data class InviteInspectResult(
     val phoneRequired: Boolean = false,
     val expiresAt: String = "",
     val remainingUses: Int = 0
+)
+
+data class PriceImportDefaults(
+    val category: String = "其他",
+    val spec: String = "散装",
+    val stockQuantity: String = "0",
+    val supplyStatus: String = "paused",
+    val fallbackUnit: String = "",
+    val active: Boolean = true
+)
+
+/** A one-row override for a new product discovered in an Excel import. */
+data class PriceImportNewProductPatch(
+    val productCode: String,
+    val category: String,
+    val spec: String,
+    val unit: String,
+    val stockQuantity: String,
+    val supplyStatus: String,
+    val active: Boolean = true
+)
+
+data class PriceImportMetrics(
+    val parsedRows: Int = 0,
+    val existingProductRows: Int = 0,
+    val newProductRows: Int = 0,
+    val needsReviewRows: Int = 0,
+    val exceptionRows: Int = 0,
+    val readyRows: Int = 0,
+    val ignoredRows: Int = 0
+)
+
+data class PriceImportRow(
+    val id: String,
+    val sourceProductName: String,
+    val sourceProductCode: String = "",
+    val sourceSpec: String = "",
+    val sourceUnit: String = "",
+    val proposedProductCode: String = "",
+    val proposedCategory: String = "",
+    val proposedSpec: String = "散装",
+    val proposedUnit: String = "",
+    val proposedStockQuantity: String = "0",
+    val proposedSupplyStatus: String = "paused",
+    val operationType: String,
+    val validationStatus: String,
+    val matchedProductId: String = "",
+    val matchedProductName: String = "",
+    val systemUnit: String = "",
+    val currentPriceCents: Long? = null,
+    val proposedPriceCents: Long? = null,
+    val warning: String = "",
+    val conversionFactor: String = "1"
+)
+
+data class PriceImportBatch(
+    val id: String,
+    val status: String,
+    val sourceFilename: String,
+    val createdAt: String = "",
+    val selectedSheetName: String = "",
+    val llmCalled: Boolean = false,
+    val metrics: PriceImportMetrics = PriceImportMetrics(),
+    val newProductDefaults: PriceImportDefaults = PriceImportDefaults(),
+    val rows: List<PriceImportRow> = emptyList()
 )
 
 private const val INVITE_QR_PREFIX = "jingrongxianpei://invite?token="
@@ -434,8 +582,108 @@ class ProcurementApiClient(
         request("admin/products/$productId", token = token, method = "DELETE")
     }
 
+    fun deleteProductsBatch(token: String, productIds: List<String>): Int {
+        val body = JSONObject()
+            .put("ids", JSONArray(productIds))
+            .put("confirmed", true)
+            .toString()
+            .toRequestBody(JSON)
+        return request("admin/products/batch", token = token, method = "DELETE", body = body)
+            .optInt("archived_count", 0)
+    }
+
+    fun downloadProductImportTemplate(token: String): ByteArray =
+        executeBytes("admin/products/import-template.xlsx", token)
+
     fun restoreProduct(token: String, productId: String): ProductEntity {
         return parseProduct(request("admin/products/$productId/restore", token = token, method = "POST"))
+    }
+
+    fun priceImportBatches(token: String): List<PriceImportBatch> {
+        val items = request("admin/price-imports", token = token).optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index -> parsePriceImportBatch(items.getJSONObject(index)) }
+    }
+
+    fun uploadPriceImport(token: String, file: File): PriceImportBatch {
+        val mediaType = when (file.extension.lowercase()) {
+            "csv" -> "text/csv"
+            "xls" -> "application/vnd.ms-excel"
+            else -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        }.toMediaType()
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody(mediaType))
+            .build()
+        return parsePriceImportBatch(request("admin/price-imports", token = token, method = "POST", body = body))
+    }
+
+    fun analyzePriceImport(token: String, batchId: String): PriceImportBatch {
+        return parsePriceImportBatch(
+            request(
+                "admin/price-imports/$batchId/analyze",
+                token = token,
+                method = "POST",
+                body = "{}".toRequestBody(JSON)
+            )
+        )
+    }
+
+    fun priceImportDetail(token: String, batchId: String): PriceImportBatch =
+        parsePriceImportBatch(request("admin/price-imports/$batchId", token = token))
+
+    fun updatePriceImportDefaults(token: String, batchId: String, defaults: PriceImportDefaults): PriceImportBatch {
+        val body = JSONObject()
+            .put("category", defaults.category)
+            .put("spec", defaults.spec)
+            .put("stock_quantity", defaults.stockQuantity)
+            .put("supply_status", defaults.supplyStatus)
+            .put("fallback_unit", defaults.fallbackUnit)
+            .put("active", defaults.active)
+            .toString()
+            .toRequestBody(JSON)
+        return parsePriceImportBatch(request("admin/price-imports/$batchId/new-product-defaults", token = token, method = "PATCH", body = body))
+    }
+
+    fun selectPriceImportProduct(token: String, batchId: String, rowId: String, productId: String): PriceImportBatch {
+        val body = JSONObject().put("matched_product_id", productId).toString().toRequestBody(JSON)
+        return parsePriceImportBatch(request("admin/price-imports/$batchId/rows/$rowId", token = token, method = "PATCH", body = body))
+    }
+
+    fun ignorePriceImportRow(token: String, batchId: String, rowId: String): PriceImportBatch {
+        val body = JSONObject().put("ignore", true).toString().toRequestBody(JSON)
+        return parsePriceImportBatch(request("admin/price-imports/$batchId/rows/$rowId", token = token, method = "PATCH", body = body))
+    }
+
+    fun updatePriceImportNewProduct(
+        token: String,
+        batchId: String,
+        rowId: String,
+        patch: PriceImportNewProductPatch
+    ): PriceImportBatch {
+        val body = JSONObject()
+            .put("product_code", patch.productCode)
+            .put("category", patch.category)
+            .put("spec", patch.spec)
+            .put("unit", patch.unit)
+            .put("stock_quantity", patch.stockQuantity)
+            .put("supply_status", patch.supplyStatus)
+            .put("active", patch.active)
+            .toString()
+            .toRequestBody(JSON)
+        return parsePriceImportBatch(
+            request("admin/price-imports/$batchId/rows/$rowId", token = token, method = "PATCH", body = body)
+        )
+    }
+
+    fun applyPriceImport(token: String, batchId: String): PriceImportBatch {
+        return parsePriceImportBatch(
+            request(
+                "admin/price-imports/$batchId/apply",
+                token = token,
+                method = "POST",
+                body = JSONObject().put("confirmed", true).toString().toRequestBody(JSON)
+            )
+        )
     }
 
     fun createOrder(token: String, note: String, items: List<Pair<String, Double>>): JSONObject {
@@ -453,13 +701,38 @@ class ProcurementApiClient(
         return request("orders", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId))
     }
 
-    fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> {
-        val path = if (isAdmin) "admin/orders?include_items=true" else "orders?include_items=true"
+    fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> =
+        orderPage(token = token, isAdmin = isAdmin, limit = 100).items
+
+    fun orderPage(
+        token: String,
+        isAdmin: Boolean,
+        status: String = "",
+        dateFrom: String = "",
+        dateTo: String = "",
+        queryText: String = "",
+        cursor: String = "",
+        limit: Int = 20
+    ): RemoteOrderPage {
+        val params = mutableListOf("include_items=true", "limit=${limit.coerceIn(1, 100)}")
+        if (status.isNotBlank() && status != "全部") params += "status=${encode(status.toApiOrderStatus())}"
+        if (dateFrom.isNotBlank()) params += "date_from=${encode(dateFrom)}"
+        if (dateTo.isNotBlank()) params += "date_to=${encode(dateTo)}"
+        if (queryText.isNotBlank()) params += "query=${encode(queryText.trim())}"
+        if (cursor.isNotBlank()) params += "cursor=${encode(cursor)}"
+        val endpoint = if (isAdmin) "admin/orders" else "orders"
+        val path = "$endpoint?${params.joinToString("&")}"
         val json = request(path, token = token)
         val array = json.getJSONArray("items")
-        return List(array.length()) { index ->
+        val items = List(array.length()) { index ->
             RemoteOrderMapper.mapOrder(array.getJSONObject(index))
         }
+        return RemoteOrderPage(
+            items = items,
+            total = json.optInt("total", items.size),
+            nextCursor = json.optString("next_cursor"),
+            hasMore = json.optBoolean("has_more", false)
+        )
     }
 
     fun dashboard(token: String): AdminDashboard {
@@ -652,6 +925,57 @@ class ProcurementApiClient(
     fun exportPreparationSummary(token: String): ByteArray = executeBytes("admin/preparation-summary/export.xlsx", token)
 
     fun exportDeliverySheets(token: String): ByteArray = executeBytes("admin/delivery-sheets/export.xlsx", token)
+
+    fun deliveryBatches(token: String): List<DeliveryBatch> {
+        val items = request("admin/batches", token = token).optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index -> parseDeliveryBatch(items.getJSONObject(index)) }
+    }
+
+    fun eligibleDeliveryBatchOrders(token: String): List<DeliveryBatchOrder> {
+        val items = request("admin/batches/eligible-orders", token = token).optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index -> parseDeliveryBatchOrder(items.getJSONObject(index)) }
+    }
+
+    fun createDeliveryBatch(
+        token: String,
+        name: String,
+        note: String,
+        orderIds: List<String>
+    ): DeliveryBatch {
+        val body = JSONObject()
+            .put("name", name.trim())
+            .put("note", note.trim())
+            .put("order_ids", JSONArray(orderIds))
+            .toString()
+            .toRequestBody(JSON)
+        return parseDeliveryBatch(request("admin/batches", token = token, method = "POST", body = body))
+    }
+
+    fun deliveryBatchDetail(token: String, batchId: String): DeliveryBatch =
+        parseDeliveryBatch(request("admin/batches/$batchId", token = token))
+
+    fun deliveryBatchSummary(token: String, batchId: String): DeliveryBatchSummary =
+        parseDeliveryBatchSummary(request("admin/batches/$batchId/summary", token = token))
+
+    fun closeDeliveryBatch(token: String, batch: DeliveryBatch): DeliveryBatch {
+        val body = JSONObject()
+            .put("status", "closed")
+            .put("expected_version", batch.version)
+            .toString()
+            .toRequestBody(JSON)
+        return parseDeliveryBatch(
+            request("admin/batches/${batch.id}/status", token = token, method = "PATCH", body = body)
+        )
+    }
+
+    fun exportDeliveryBatchSummary(token: String, batchId: String): ByteArray =
+        executeBytes("admin/batches/$batchId/summary.xlsx", token)
+
+    fun exportDeliveryBatchPickingList(token: String, batchId: String): ByteArray =
+        executeBytes("admin/batches/$batchId/picking-list.xlsx", token)
+
+    fun exportDeliveryBatchOutbound(token: String, batchId: String): ByteArray =
+        executeBytes("admin/batches/$batchId/outbound.xlsx", token)
 
     fun systemOverview(token: String): SystemOverview {
         val json = request("admin/system/overview?detail=true", token = token)
@@ -935,9 +1259,13 @@ class ProcurementApiClient(
         )
     }
 
-    fun cancelOrder(token: String, orderId: String): RemoteOrderBundle {
+    fun cancelOrder(token: String, orderId: String, reason: String): RemoteOrderBundle {
+        val body = JSONObject()
+            .put("reason", reason.trim())
+            .toString()
+            .toRequestBody(JSON)
         return RemoteOrderMapper.mapOrder(
-            request("orders/$orderId/cancel", token = token, method = "POST")
+            request("orders/$orderId/cancel", token = token, method = "POST", body = body)
         )
     }
 
@@ -964,7 +1292,7 @@ class ProcurementApiClient(
             "POST" -> builder.post(body ?: ByteArray(0).toRequestBody()).build()
             "PUT" -> builder.put(body ?: ByteArray(0).toRequestBody()).build()
             "PATCH" -> builder.patch(body ?: ByteArray(0).toRequestBody()).build()
-            "DELETE" -> builder.delete().build()
+            "DELETE" -> builder.delete(body ?: ByteArray(0).toRequestBody()).build()
             else -> builder.get().build()
         }
         val callClient = if (body is MultipartBody) uploadClient else client
@@ -1005,6 +1333,95 @@ class ProcurementApiClient(
             }
             return out.toByteArray()
         }
+    }
+
+    private fun parseDeliveryBatchOrder(json: JSONObject): DeliveryBatchOrder = DeliveryBatchOrder(
+        id = json.optString("id"),
+        orderNo = json.optString("order_no"),
+        unitId = json.optString("unit_id"),
+        unitName = json.optString("unit_name_snapshot", json.optString("unit_name")),
+        deliveryPoint = json.optString("delivery_point_snapshot", json.optString("delivery_point")),
+        status = json.optString("status").toUiOrderStatus(),
+        totalCents = json.optLong("total_cents", 0),
+        createdAt = json.optString("created_at").replace('T', ' ').take(16),
+        version = json.optInt("version", 1)
+    )
+
+    private fun parseDeliveryBatch(json: JSONObject): DeliveryBatch {
+        val orderArray = json.optJSONArray("orders") ?: JSONArray()
+        val orders = List(orderArray.length()) { index -> parseDeliveryBatchOrder(orderArray.getJSONObject(index)) }
+        return DeliveryBatch(
+            id = json.optString("id"),
+            batchNo = json.optString("batch_no"),
+            name = json.optString("name"),
+            note = json.optString("note"),
+            status = json.optString("status", "open"),
+            createdAt = json.optString("created_at").replace('T', ' ').take(16),
+            updatedAt = json.optString("updated_at").replace('T', ' ').take(16),
+            version = json.optInt("version", 1),
+            orderCount = json.optInt("order_count", orders.size),
+            unitCount = json.optInt("unit_count", orders.map { it.unitId }.filter { it.isNotBlank() }.distinct().size),
+            orders = orders
+        )
+    }
+
+    private fun parseBatchSummaryItem(json: JSONObject): BatchSummaryItem = BatchSummaryItem(
+        productId = json.optString("product_id"),
+        productName = json.optString("product_name"),
+        category = json.optString("category"),
+        spec = json.optString("spec"),
+        unit = json.optString("unit"),
+        requestedQuantity = QuantityFormatter.format(json.optString("requested_quantity")),
+        actualQuantity = QuantityFormatter.format(json.optString("actual_quantity", json.optString("quantity"))),
+        subtotalCents = json.optLong("subtotal_cents", 0)
+    )
+
+    private fun parseDeliveryBatchSummary(json: JSONObject): DeliveryBatchSummary {
+        val units = json.optJSONArray("by_unit") ?: JSONArray()
+        val products = json.optJSONArray("by_product") ?: JSONArray()
+        return DeliveryBatchSummary(
+            batch = parseDeliveryBatch(json.optJSONObject("batch") ?: JSONObject()),
+            orderCount = json.optInt("order_count", 0),
+            unitCount = json.optInt("unit_count", 0),
+            productCount = json.optInt("product_count", 0),
+            totalCents = json.optLong("total_cents", 0),
+            byUnit = List(units.length()) { index ->
+                val unit = units.getJSONObject(index)
+                val items = unit.optJSONArray("items") ?: JSONArray()
+                BatchUnitSummary(
+                    unitId = unit.optString("unit_id"),
+                    unitName = unit.optString("unit_name"),
+                    deliveryPoint = unit.optString("delivery_point"),
+                    orderCount = unit.optInt("order_count", 0),
+                    totalCents = unit.optLong("total_cents", 0),
+                    items = List(items.length()) { itemIndex -> parseBatchSummaryItem(items.getJSONObject(itemIndex)) }
+                )
+            },
+            byProduct = List(products.length()) { index ->
+                val product = products.getJSONObject(index)
+                val breakdown = product.optJSONArray("unit_breakdown") ?: JSONArray()
+                BatchProductSummary(
+                    productId = product.optString("product_id"),
+                    productName = product.optString("product_name"),
+                    category = product.optString("category"),
+                    spec = product.optString("spec"),
+                    unit = product.optString("unit"),
+                    requestedQuantity = QuantityFormatter.format(product.optString("requested_quantity")),
+                    actualQuantity = QuantityFormatter.format(product.optString("actual_quantity", product.optString("total_quantity"))),
+                    subtotalCents = product.optLong("subtotal_cents", 0),
+                    unitCount = product.optInt("unit_count", breakdown.length()),
+                    unitBreakdown = List(breakdown.length()) { breakdownIndex ->
+                        val value = breakdown.getJSONObject(breakdownIndex)
+                        BatchUnitBreakdown(
+                            unitId = value.optString("unit_id"),
+                            unitName = value.optString("unit_name"),
+                            requestedQuantity = QuantityFormatter.format(value.optString("requested_quantity")),
+                            actualQuantity = QuantityFormatter.format(value.optString("actual_quantity", value.optString("quantity")))
+                        )
+                    }
+                )
+            }
+        )
     }
 
     private fun parseAppUpdateRelease(json: JSONObject): AppUpdateRelease {
@@ -1078,6 +1495,62 @@ class ProcurementApiClient(
         )
     }
 
+    private fun parsePriceImportBatch(json: JSONObject): PriceImportBatch {
+        val defaults = json.optJSONObject("new_product_defaults") ?: JSONObject()
+        val metrics = json.optJSONObject("metrics") ?: JSONObject()
+        val rows = json.optJSONArray("rows") ?: JSONArray()
+        return PriceImportBatch(
+            id = json.optString("id"),
+            status = json.optString("status"),
+            sourceFilename = json.optString("source_filename"),
+            createdAt = json.optString("created_at"),
+            selectedSheetName = json.optString("selected_sheet_name"),
+            llmCalled = json.optBoolean("llm_called", false),
+            metrics = PriceImportMetrics(
+                parsedRows = metrics.optInt("parsed_rows"),
+                existingProductRows = metrics.optInt("existing_product_rows"),
+                newProductRows = metrics.optInt("new_product_rows"),
+                needsReviewRows = metrics.optInt("needs_review_rows"),
+                exceptionRows = metrics.optInt("exception_rows"),
+                readyRows = metrics.optInt("ready_rows"),
+                ignoredRows = metrics.optInt("ignored_rows")
+            ),
+            newProductDefaults = PriceImportDefaults(
+                category = defaults.optString("category", "其他"),
+                spec = defaults.optString("spec", "散装"),
+                stockQuantity = defaults.optString("stock_quantity", "0"),
+                supplyStatus = defaults.optString("supply_status", "paused"),
+                fallbackUnit = defaults.optString("fallback_unit"),
+                active = defaults.optBoolean("active", true)
+            ),
+            rows = List(rows.length()) { index ->
+                val row = rows.getJSONObject(index)
+                PriceImportRow(
+                    id = row.optString("id"),
+                    sourceProductName = row.optString("source_product_name"),
+                    sourceProductCode = row.optString("source_product_code"),
+                    sourceSpec = row.optString("source_spec"),
+                    sourceUnit = row.optString("source_unit"),
+                    proposedProductCode = row.optString("proposed_product_code"),
+                    proposedCategory = row.optString("proposed_category"),
+                    proposedSpec = row.optString("proposed_spec", "散装"),
+                    proposedUnit = row.optString("proposed_unit"),
+                    proposedStockQuantity = row.optString("proposed_stock_quantity", "0"),
+                    proposedSupplyStatus = row.optString("proposed_supply_status", "paused"),
+                    operationType = row.optString("operation_type"),
+                    validationStatus = row.optString("validation_status"),
+                    matchedProductId = row.optString("matched_product_id"),
+                    matchedProductName = row.optString("matched_product_name"),
+                    systemUnit = row.optString("system_unit"),
+                    currentPriceCents = if (row.isNull("current_price_cents")) null else row.optLong("current_price_cents"),
+                    proposedPriceCents = if (row.isNull("proposed_price_cents")) null else row.optLong("proposed_price_cents"),
+                    warning = row.optString("warning"),
+                    conversionFactor = row.optString("conversion_factor", "1")
+                )
+            }
+        )
+    }
+
     private fun String.toAbsoluteImageUrl(): String {
         if (isBlank() || startsWith("http")) return this
         return BuildConfig.API_BASE_URL.substringBefore("/api/v1/").trimEnd('/') + this
@@ -1103,6 +1576,7 @@ class ProcurementApiClient(
         "shipped" -> "已发货"
         "completed" -> "已完成"
         "cancelled" -> "已取消"
+        "voided" -> "已作废"
         else -> "待接单"
     }
 
@@ -1112,8 +1586,11 @@ class ProcurementApiClient(
         "已发货" -> "shipped"
         "已完成" -> "completed"
         "已取消" -> "cancelled"
+        "已作废" -> "voided"
         else -> "pending"
     }
+
+    private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())
 
     private fun Double.toCleanString(): String = BigDecimal.valueOf(this).stripTrailingZeros().toPlainString()
 
