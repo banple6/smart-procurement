@@ -21,6 +21,49 @@ def _safe_sheet_title(value: str) -> str:
     return title[:31] or "其他"
 
 
+
+# ── Report category mapping ──────────────────────────────────────
+# Maps database categories to the customer-facing report categories.
+# Categories not listed here are collected under "其他".
+REPORT_CATEGORY_MAP = {
+    "蔬菜": "蔬菜",
+    "水果": "水果",
+    "肉禽": "肉",
+    "肉": "肉",
+    "粮油": "米面粮油",
+    "米面粮油": "米面粮油",
+    "调料": "调料",
+}
+
+# Fixed sheet order for customer-facing reports.
+REPORT_CATEGORY_ORDER = ["蔬菜", "水果", "肉", "米面粮油", "调料"]
+
+
+def _report_category(db_category: str) -> str:
+    """Map a database category to the customer report category."""
+    return REPORT_CATEGORY_MAP.get(db_category or "", "其他")
+
+
+def _report_category_lines(lines: list[dict]) -> OrderedDict[str, list[dict]]:
+    """Group lines by report category in fixed sheet order."""
+    buckets: dict[str, list[dict]] = {}
+    for line in sorted(lines, key=lambda item: (item.get("category") or "其他", item.get("product_name") or "", item.get("unit") or "", item.get("price_cents") or 0)):
+        report_cat = _report_category(line.get("category"))
+        buckets.setdefault(report_cat, []).append(line)
+    result: OrderedDict[str, list[dict]] = OrderedDict()
+    for cat in REPORT_CATEGORY_ORDER:
+        if cat in buckets:
+            result[cat] = buckets.pop(cat)
+    # Merge remaining into "其他"
+    other: list[dict] = []
+    for remaining_lines in buckets.values():
+        other.extend(remaining_lines)
+    if other:
+        other.sort(key=lambda item: (item.get("category") or "其他", item.get("product_name") or ""))
+        result["其他"] = other
+    return result
+
+
 def _setup_sheet(ws, title: str, headers: list[str], widths: list[int]):
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(headers))
     title_cell = ws.cell(1, 1, title)
@@ -87,7 +130,7 @@ def _picking_sheet(ws, title: str, lines: list[dict]):
 
 def batch_picking_workbook(aggregation: dict) -> bytes:
     lines = aggregation["document_lines"]
-    categories = _category_lines(lines)
+    categories = _report_category_lines(lines)
     wb = Workbook()
     wb.properties.title = f"三公鲜配备货单 {aggregation['batch']['batch_no']}"
     total = wb.active
@@ -139,7 +182,7 @@ def _outbound_sheet(ws, title: str, lines: list[dict], include_category: bool):
 
 def batch_outbound_workbook(aggregation: dict) -> bytes:
     lines = aggregation["document_lines"]
-    categories = _category_lines(lines)
+    categories = _report_category_lines(lines)
     wb = Workbook()
     wb.properties.title = f"三公鲜配出库单 {aggregation['batch']['batch_no']}"
     total = wb.active

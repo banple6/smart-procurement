@@ -593,12 +593,25 @@
     if (!confirm(`确认${label}这笔订单吗？`)) return;
     button.disabled = true;
     button.textContent = "提交中";
+    const isAccept = button.dataset.status === "accepted";
+    const orderId = button.dataset.order;
     try {
-      await mutate(`/api/v1/admin/orders/${button.dataset.order}/status`, {
-        status: button.dataset.status,
-        expected_status: button.dataset.currentStatus,
-        expected_version: Number(button.dataset.version || 0) || undefined,
+      await api(`/api/v1/admin/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: button.dataset.status,
+          expected_status: button.dataset.currentStatus,
+          expected_version: Number(button.dataset.version || 0) || undefined,
+        }),
       });
+      if (isAccept) {
+        toast("接单成功，正在进入备货流程");
+        window.location.assign(`/admin/batches?preselect=${orderId}`);
+      } else {
+        toast("操作已完成");
+        await loadCurrent(true);
+      }
     } catch (error) {
       toast(error.message || "操作失败，请刷新后重试");
       button.disabled = false;
@@ -865,7 +878,7 @@
       `;
     }
     content().innerHTML += table(["食材", "规格", "数量", "单价", "小计"], (order.items || []).map((item) => `
-      <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.unit_price_cents)}</td><td>${money(item.subtotal_cents)}</td></tr>
+      <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.price_cents_snapshot)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
@@ -1332,7 +1345,7 @@
     content().innerHTML += `<div class="page-toolbar"><a class="primary-link" href="/api/v1/admin/ledger/export.xlsx?${query.toString()}">导出 Excel</a></div>`;
     const rows = await api(`/api/v1/admin/ledger?${query.toString()}`);
     content().innerHTML += table(["订单编号", "单位", "下单时间", "状态", "食材", "数量", "单价", "小计"], rows.slice(0, 300).map((row) => `
-      <tr><td>${html(row.order_no)}</td><td>${html(row.unit_name_snapshot || "--")}</td><td>${dateTime(row.created_at)}</td><td>${statusTag(row.status)}</td><td>${html(row.product_name_snapshot)}</td><td>${qty(row.quantity)}</td><td>${money(row.unit_price_cents)}</td><td>${money(row.subtotal_cents)}</td></tr>
+      <tr><td>${html(row.order_no)}</td><td>${html(row.unit_name_snapshot || "--")}</td><td>${dateTime(row.created_at)}</td><td>${statusTag(row.status)}</td><td>${html(row.product_name_snapshot)}</td><td>${qty(row.quantity)}</td><td>${money(row.price_cents_snapshot)}</td><td>${money(row.subtotal_cents)}</td></tr>
     `), "暂无台账记录");
   }
 
@@ -1368,6 +1381,14 @@
           <tr><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名批次")}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td>${dateTime(batch.created_at)}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看汇总</a></td></tr>
         `), "暂无配送批次")}
       </article>`;
+    const preselect = new URLSearchParams(window.location.search).get("preselect");
+    if (preselect) {
+      document.querySelectorAll('input[name="orderId"]').forEach((checkbox) => {
+        if (checkbox.value === preselect) checkbox.checked = true;
+      });
+      const nameInput = document.querySelector('#batchCreateForm input[name="name"]');
+      if (nameInput && !nameInput.value) nameInput.value = new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + " 备货";
+    }
     $("batchCreateForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;

@@ -15,6 +15,7 @@ from ...database import connect, decimal_text, private_upload_dir, transaction, 
 from ...models import EDITABLE_SUPPLY_STATUSES, PRODUCT_CATEGORIES, PRODUCT_UNITS, resolve_product_spec
 from ...services.dashboard_cache import invalidate_dashboard_cache
 from .matcher import load_product_indexes, match_product
+from ..local_time import display_local_time
 from .parser import MAX_FILE_BYTES, SUPPORTED_EXTENSIONS, detect_header, mapping_from_names, normalize_product_name, normalized_text, parse_price_cents, parse_workbook, price_header_unit, unit_conversion
 from .semantic_analyzer import PROMPT_VERSION, SpreadsheetSemanticAnalyzer
 
@@ -559,4 +560,8 @@ def batch_out(batch_id: str) -> dict:
 
 def list_batches(limit: int = 30) -> list[dict]:
     with connect() as conn:
-        return [dict(row) for row in conn.execute("SELECT id,status,source_filename,uploaded_by,selected_sheet_name,recognition_level,llm_called,summary_json,applied_at,created_at FROM price_import_batches ORDER BY created_at DESC LIMIT ?", (limit,))]
+        rows = [dict(row) for row in conn.execute("SELECT id,status,source_filename,uploaded_by,selected_sheet_name,recognition_level,llm_called,summary_json,applied_at,created_at FROM price_import_batches ORDER BY created_at DESC LIMIT ?", (limit,))]
+        for row in rows:
+            row["created_at"] = display_local_time(row.get("created_at"))
+            row["applied_at"] = display_local_time(row.get("applied_at"))
+        return rows

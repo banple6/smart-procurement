@@ -18,6 +18,7 @@ from ..dependencies import current_user, require_manage_backups, require_system_
 from ..metrics import request_snapshot, uptime_seconds
 from ..security import hash_token
 from ..services.audit import append_system_event, client_ip, sanitize_text, system_log_path
+from ..services.local_time import display_local_time
 
 router = APIRouter(prefix="/admin/system", tags=["system"])
 
@@ -71,7 +72,7 @@ def audit_rows(
 ) -> list[dict]:
     where, params = audit_filters(start_date, end_date, actor_role, result, path, action, q)
     with connect() as conn:
-        return all_rows(
+        rows = all_rows(
             conn,
             f"""
             SELECT a.id, a.created_at, a.actor_id, a.actor_role, COALESCE(u.username, '') AS username,
@@ -86,6 +87,9 @@ def audit_rows(
             """,
             [*params, max(1, min(limit, 2000))],
         )
+        for row in rows:
+            row["created_at"] = display_local_time(row.get("created_at"))
+        return rows
 
 
 def sha256_file(path: Path) -> str:
