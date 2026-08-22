@@ -94,7 +94,7 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
             }
             item {
                 SectionPanel("食材批量维护") {
-                    Text("上传供应商报价，一次建立新食材并同步已有商品价格。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("上传食材报价单，一次建立新食材并同步已有食材价格。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = { viewModel.navigateTo(Screen.PriceImports) },

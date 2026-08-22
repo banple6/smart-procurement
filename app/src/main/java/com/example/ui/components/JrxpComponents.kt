@@ -42,7 +42,7 @@ import com.smartprocurement.internal.ui.theme.*
 
 // ── DocumentSection ─────────────────────────────────────────
 // 文档式分区：左侧 3dp 短蓝线 + 模块标题 + 可选说明 + 内容
-// 用于：基本信息、商品明细、配送信息、操作记录
+// 用于：基本信息、食材明细、配送信息、操作记录
 @Composable
 fun DocumentSection(
     title: String,

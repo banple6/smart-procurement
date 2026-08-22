@@ -82,8 +82,8 @@ private val importCategories = listOf("蔬菜", "水果", "肉禽", "水产", "�
 private val importUnits = listOf("", "公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包")
 private val importSupplyStatuses = listOf("paused" to "暂停供应", "normal" to "正常供应", "tight" to "库存紧张")
 private val importMappingFields = listOf(
-    "product_name" to "商品名称列",
-    "product_code" to "商品编码列",
+    "product_name" to "食材名称列",
+    "product_code" to "食材编码列",
     "category" to "分类列",
     "spec" to "规格列",
     "unit" to "单位列",
@@ -118,7 +118,7 @@ fun PriceImportsScreen(viewModel: SupplyViewModel) {
     val orbDetail = when {
         isAnalyzing -> "正在读取字段和价格，请不要退出此页面"
         selectedFile != null -> "已选择：$selectedFileName"
-        else -> "首次可批量建立商品目录，之后会同步已有商品价格"
+        else -> "首次可批量建立食材目录，之后会同步已有食材价格"
     }
 
     Scaffold(topBar = { GovernmentTopBar(title = "Excel 智能导入", onBack = { viewModel.navigateBack() }) }) { padding ->
@@ -139,7 +139,7 @@ fun PriceImportsScreen(viewModel: SupplyViewModel) {
                 GovernmentCard {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         GovernmentSectionHeader("上传供应商报价")
-                        Text("支持 .xlsx、.xls、.csv，文件最大 10 MB。系统不会直接改价，识别后仍需核对并确认。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 20.sp)
+                        Text("支持 .xlsx、.xls、.csv 格式，最大 10MB。系统读取后将由您核对并应用新价格。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 20.sp)
                         OutlinedButton(
                             onClick = {
                                 picker.launch(
@@ -263,8 +263,8 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
         val action = importApplyText(batch)
         AlertDialog(
             onDismissRequest = { confirmApply = false },
-            title = { Text("确认批量应用", fontWeight = FontWeight.Bold) },
-            text = { Text("确认${action}吗？历史订单中的价格快照不会改变。") },
+            title = { Text("批量应用新价格", fontWeight = FontWeight.Bold) },
+            text = { Text("是否${action}？历史订单价格将不受影响。") },
             confirmButton = {
                 Button(onClick = {
                     confirmApply = false
@@ -311,7 +311,7 @@ private fun PriceImportReviewContent(
             ThinkingOrbStatusPanel(
                 state = if (working) ThinkingOrbState.Solving else ThinkingOrbState.Working,
                 title = if (working) "正在同步导入结果" else batch.sourceFilename,
-                detail = if (working) "请稍候，正在与服务端核对数据" else "Excel 提供的信息会预填新增商品；应用后会留下价格历史。",
+                detail = if (working) "请稍候，正在与服务端核对数据" else "文件提供的信息会预填新增食材；应用后会留下价格历史。",
                 active = true
             )
         }
@@ -319,8 +319,8 @@ private fun PriceImportReviewContent(
             GovernmentCard {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ImportMetricRow("共识别", "${batch.metrics.parsedRows} 条")
-                    ImportMetricRow("更新已有商品", "${batch.metrics.existingProductRows}")
-                    ImportMetricRow("新增商品", "${batch.metrics.newProductRows}")
+                    ImportMetricRow("更新已有食材", "${batch.metrics.existingProductRows}")
+                    ImportMetricRow("新增食材", "${batch.metrics.newProductRows}")
                     ImportMetricRow("需要确认", "${batch.metrics.needsReviewRows}")
                     ImportMetricRow("异常", "${batch.metrics.exceptionRows}")
                 }
@@ -339,8 +339,8 @@ private fun PriceImportReviewContent(
         if (products.isEmpty() && batch.metrics.newProductRows > 0) {
             item {
                 GovernmentInfoBanner(
-                    title = "系统当前尚无商品",
-                    message = "本次识别的 ${batch.metrics.newProductRows} 项会作为新增商品候选。设置默认资料后可一次确认导入。"
+                    title = "系统当前尚无食材",
+                    message = "本次识别的 ${batch.metrics.newProductRows} 项会作为新增食材候选。设置默认资料后可一次确认导入。"
                 )
             }
         }
@@ -348,7 +348,7 @@ private fun PriceImportReviewContent(
             item {
                 GovernmentInfoBanner(
                     title = "还有 ${blockers.size} 项需要处理",
-                    message = "请选择系统商品、处理异常，或忽略本次不导入的项目。",
+                    message = "请选择系统食材、处理异常，或忽略暂不导入的项目。",
                     danger = true
                 )
             }
@@ -397,7 +397,7 @@ private fun PriceImportDefaultsEditor(batch: PriceImportBatch, working: Boolean,
     var supplyStatus by remember(batch.id, batch.newProductDefaults.supplyStatus) { mutableStateOf(batch.newProductDefaults.supplyStatus) }
     GovernmentCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            GovernmentSectionHeader("新增商品默认设置")
+            GovernmentSectionHeader("新增食材默认设置")
             Text("只会补齐 Excel 未提供的字段。Excel 中明确填写的规格、单位和库存会优先保留。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)
             Text("分类", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
@@ -430,7 +430,7 @@ private fun PriceImportDefaultsEditor(batch: PriceImportBatch, working: Boolean,
                 }
             }
             GovernmentSecondaryButton(
-                text = "应用到本批新增商品",
+                text = "应用到本批新增食材",
                 onClick = {
                     viewModel.updatePriceImportDefaults(
                         PriceImportDefaults(category, spec, stock, supplyStatus, fallbackUnit, true)
@@ -520,7 +520,7 @@ private fun PriceImportFieldMappingSheet(
                 }
                 item {
                     Text("选择字段", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text("商品名称列和本次执行价格列为必选。其他字段只在 Excel 中存在时选择。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    Text("食材名称列和本次执行价格列为必选。其他字段只在文件中有时再选择。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                 }
                 items(importMappingFields, key = { it.first }) { (field, label) ->
                     PriceImportChoiceField(
@@ -588,8 +588,8 @@ private fun defaultPriceImportMapping(headers: List<String>): Map<String, String
         words.any { normalized.contains(it.lowercase().replace(" ", "")) }
     }.orEmpty()
     return mapOf(
-        "product_name" to findHeader("商品名称", "货品名称", "菜品", "商品"),
-        "product_code" to findHeader("商品编码", "货号", "编码"),
+        "product_name" to findHeader("食材名称", "商品名称", "货品名称", "菜品", "商品", "食材"),
+        "product_code" to findHeader("食材编码", "商品编码", "货号", "编码"),
         "category" to findHeader("分类", "品类"),
         "spec" to findHeader("规格", "型号"),
         "unit" to findHeader("单位", "计量"),
@@ -612,14 +612,14 @@ private fun PriceImportRowCard(
         Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(row.sourceProductName.ifBlank { "未填写商品名称" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(row.sourceProductName.ifBlank { "未填写食材名称" }, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOf(row.sourceSpec, row.sourceUnit).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "Excel 未提供规格或单位" }, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 PriceImportStatusTag(row)
             }
             if (isNew) {
-                GovernmentDataRow("系统处理", "新增商品")
-                GovernmentDataRow("商品编码", row.proposedProductCode.ifBlank { "需要确认" })
+                GovernmentDataRow("系统处理", "新增食材")
+                GovernmentDataRow("食材编码", row.proposedProductCode.ifBlank { "需要确认" })
                 GovernmentDataRow("分类", row.proposedCategory.ifBlank { "需要确认" })
                 GovernmentDataRow("规格", row.proposedSpec.ifBlank { "散装" })
                 GovernmentDataRow("单位", row.proposedUnit.ifBlank { "需要确认" })
@@ -631,7 +631,7 @@ private fun PriceImportRowCard(
                     enabled = !working
                 )
             } else {
-                GovernmentDataRow("系统商品", row.matchedProductName.ifBlank { "请选择系统商品" })
+                GovernmentDataRow("系统食材", row.matchedProductName.ifBlank { "请选择系统食材" })
                 GovernmentDataRow("单位", row.systemUnit.ifBlank { row.sourceUnit.ifBlank { "--" } })
                 GovernmentDataRow("当前价格", row.currentPriceCents?.let(Money::formatCents) ?: "--")
             }
@@ -639,7 +639,7 @@ private fun PriceImportRowCard(
             row.warning.takeIf { it.isNotBlank() }?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp, lineHeight = 19.sp) }
             if (needsSelection) {
                 OutlinedButton(onClick = onChooseProduct, enabled = !working, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Text("选择系统商品")
+                    Text("选择系统食材")
                 }
             }
             if (row.validationStatus !in setOf("READY", "IGNORED")) {
@@ -673,14 +673,14 @@ private fun PriceImportNewProductDialog(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item {
                     Text(
-                        row.sourceProductName.ifBlank { "Excel 新增商品" },
+                        row.sourceProductName.ifBlank { "新增食材" },
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
                 item {
                     Text(
-                        "这里只修改本次导入的这一项，不会影响其他新增商品。",
+                        "这里只修改本次导入的这一项，不会影响其他新增食材。",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -689,7 +689,7 @@ private fun PriceImportNewProductDialog(
                     OutlinedTextField(
                         value = code,
                         onValueChange = { code = it },
-                        label = { Text("商品编码") },
+                        label = { Text("食材编码") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -777,12 +777,12 @@ private fun ProductPickerDialog(products: List<ProductEntity>, onDismiss: () -> 
     }.take(40)
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择系统商品", fontWeight = FontWeight.Bold) },
+        title = { Text("选择系统食材", fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(value = keyword, onValueChange = { keyword = it }, label = { Text("搜索名称或编码") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (rows.isEmpty()) {
-                    Text("没有可选择的系统商品", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("没有可选择的系统食材", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     LazyColumn(modifier = Modifier.height(240.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(rows, key = { it.id }) { product ->
@@ -862,9 +862,9 @@ private fun importApplyText(batch: PriceImportBatch): String {
     val update = batch.rows.count { it.validationStatus == "READY" && it.operationType == "EXISTING_PRODUCT" }
     val create = batch.rows.count { it.validationStatus == "READY" && it.operationType == "NEW_PRODUCT" }
     return when {
-        update > 0 && create > 0 -> "确认更新 $update 个价格并新增 $create 个商品"
+        update > 0 && create > 0 -> "确认更新 $update 个价格并新增 $create 种食材"
         update > 0 -> "确认更新 $update 个价格"
-        else -> "确认新增 $create 个商品"
+        else -> "确认新增 $create 种食材"
     }
 }
 

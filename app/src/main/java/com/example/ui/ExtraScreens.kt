@@ -121,7 +121,7 @@ private fun ResourceSection(overview: SystemOverview) {
             MetricProgress("内存使用", memoryPercent, "${formatBytes(overview.resources.memoryUsedBytes)} / ${formatBytes(overview.resources.memoryTotalBytes)}")
             MetricProgress("磁盘使用", diskPercent, "${formatBytes(overview.resources.diskUsedBytes)} / ${formatBytes(overview.resources.diskTotalBytes)}")
             GovernmentDataRow("数据库大小", formatBytes(overview.storage.databaseBytes))
-            GovernmentDataRow("商品图片", formatBytes(overview.storage.productImagesBytes))
+            GovernmentDataRow("食材图片", formatBytes(overview.storage.productImagesBytes))
             GovernmentDataRow("发货照片", formatBytes(overview.storage.shippingPhotosBytes))
             GovernmentDataRow("收货异常照片", formatBytes(overview.storage.receiptIssuePhotosBytes))
             GovernmentDataRow("备份占用", formatBytes(overview.storage.backupsBytes))
@@ -165,7 +165,7 @@ private fun StorageSection(overview: SystemOverview) {
             Text("数据与存储", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             GovernmentDataRow("启用单位", overview.activeUnits.toString())
             GovernmentDataRow("启用账号", overview.activeUsers.toString())
-            GovernmentDataRow("商品数量", overview.products.toString())
+            GovernmentDataRow("食材数量", overview.products.toString())
             GovernmentDataRow("收货异常", overview.openReceiptIssues.toString())
         }
     }

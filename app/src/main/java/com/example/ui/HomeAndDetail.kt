@@ -308,7 +308,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
         AlertDialog(
             onDismissRequest = { showBatchDeleteConfirm = false },
             title = { Text("确认删除已选食材？") },
-            text = { Text("将从当前商品目录移除 ${selectedProductIds.size} 项食材。历史订单、库存流水和价格记录仍会保留。") },
+            text = { Text("将从当前食材目录移除 ${selectedProductIds.size} 项食材。历史订单、库存流水和价格记录仍会保留。") },
             dismissButton = { TextButton(onClick = { showBatchDeleteConfirm = false }) { Text("取消") } },
             confirmButton = {
                 TextButton(onClick = {
@@ -328,7 +328,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             ) {
                 Text("Excel 识别完成", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 if (batch != null) {
-                    Text("新增商品：${batch.metrics.newProductRows}")
+                    Text("新增食材：${batch.metrics.newProductRows}")
                     Text("更新价格：${batch.metrics.existingProductRows}")
                     Text("需要确认：${batch.metrics.needsReviewRows}")
                     Text("数据异常：${batch.metrics.exceptionRows}")
@@ -919,7 +919,7 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                     onSelected = { form = form.copy(storageMethod = it) }
                 )
                 FormInput("保质期说明", form.shelfLife, { form = form.copy(shelfLife = it) }, null)
-                FormInput("商品说明", form.remark, { form = form.copy(remark = it) }, null, singleLine = false)
+                FormInput("食材说明", form.remark, { form = form.copy(remark = it) }, null, singleLine = false)
                 JrxpPrimaryButton(text = "完成", onClick = { moreSheet = false }, modifier = Modifier.fillMaxWidth())
             }
         }

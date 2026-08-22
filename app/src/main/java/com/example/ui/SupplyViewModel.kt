@@ -63,6 +63,7 @@ sealed interface Screen {
     object PreparationSummary : Screen
     object DeliverySheets : Screen
     object DeliveryBatches : Screen
+    data class DeliveryBatchCreate(val preselectOrderId: String) : Screen
     data class DeliveryBatchDetail(val batchId: String) : Screen
     object PriceImports : Screen
     data class PriceImportDetail(val batchId: String) : Screen
@@ -112,6 +113,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     private val pushNotificationManager = PushNotificationManager(application)
     private var authToken by mutableStateOf("")
     private var pendingPushEvent: PushEvent? = null
+    private val adminUiEventQueue = AdminUiEventQueue()
+
+    val adminUiEvents = adminUiEventQueue.events
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -450,7 +454,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     repository.replaceProducts(products)
                     lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                 }.onFailure {
-                    alertMessage = it.toUserMessage("商品同步失败")
+                    alertMessage = it.toUserMessage("食材同步失败")
                 }
             } finally {
                 isRefreshingProducts = false
@@ -554,7 +558,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             runCatching { withContext(Dispatchers.IO) { apiClient.updatePriceImportDefaults(authToken, batch.id, defaults) } }
                 .onSuccess {
                     activePriceImport = it
-                    snackbarMessage = "新增商品默认设置已应用"
+                    snackbarMessage = "新增食材默认设置已应用"
                 }
                 .onFailure { alertMessage = it.toUserMessage("默认设置保存失败") }
             isPriceImportLoading = false
@@ -569,9 +573,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             runCatching { withContext(Dispatchers.IO) { apiClient.selectPriceImportProduct(authToken, batch.id, rowId, productId) } }
                 .onSuccess {
                     activePriceImport = it
-                    snackbarMessage = "系统商品已关联"
+                    snackbarMessage = "系统食材已关联"
                 }
-                .onFailure { alertMessage = it.toUserMessage("关联商品失败") }
+                .onFailure { alertMessage = it.toUserMessage("关联食材失败") }
             isPriceImportLoading = false
         }
     }
@@ -602,9 +606,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }.onSuccess {
                 activePriceImport = it
-                snackbarMessage = "本项商品资料已保存"
+                snackbarMessage = "本项食材资料已保存"
             }.onFailure {
-                alertMessage = it.toUserMessage("保存商品资料失败")
+                alertMessage = it.toUserMessage("保存食材资料失败")
             }
             isPriceImportLoading = false
         }
@@ -1046,7 +1050,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun refreshDeliveryBatches() {
+    fun refreshDeliveryBatches(onSuccess: (List<DeliveryBatchOrder>) -> Unit = {}) {
         if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
         isDeliveryBatchLoading = true
         viewModelScope.launch {
@@ -1057,6 +1061,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             }.onSuccess { (batches, orders) ->
                 deliveryBatches = batches
                 eligibleBatchOrders = orders
+                onSuccess(orders)
             }.onFailure {
                 alertMessage = it.toUserMessage("配送批次加载失败")
             }
@@ -1083,6 +1088,9 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 eligibleBatchOrders = eligibleBatchOrders.filterNot { it.id in orderIds }
                 snackbarMessage = "配送批次已创建"
                 onSuccess()
+                if (navigationStack.lastOrNull() is Screen.DeliveryBatchCreate) {
+                    navigationStack[navigationStack.lastIndex] = Screen.DeliveryBatches
+                }
                 navigateTo(Screen.DeliveryBatchDetail(batch.id))
             }.onFailure {
                 alertMessage = it.toUserMessage("配送批次创建失败")
@@ -1782,11 +1790,13 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             alertMessage = "请重新登录后操作订单"
             return
         }
+        val isAdminAction = currentUser?.role == "admin"
+        val isAcceptAction = isAdminAction && order.status == "待接单"
         activeOrderActionId = order.orderId
         viewModelScope.launch {
             val result = runCatching {
                 val bundle = withContext(Dispatchers.IO) {
-                    if (currentUser?.role == "admin") {
+                    if (isAdminAction) {
                         val nextStatus = RemoteOrderMapper.apiStatusForNextUiAction(order.status, isAdmin = true)
                             ?: throw IllegalStateException("当前状态不可推进")
                         apiClient.setAdminOrderStatus(authToken, order, nextStatus)
@@ -1803,8 +1813,19 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 bundle
             }
             activeOrderActionId = ""
-            result.onSuccess {
+            result.onSuccess { bundle ->
                 snackbarMessage = "订单状态已更新"
+                val event = adminOrderActionSuccessEvent(
+                    isAdmin = isAdminAction,
+                    previousStatus = order.status,
+                    updatedStatus = bundle.order.status,
+                    orderId = order.orderId
+                )
+                if (event != null) {
+                    adminUiEventQueue.emit(event)
+                } else if (isAcceptAction) {
+                    alertMessage = "订单已提交接单，但服务端返回的状态不允许加入配送批次，请刷新后检查订单状态。"
+                }
             }.onFailure {
                 alertMessage = it.toUserMessage("订单操作失败")
             }
@@ -1898,7 +1919,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             message.contains("所属单位已停用") -> "所属单位已停用，请联系管理员"
             message.contains("库存不足") -> "库存不足，请减少数量"
             message.contains("价格未设置") -> "价格未设置"
-            message.contains("暂停供应") -> "该商品已暂停供应"
+            message.contains("暂停供应") -> "该食材已暂停供应"
             message.contains("订单状态已变化") -> "订单状态已变化，请刷新后重试"
             message.contains("低于最小申领量") -> "低于最小申领量"
             message.contains("步长") -> "数量不符合申领步长"

@@ -289,7 +289,7 @@
         <article class="panel trend-panel"><div class="panel-header"><div><h2>近 7 日采购趋势</h2><p id="trendSummary">--</p></div><select id="rangeSelect" aria-label="趋势范围"><option value="7">近 7 日</option><option value="14">近 14 日</option><option value="30">近 30 日</option></select></div><div id="trendChart" class="trend-chart"></div></article>
       </section>
       <section class="dashboard-grid">
-        <article class="panel table-panel"><div class="panel-header"><div><h2>最近订单</h2><p>最多显示最近 10 笔</p></div><a href="/admin/orders">查看全部订单</a></div><div class="table-wrap"><table><thead><tr><th>订单编号</th><th>子单位</th><th>下单时间</th><th>商品种类</th><th>订单金额</th><th>当前状态</th><th>异常标记</th><th>操作</th></tr></thead><tbody id="recentOrders"></tbody></table></div></article>
+        <article class="panel table-panel"><div class="panel-header"><div><h2>最近订单</h2><p>最多显示最近 10 笔</p></div><a href="/admin/orders">查看全部订单</a></div><div class="table-wrap"><table><thead><tr><th>订单编号</th><th>子单位</th><th>下单时间</th><th>食材种类</th><th>订单金额</th><th>当前状态</th><th>异常标记</th><th>操作</th></tr></thead><tbody id="recentOrders"></tbody></table></div></article>
         <article class="panel table-panel"><div class="panel-header"><div><h2>库存预警</h2><p>优先显示库存不足和暂停供应</p></div><a href="/admin/products?status=tight">查看食材列表</a></div><div id="inventoryAlerts" class="inventory-list"></div></article>
       </section>
       <section class="dashboard-grid">
@@ -427,7 +427,7 @@
               <label class="form-field"><span>供应商</span><input name="productSupplier" type="text" autocomplete="off" /></label>
               <label class="form-field span-2"><span>储存方式</span>${productOptionButtons("productStorageMethod", productStorageMethods, defaults.productStorageMethod)}</label>
               <label class="form-field"><span>保质期说明</span><input name="productShelfLife" type="text" autocomplete="off" /></label>
-              <label class="form-field span-2"><span>商品说明</span><input name="productDescription" type="text" autocomplete="off" /></label>
+              <label class="form-field span-2"><span>食材说明</span><input name="productDescription" type="text" autocomplete="off" /></label>
             </div>
           </details>
           <div class="page-toolbar form-actions">
@@ -956,7 +956,7 @@
     $("clearProducts").addEventListener("click", async () => {
       const confirmationText = window.prompt(`即将从当前目录移除 ${products.length} 项食材。请输入“确认删除”继续。`, "");
       if (confirmationText === null) return;
-      if (confirmationText.trim() !== "确认删除") return toast("未输入正确确认文字，操作已取消");
+      if (confirmationText.trim() !== "确认删除") return toast("确认文字不正确，操作已取消");
       const button = $("clearProducts");
       button.disabled = true;
       button.textContent = "删除中";
@@ -1103,7 +1103,7 @@
       window.history.pushState({}, "", `/admin/price-imports/${batch.id}`);
       await loadPriceImportDetail(batch.id);
     } catch (error) {
-      toast(error.message || "报价表分析失败，请检查文件或手动确认字段");
+      toast(error.message || "报价单识别失败，请检查文件或手动选择对应列");
       button.disabled = false;
       button.textContent = "开始分析";
       await loadPriceImports();
@@ -1116,7 +1116,7 @@
     content().innerHTML += `
       ${priceImportActivityPanel("searching", "智能导入已就绪", "选择报价表后将自动识别字段；应用前仍需由管理员确认。")}
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>上传供应商报价 Excel</h2><p>支持 .xlsx、.xls、.csv，最大 10 MB。首次可批量建立商品目录，之后会同步已有食材价格；应用前始终需要确认。</p></div></div>
+        <div class="panel-header"><div><h2>上传供应商报价 Excel</h2><p>支持 .xlsx、.xls、.csv，最大 10 MB。首次可批量建立食材目录，之后会同步已有食材价格；应用前始终需要确认。</p></div></div>
         <div class="form-grid"><label class="form-field span-2"><span>报价文件</span><input id="priceImportFile" type="file" accept=".xlsx,.xls,.csv" /></label></div>
         <div class="page-toolbar"><button class="primary-link" id="startPriceImport" type="button">开始分析</button></div>
       </article>
@@ -1131,7 +1131,7 @@
     const unitOptions = productUnits.map((item) => `<option value="${html(item)}" ${item === row.proposed_unit ? "selected" : ""}>${html(item)}</option>`).join("");
     const statusOptions = productSupplyStatuses.map(([value, label]) => `<option value="${value}" ${value === row.proposed_supply_status ? "selected" : ""}>${label}</option>`).join("");
     return `<details class="mapping-details"><summary>修改本项资料</summary><div class="form-grid compact-form">
-      <label class="form-field"><span>商品编码</span><input data-new-code="${row.id}" value="${html(row.proposed_product_code || "")}" /></label>
+      <label class="form-field"><span>食材编码</span><input data-new-code="${row.id}" value="${html(row.proposed_product_code || "")}" /></label>
       <label class="form-field"><span>分类</span><select data-new-category="${row.id}">${categoryOptions}</select></label>
       <label class="form-field"><span>规格</span><input data-new-spec="${row.id}" value="${html(row.proposed_spec || "散装")}" /></label>
       <label class="form-field"><span>单位</span><select data-new-unit="${row.id}">${unitOptions}</select></label>
@@ -1150,7 +1150,7 @@
     });
     return rows.map((row) => `<tr>
       <td>${html(row.source_product_name || "--")}${row.source_spec ? `<br><small>${html(row.source_spec)}</small>` : ""}</td>
-      <td data-price-product-cell="${row.id}">${row.operation_type === "NEW_PRODUCT" ? `新增商品${newProductEditor(row)}` : row.matched_product_name ? `${html(row.matched_product_name)}<br><small>${priceImportLinkLabel(row)}${row.system_unit ? ` · ${html(row.system_unit)}` : ""}</small><br><button class="table-action" data-price-change="${row.id}">更换</button>` : `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${row.id}" placeholder="搜索并选择商品" /><button class="table-action" data-price-select="${row.id}">确认</button>`}</td>
+      <td data-price-product-cell="${row.id}">${row.operation_type === "NEW_PRODUCT" ? `新增食材${newProductEditor(row)}` : row.matched_product_name ? `${html(row.matched_product_name)}<br><small>${priceImportLinkLabel(row)}${row.system_unit ? ` · ${html(row.system_unit)}` : ""}</small><br><button class="table-action" data-price-change="${row.id}">更换</button>` : `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${row.id}" placeholder="搜索并选择食材" /><button class="table-action" data-price-select="${row.id}">确认</button>`}</td>
       <td>${html(row.operation_type === "NEW_PRODUCT" ? (row.proposed_spec || "--") : (row.source_spec || "--"))}</td>
       <td>${html(row.operation_type === "NEW_PRODUCT" ? (row.proposed_unit || "--") : (row.system_unit || row.normalized_unit || "--"))}</td>
       <td>${row.operation_type === "NEW_PRODUCT" || row.current_price_cents == null ? "--" : money(row.current_price_cents)}</td>
@@ -1163,7 +1163,7 @@
   async function selectPriceImportProduct(batch, rowId, products) {
     const input = document.querySelector(`[data-price-product-input="${rowId}"]`);
     const selected = products.find((item) => priceImportProductLabel(item) === input?.value.trim());
-    if (!selected) return toast("请从搜索结果中选择系统商品");
+    if (!selected) return toast("请从搜索结果中选择系统食材");
     await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matched_product_id: selected.id }) });
     await loadPriceImportDetail(batch.id);
   }
@@ -1171,19 +1171,19 @@
   function enablePriceImportProductChange(rowId, products, batch) {
     const cell = document.querySelector(`[data-price-product-cell="${rowId}"]`);
     if (!cell) return;
-    cell.innerHTML = `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${rowId}" placeholder="搜索并选择商品" /><button class="table-action" data-price-select="${rowId}">确认</button>`;
-    cell.querySelector("[data-price-select]").addEventListener("click", () => selectPriceImportProduct(batch, rowId, products).catch((error) => toast(error.message || "选择系统商品失败")));
+    cell.innerHTML = `<input class="price-product-picker" list="priceImportProducts" data-price-product-input="${rowId}" placeholder="搜索并选择食材" /><button class="table-action" data-price-select="${rowId}">确认</button>`;
+    cell.querySelector("[data-price-select]").addEventListener("click", () => selectPriceImportProduct(batch, rowId, products).catch((error) => toast(error.message || "选择系统食材失败")));
     cell.querySelector("[data-price-product-input]").focus();
   }
 
   async function ignorePriceImportRow(batch, rowId) {
-    if (!confirm("确认忽略这一项吗？本次导入不会新增或修改它。")) return;
+    if (!confirm("确定不导入此项吗？")) return;
     await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ignore: true }) });
     await loadPriceImportDetail(batch.id);
   }
 
   async function reanalyzePriceImport(batch, button) {
-    if (!confirm("将按当前商品目录重新分析这份报价表，尚未应用的新增和价格同步不会直接执行。是否继续？")) return;
+    if (!confirm("即将用当前食材目录重新识别此报价单，之前尚未保存的内容会丢失。是否继续？")) return;
     button.disabled = true;
     button.textContent = "正在重新分析";
     setPriceImportMotion("solving", true);
@@ -1198,7 +1198,7 @@
   }
 
   async function loadPriceImportDetail(batchId, selectedFilter = "ALL") {
-    pageShell("Excel 智能导入与价格同步", "核对新增商品、价格和异常项后，再确认应用");
+    pageShell("Excel 智能导入与价格同步", "核对新增食材、价格和异常项后，再确认应用");
     const batch = await api(`/api/v1/admin/price-imports/${batchId}`);
     const blockers = (batch.rows || []).filter((row) => !["READY", "IGNORED"].includes(row.validation_status));
     const mapping = priceImportMapping(batch.column_mapping_json);
@@ -1210,27 +1210,27 @@
     const exceptionCount = Number(metrics.exception_rows || 0);
     const readyExisting = (batch.rows || []).filter((row) => row.validation_status === "READY" && row.operation_type === "EXISTING_PRODUCT").length;
     const readyNew = (batch.rows || []).filter((row) => row.validation_status === "READY" && row.operation_type === "NEW_PRODUCT").length;
-    const applyText = readyExisting && readyNew ? `确认更新 ${num(readyExisting)} 个价格并新增 ${num(readyNew)} 个商品` : readyExisting ? `确认更新 ${num(readyExisting)} 个价格` : `确认新增 ${num(readyNew)} 个商品`;
+    const applyText = readyExisting && readyNew ? `确认更新 ${num(readyExisting)} 个价格并新增 ${num(readyNew)} 种食材` : readyExisting ? `确认更新 ${num(readyExisting)} 个价格` : `确认新增 ${num(readyNew)} 种食材`;
     const filters = [["ALL", "全部"], ["EXISTING", "待同步"], ["NEW", "待新增"], ["NEEDS_REVIEW", "需要确认"], ["EXCEPTION", "异常"]];
     const defaults = batch.new_product_defaults || { category: "其他", spec: "散装", stock_quantity: "0", supply_status: "paused", fallback_unit: "", active: true };
     const defaultCategoryOptions = productCategories.map((item) => `<option value="${html(item)}" ${item === defaults.category ? "selected" : ""}>${html(item)}</option>`).join("");
     const defaultUnitOptions = `<option value="" ${!defaults.fallback_unit ? "selected" : ""}>按 Excel 单位</option>${productUnits.map((item) => `<option value="${html(item)}" ${item === defaults.fallback_unit ? "selected" : ""}>${html(item)}</option>`).join("")}`;
     const defaultStatusOptions = productSupplyStatuses.map(([value, label]) => `<option value="${value}" ${value === defaults.supply_status ? "selected" : ""}>${label}</option>`).join("");
     content().innerHTML += `
-      ${priceImportActivityPanel(["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "solving" : "working", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在处理导入批次" : "导入结果已就绪", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在与服务端核对商品和价格，请不要关闭当前页面。" : "请完成需要确认的项目，再一次性应用新增商品和价格同步。", true)}
+      ${priceImportActivityPanel(["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "solving" : "working", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在处理导入批次" : "导入结果已就绪", ["UPLOADED", "ANALYZING", "APPLYING"].includes(batch.status) ? "正在与服务端核对食材和价格，请不要关闭当前页面。" : "请完成需要确认的项目，再一次性应用新增食材和价格同步。", true)}
       <article class="panel section-panel"><div class="panel-header"><div><h2>${html(batch.source_filename)}</h2><p>Excel 提供的信息会预填到新增候选；本次操作不会修改任何历史订单价格。</p></div><a class="table-action" href="/admin/price-imports">返回记录</a></div>
-        <dl class="status-list detail-list"><dt>共识别</dt><dd>${num((batch.rows || []).length)} 条</dd><dt>更新已有商品</dt><dd>${num(existingCount)}</dd><dt>新增商品</dt><dd>${num(newCount)}</dd><dt>需要确认</dt><dd>${num(reviewCount)}</dd><dt>异常</dt><dd>${num(exceptionCount)}</dd></dl>
-        ${products.length === 0 && newCount ? `<p class="notice-banner">系统当前尚无商品，本次识别的 ${num(newCount)} 项将作为新增商品候选。请检查商品资料并补充缺失字段后批量导入。</p>` : ""}
-        ${newCount ? `<details class="mapping-details" open><summary>新增商品默认设置</summary><p>以下设置会应用到本批次缺失对应字段的新增商品；Excel 中明确提供的库存、规格和单位优先保留。</p><form id="newProductDefaultsForm"><div class="form-grid compact-form"><label class="form-field"><span>分类</span><select name="category">${defaultCategoryOptions}</select></label><label class="form-field"><span>规格</span><input name="spec" value="${html(defaults.spec || "散装")}" /></label><label class="form-field"><span>初始库存</span><input name="stock_quantity" inputmode="decimal" value="${html(defaults.stock_quantity || "0")}" /></label><label class="form-field"><span>供应状态</span><select name="supply_status">${defaultStatusOptions}</select></label><label class="form-field"><span>缺失单位时使用</span><select name="fallback_unit">${defaultUnitOptions}</select></label></div><button class="secondary-button" type="submit">应用到本批新增商品</button></form></details>` : ""}
-        <details class="mapping-details"><summary>修改 Excel 字段识别</summary><p>当前使用：商品名称列“${html(mapping.product_name || "--")}”，价格列“${html(mapping.price || "--")}”。</p><a class="table-action" href="/admin/price-imports/${batch.id}/mapping">重新选择字段</a></details>
+        <dl class="status-list detail-list"><dt>共识别</dt><dd>${num((batch.rows || []).length)} 条</dd><dt>更新已有食材</dt><dd>${num(existingCount)}</dd><dt>新增食材</dt><dd>${num(newCount)}</dd><dt>需要确认</dt><dd>${num(reviewCount)}</dd><dt>异常</dt><dd>${num(exceptionCount)}</dd></dl>
+        ${products.length === 0 && newCount ? `<p class="notice-banner">系统当前尚无食材，本次识别的 ${num(newCount)} 项将作为新增食材候选。请检查食材资料并补充缺失字段后批量导入。</p>` : ""}
+        ${newCount ? `<details class="mapping-details" open><summary>新增食材默认设置</summary><p>以下设置会应用到本批次缺失对应字段的新增食材；Excel 中明确提供的库存、规格和单位优先保留。</p><form id="newProductDefaultsForm"><div class="form-grid compact-form"><label class="form-field"><span>分类</span><select name="category">${defaultCategoryOptions}</select></label><label class="form-field"><span>规格</span><input name="spec" value="${html(defaults.spec || "散装")}" /></label><label class="form-field"><span>初始库存</span><input name="stock_quantity" inputmode="decimal" value="${html(defaults.stock_quantity || "0")}" /></label><label class="form-field"><span>供应状态</span><select name="supply_status">${defaultStatusOptions}</select></label><label class="form-field"><span>缺失单位时使用</span><select name="fallback_unit">${defaultUnitOptions}</select></label></div><button class="secondary-button" type="submit">应用到本批新增食材</button></form></details>` : ""}
+        <details class="mapping-details"><summary>修改 Excel 字段识别</summary><p>当前使用：食材名称列“${html(mapping.product_name || "--")}”，价格列“${html(mapping.price || "--")}”。</p><a class="table-action" href="/admin/price-imports/${batch.id}/mapping">重新选择字段</a></details>
         <div class="page-toolbar">${["READY_FOR_REVIEW", "FAILED"].includes(batch.status) ? `<button class="secondary-button" id="reanalyzePriceImport" type="button">重新分析报价表</button>` : ""}${batch.status === "READY_FOR_REVIEW" ? `<button class="primary-link" id="applyPriceImport" type="button" ${blockers.length || (!readyExisting && !readyNew) ? "disabled" : ""}>${applyText}</button>` : ""}${batch.status === "FAILED" ? `<button class="secondary-button" id="manualPriceMapping" type="button">手动确认 Excel 字段</button>` : ""}</div>
-        ${blockers.length ? `<p class="error-banner">还有 ${blockers.length} 项需要处理；请确认商品资料、处理异常或忽略本次不导入的项目。</p>` : ""}</article>
+        ${blockers.length ? `<p class="error-banner">还有 ${blockers.length} 项需要处理；请确认食材资料、处理异常或忽略本次不导入的项目。</p>` : ""}</article>
       <article class="panel table-panel"><div class="page-toolbar">${filters.map(([value, label]) => `<button class="${value === selectedFilter ? "primary-link" : "secondary-button"}" type="button" data-price-filter="${value}">${label}</button>`).join("")}</div>
         <datalist id="priceImportProducts">${products.map((item) => `<option value="${html(priceImportProductLabel(item))}"></option>`).join("")}</datalist>
-        ${table(["Excel 商品", "系统处理", "规格", "单位", "当前价格", "新价格", "库存", "供应状态", "状态"], reviewRows(batch, selectedFilter), "当前筛选没有报价行")}</article>`;
+        ${table(["原表食材", "系统处理", "规格", "单位", "当前价格", "新价格", "库存", "供应状态", "状态"], reviewRows(batch, selectedFilter), "当前筛选没有报价行")}</article>`;
     mountThinkingOrbs(content());
     document.querySelectorAll("[data-price-filter]").forEach((button) => button.addEventListener("click", () => loadPriceImportDetail(batch.id, button.dataset.priceFilter)));
-    document.querySelectorAll("[data-price-select]").forEach((button) => button.addEventListener("click", () => selectPriceImportProduct(batch, button.dataset.priceSelect, products).catch((error) => toast(error.message || "选择系统商品失败"))));
+    document.querySelectorAll("[data-price-select]").forEach((button) => button.addEventListener("click", () => selectPriceImportProduct(batch, button.dataset.priceSelect, products).catch((error) => toast(error.message || "选择系统食材失败"))));
     document.querySelectorAll("[data-price-change]").forEach((button) => button.addEventListener("click", () => enablePriceImportProductChange(button.dataset.priceChange, products, batch)));
     document.querySelectorAll("[data-price-ignore]").forEach((button) => button.addEventListener("click", () => ignorePriceImportRow(batch, button.dataset.priceIgnore).catch((error) => toast(error.message || "忽略项目失败"))));
     document.querySelectorAll("[data-price-save-new]").forEach((button) => button.addEventListener("click", async () => {
@@ -1241,7 +1241,7 @@
         await api(`/api/v1/admin/price-imports/${batch.id}/rows/${rowId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ product_code: value("[data-new-code"), category: value("[data-new-category"), spec: value("[data-new-spec"), unit: value("[data-new-unit"), stock_quantity: value("[data-new-stock"), supply_status: value("[data-new-status") }) });
         await loadPriceImportDetail(batch.id, selectedFilter);
       } catch (error) {
-        toast(error.message || "保存商品资料失败");
+        toast(error.message || "保存食材资料失败");
         button.disabled = false;
       }
     }));
@@ -1268,7 +1268,7 @@
       setPriceImportMotion("solving", true);
       try {
         await api(`/api/v1/admin/price-imports/${batch.id}/apply`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmed: true }) });
-        toast("导入已应用，并已记录价格历史");
+        toast("批量导入已完成，新价格已生效");
         await loadPriceImportDetail(batch.id);
       } catch (error) {
         toast(error.message || "应用失败，请重新核对");
@@ -1280,7 +1280,7 @@
   }
 
   function mappingSelect(name, header, selected) {
-    const labels = { product_name: "商品名称列", product_code: "商品编码列", category: "分类列", spec: "规格列", unit: "单位列", stock: "库存列", price: "本次执行价格列" };
+    const labels = { product_name: "食材名称列", product_code: "食材编码列", category: "分类列", spec: "规格列", unit: "单位列", stock: "库存列", price: "本次执行价格列" };
     return `<label class="form-field"><span>${labels[name] || name}</span><select name="${name}"><option value="">不使用</option>${header.map((value) => `<option value="${html(value)}" ${value === selected ? "selected" : ""}>${html(value)}</option>`).join("")}</select></label>`;
   }
 
@@ -1336,7 +1336,7 @@
   }
 
   async function loadLedger() {
-    pageShell("采购台账", "按订单和商品明细查看，可导出 Excel");
+    pageShell("采购台账", "按订单和食材明细查看，可导出 Excel");
     const params = new URLSearchParams(window.location.search);
     const query = new URLSearchParams();
     ["start_date", "end_date", "unit_id", "status", "product", "order_no"].forEach((key) => {
@@ -1457,7 +1457,7 @@
       <article class="panel table-panel"><div class="panel-header"><div><h2>批次订单</h2><p>软删除订单不会进入正常批次汇总和单据。</p></div></div>${table(["订单编号", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
     document.querySelectorAll("[data-batch-tab]").forEach((button) => button.addEventListener("click", () => loadBatchDetail(batchId, button.dataset.batchTab)));
     document.querySelectorAll("[data-batch-close]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认完成这个配送批次吗？完成后不能再调整订单。")) return;
+      if (!confirm("确认结束这个配送批次吗？结束后不能再添加或移除订单。")) return;
       button.disabled = true;
       try {
         await api(`/api/v1/admin/batches/${batchId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });

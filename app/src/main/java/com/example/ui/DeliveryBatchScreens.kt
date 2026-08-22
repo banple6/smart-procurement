@@ -67,19 +67,31 @@ import java.util.Locale
 private val ExcelMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 @Composable
-fun DeliveryBatchesScreen(viewModel: SupplyViewModel) {
+fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? = null) {
     var name by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var selectedOrderIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    LaunchedEffect(Unit) { viewModel.refreshDeliveryBatches() }
+    LaunchedEffect(preselectOrderId) {
+        viewModel.refreshDeliveryBatches { eligibleOrders ->
+            val result = resolveDeliveryBatchPreselection(
+                preselectOrderId = preselectOrderId,
+                eligibleOrderIds = eligibleOrders.map { it.id },
+                currentSelection = selectedOrderIds
+            )
+            selectedOrderIds = result.selectedOrderIds
+            if (result.missingPreselectedOrder) {
+                viewModel.snackbarMessage = "订单已接单，但当前无法加入新配送批次，请刷新后检查订单状态。"
+            }
+        }
+    }
     LaunchedEffect(viewModel.eligibleBatchOrders.map { it.id }) {
         selectedOrderIds = selectedOrderIds.intersect(viewModel.eligibleBatchOrders.mapTo(mutableSetOf()) { it.id })
     }
 
     Scaffold(
         topBar = {
-            BatchTopBar("配送批次", viewModel::navigateBack, viewModel::refreshDeliveryBatches)
+            BatchTopBar("配送批次", viewModel::navigateBack) { viewModel.refreshDeliveryBatches() }
         }
     ) { padding ->
         LazyColumn(

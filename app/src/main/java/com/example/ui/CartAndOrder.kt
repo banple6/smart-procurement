@@ -100,7 +100,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("清单空空如也", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    Text("请前往首页挑选所需食材，并在此提交需求。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+                    Text("请前往首页挑选所需食材。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
                     Spacer(modifier = Modifier.height(24.dp))
                     JrxpPrimaryButton(
                         text = "去挑选食材",
@@ -118,7 +118,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                 ) {
                     item {
                         DocumentSection(title = "结算摘要") {
-                            DetailRow("商品种类", "${rows.size} 种")
+                            DetailRow("食材种类", "${rows.size} 种")
                             DetailRow("订单金额", Money.formatCents(totalCents))
                         }
                     }
@@ -226,7 +226,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("确认提交这份采购单吗？") },
+            title = { Text("确认提交此采购单？") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("共 ${rows.size} 种食材")
@@ -500,7 +500,7 @@ private fun OrderListRow(order: OrderEntity, isAdmin: Boolean, viewModel: Supply
             if (isAdmin) {
                 Spacer(modifier = Modifier.height(JrxpDimensions.spacingSm))
                 Text(order.displayOrderNo, style = JrxpTypography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${order.itemCount} 种商品 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, fontWeight = FontWeight.Medium)
+                Text("${order.itemCount} 种食材 · ${Money.formatCents(order.totalCents)}", style = JrxpTypography.bodySmall, fontWeight = FontWeight.Medium)
             }
             Spacer(modifier = Modifier.height(JrxpDimensions.spacingMd))
             DetailRow("下单时间", order.submitTime)
@@ -616,7 +616,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                     DetailRow(label = "订单备注", value = ord.remarks.ifBlank { "无备注" })
                 }
 
-                DocumentSection(title = "商品明细", subtitle = "共 ${orderItems.size} 种") {
+                DocumentSection(title = "食材明细", subtitle = "共 ${orderItems.size} 种") {
                     orderItems.forEach { item ->
                         Row(
                             modifier = Modifier
@@ -775,12 +775,12 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
-            title = { Text("确认将订单改为“$targetStatus”吗？") },
+            title = { Text("确认将订单状态更改为“$targetStatus”？") },
             dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("取消") } },
             text = {
                 if (label == "取消订单") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("取消后将释放本订单预占库存。")
+                        Text("订单取消后，相关库存将自动释放。")
                         OutlinedTextField(
                             value = cancelReason,
                             onValueChange = { cancelReason = it },

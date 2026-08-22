@@ -222,7 +222,7 @@ fun LedgerScreen(viewModel: SupplyViewModel) {
                 Text("总金额：${Money.formatCents(totalAmount)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("订单台账") })
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("商品汇总") })
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("食材汇总") })
                 }
                 Button(
                     onClick = { createDocument.launch("三公鲜配_采购台账_${exportDateText()}.xlsx") },
@@ -304,7 +304,7 @@ fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
     ) {
         item {
             AdminFormCard {
-                Text("按商品汇总", fontWeight = FontWeight.Bold)
+                Text("按食材汇总", fontWeight = FontWeight.Bold)
                 Text("用于备货称重和拣货，数量来自真实订单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
                     onClick = { createDocument.launch("三公鲜配_今日备货单_${exportDateText()}.xlsx") },
