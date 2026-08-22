@@ -32,10 +32,15 @@ import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -60,6 +65,7 @@ import com.smartprocurement.internal.data.PriceImportBatch
 import com.smartprocurement.internal.data.PriceImportDefaults
 import com.smartprocurement.internal.data.PriceImportNewProductPatch
 import com.smartprocurement.internal.data.PriceImportRow
+import com.smartprocurement.internal.data.PriceImportStructure
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.ui.designsystem.GovernmentCard
@@ -75,6 +81,15 @@ import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbStatusPanel
 private val importCategories = listOf("蔬菜", "水果", "肉禽", "水产", "粮油", "蛋奶", "调料", "其他")
 private val importUnits = listOf("", "公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包")
 private val importSupplyStatuses = listOf("paused" to "暂停供应", "normal" to "正常供应", "tight" to "库存紧张")
+private val importMappingFields = listOf(
+    "product_name" to "商品名称列",
+    "product_code" to "商品编码列",
+    "category" to "分类列",
+    "spec" to "规格列",
+    "unit" to "单位列",
+    "stock" to "库存列",
+    "price" to "本次执行价格列"
+)
 
 @Composable
 fun PriceImportsScreen(viewModel: SupplyViewModel) {
@@ -172,6 +187,7 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
     var productPickerRow by remember { mutableStateOf<PriceImportRow?>(null) }
     var newProductEditorRow by remember { mutableStateOf<PriceImportRow?>(null) }
     var confirmApply by remember { mutableStateOf(false) }
+    var showFieldMapping by remember { mutableStateOf(false) }
     LaunchedEffect(batchId) {
         if (batch?.id != batchId) viewModel.openPriceImport(batchId)
     }
@@ -196,8 +212,28 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
                 onFilterChange = { filter = it },
                 onChooseProduct = { productPickerRow = it },
                 onEditNewProduct = { newProductEditorRow = it },
+                onEditFieldMapping = {
+                    showFieldMapping = true
+                    viewModel.loadPriceImportStructure()
+                },
                 onRequestApply = { confirmApply = true },
                 padding = padding
+            )
+        }
+    }
+    if (showFieldMapping) {
+        val structure = viewModel.activePriceImportStructure
+        if (structure == null) {
+            FieldMappingLoadingSheet(onDismiss = { showFieldMapping = false })
+        } else {
+            PriceImportFieldMappingSheet(
+                structure = structure,
+                saving = viewModel.isPriceImportLoading,
+                onDismiss = { if (!viewModel.isPriceImportLoading) showFieldMapping = false },
+                onConfirm = { sheetName, headerRow, mapping ->
+                    viewModel.reanalyzePriceImport(sheetName, headerRow, mapping)
+                    showFieldMapping = false
+                }
             )
         }
     }
@@ -249,6 +285,7 @@ private fun PriceImportReviewContent(
     onFilterChange: (String) -> Unit,
     onChooseProduct: (PriceImportRow) -> Unit,
     onEditNewProduct: (PriceImportRow) -> Unit,
+    onEditFieldMapping: () -> Unit,
     onRequestApply: () -> Unit,
     padding: PaddingValues
 ) {
@@ -291,6 +328,13 @@ private fun PriceImportReviewContent(
         }
         if (batch.metrics.newProductRows > 0) {
             item { PriceImportDefaultsEditor(batch, working, viewModel) }
+        }
+        item {
+            GovernmentSecondaryButton(
+                text = "修改 Excel 字段识别",
+                onClick = onEditFieldMapping,
+                enabled = !working
+            )
         }
         if (products.isEmpty() && batch.metrics.newProductRows > 0) {
             item {
@@ -396,6 +440,162 @@ private fun PriceImportDefaultsEditor(batch: PriceImportBatch, working: Boolean,
             )
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FieldMappingLoadingSheet(onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CircularProgressIndicator()
+            Text("正在读取 Excel 字段", fontWeight = FontWeight.Bold)
+            Text("请稍候", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PriceImportFieldMappingSheet(
+    structure: PriceImportStructure,
+    saving: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (sheetName: String, headerRow: Int, mapping: Map<String, String>) -> Unit
+) {
+    val firstSheet = structure.sheets.firstOrNull()
+    var sheetName by remember(structure.batchId) { mutableStateOf(firstSheet?.name.orEmpty()) }
+    val sheet = structure.sheets.firstOrNull { it.name == sheetName } ?: firstSheet
+    val maxPreviewRow = sheet?.preview?.size ?: 0
+    var headerRowText by remember(structure.batchId, sheetName) {
+        mutableStateOf((sheet?.headerCandidate ?: 1).coerceIn(1, maxPreviewRow.coerceAtLeast(1)).toString())
+    }
+    val headerRow = headerRowText.toIntOrNull()?.takeIf { it in 1..maxPreviewRow } ?: 0
+    val headers = sheet?.preview?.getOrNull(headerRow - 1).orEmpty().filter { it.isNotBlank() }
+    var mapping by remember(structure.batchId, sheetName, headerRow) {
+        mutableStateOf(defaultPriceImportMapping(headers))
+    }
+    val canConfirm = !saving && sheet != null && headerRow > 0 &&
+        mapping["product_name"].orEmpty().isNotBlank() && mapping["price"].orEmpty().isNotBlank()
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text("确认 Excel 字段", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "选择报价 Sheet、表头行和本次执行价格列后，服务端会重新分析本批报价。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            }
+            if (structure.sheets.isEmpty()) {
+                item { ImportEmptyState("没有可用 Sheet", "请返回后重新选择 Excel 文件。") }
+            } else {
+                item {
+                    PriceImportChoiceField(
+                        label = "报价 Sheet",
+                        value = sheetName,
+                        options = structure.sheets.map { it.name },
+                        onSelected = { sheetName = it }
+                    )
+                }
+                item {
+                    OutlinedTextField(
+                        value = headerRowText,
+                        onValueChange = { headerRowText = it.filter(Char::isDigit).take(2) },
+                        label = { Text("表头行") },
+                        supportingText = { Text("可确认前 ${maxPreviewRow.coerceAtLeast(1)} 行中的实际表头") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                item {
+                    Text("选择字段", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("商品名称列和本次执行价格列为必选。其他字段只在 Excel 中存在时选择。", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                }
+                items(importMappingFields, key = { it.first }) { (field, label) ->
+                    PriceImportChoiceField(
+                        label = label,
+                        value = mapping[field].orEmpty(),
+                        options = headers,
+                        includeBlank = true,
+                        onSelected = { mapping = mapping + (field to it) }
+                    )
+                }
+                item {
+                    GovernmentPrimaryButton(
+                        text = if (saving) "正在重新识别" else "使用此字段重新识别",
+                        onClick = { onConfirm(sheetName, headerRow, mapping) },
+                        enabled = canConfirm
+                    )
+                }
+                item {
+                    GovernmentSecondaryButton(text = "返回核对", onClick = onDismiss, enabled = !saving)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PriceImportChoiceField(
+    label: String,
+    value: String,
+    options: List<String>,
+    includeBlank: Boolean = false,
+    onSelected: (String) -> Unit
+) {
+    var expanded by remember(label) { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = !expanded }) {
+        OutlinedTextField(
+            value = value.ifBlank { if (includeBlank) "不使用" else "请选择" },
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            modifier = Modifier.fillMaxWidth().menuAnchor()
+        )
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (includeBlank) {
+                DropdownMenuItem(text = { Text("不使用") }, onClick = {
+                    onSelected("")
+                    expanded = false
+                })
+            }
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option) }, onClick = {
+                    onSelected(option)
+                    expanded = false
+                })
+            }
+        }
+    }
+}
+
+private fun defaultPriceImportMapping(headers: List<String>): Map<String, String> {
+    fun findHeader(vararg words: String): String = headers.firstOrNull { header ->
+        val normalized = header.lowercase().replace(" ", "")
+        words.any { normalized.contains(it.lowercase().replace(" ", "")) }
+    }.orEmpty()
+    return mapOf(
+        "product_name" to findHeader("商品名称", "货品名称", "菜品", "商品"),
+        "product_code" to findHeader("商品编码", "货号", "编码"),
+        "category" to findHeader("分类", "品类"),
+        "spec" to findHeader("规格", "型号"),
+        "unit" to findHeader("单位", "计量"),
+        "stock" to findHeader("库存", "数量"),
+        "price" to findHeader("执行价", "本期执行价", "今日价", "协议价", "报价", "单价", "价格")
+    )
 }
 
 @Composable

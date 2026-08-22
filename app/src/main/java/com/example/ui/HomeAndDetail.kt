@@ -179,9 +179,14 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                             ) {
                                 Icon(Icons.Default.UploadFile, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text(if (viewModel.isPriceImportLoading) "正在识别" else "选择 Excel")
+                                Text(if (viewModel.isPriceImportLoading) "正在识别" else "Excel 智能导入")
                             }
                         }
+                        Text(
+                            "上传供应商报价表，可批量新增食材并同步已有食材价格",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         OutlinedButton(
                             onClick = { viewModel.navigateTo(Screen.DeliveryBatches) },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),

@@ -217,6 +217,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         private set
     var activePriceImport by mutableStateOf<PriceImportBatch?>(null)
         private set
+    var activePriceImportStructure by mutableStateOf<PriceImportStructure?>(null)
+        private set
     var isPriceImportLoading by mutableStateOf(false)
         private set
     var isPriceImportApplying by mutableStateOf(false)
@@ -469,6 +471,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
 
     fun openPriceImport(batchId: String) {
         if (authToken.isBlank() || !canManageIngredients() || isPriceImportLoading) return
+        activePriceImportStructure = null
         isPriceImportLoading = true
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { apiClient.priceImportDetail(authToken, batchId) } }
@@ -484,6 +487,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     fun uploadAndAnalyzePriceImport(uri: Uri, openDetailAfterAnalyze: Boolean = true) {
         if (authToken.isBlank() || !canManageIngredients() || isPriceImportLoading) return
         activePriceImport = null
+        activePriceImportStructure = null
         isPriceImportLoading = true
         viewModelScope.launch {
             runCatching {
@@ -503,6 +507,40 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 snackbarMessage = "报价表已识别，请核对后再确认应用"
             }.onFailure {
                 alertMessage = it.toUserMessage("Excel 识别失败")
+            }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun loadPriceImportStructure() {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        activePriceImportStructure = null
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.priceImportStructure(authToken, batch.id) } }
+                .onSuccess { activePriceImportStructure = it }
+                .onFailure { alertMessage = it.toUserMessage("Excel 字段读取失败") }
+            isPriceImportLoading = false
+        }
+    }
+
+    fun reanalyzePriceImport(sheetName: String, headerRow: Int, mapping: Map<String, String>) {
+        val batch = activePriceImport ?: return
+        if (authToken.isBlank() || isPriceImportLoading) return
+        isPriceImportLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.reanalyzePriceImport(authToken, batch.id, sheetName, headerRow, mapping)
+                }
+            }.onSuccess {
+                activePriceImport = it
+                activePriceImportStructure = null
+                priceImportBatches = listOf(it) + priceImportBatches.filterNot { item -> item.id == it.id }
+                snackbarMessage = "Excel 字段已确认，报价表已重新识别"
+            }.onFailure {
+                alertMessage = it.toUserMessage("Excel 字段确认失败")
             }
             isPriceImportLoading = false
         }

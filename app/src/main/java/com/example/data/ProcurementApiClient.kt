@@ -425,6 +425,18 @@ data class PriceImportBatch(
     val rows: List<PriceImportRow> = emptyList()
 )
 
+/** The workbook preview returned by the server for administrator-confirmed field mapping. */
+data class PriceImportSheetPreview(
+    val name: String,
+    val headerCandidate: Int? = null,
+    val preview: List<List<String>> = emptyList()
+)
+
+data class PriceImportStructure(
+    val batchId: String,
+    val sheets: List<PriceImportSheetPreview> = emptyList()
+)
+
 private const val INVITE_QR_PREFIX = "jingrongxianpei://invite?token="
 
 class ProcurementApiClient(
@@ -625,6 +637,47 @@ class ProcurementApiClient(
                 method = "POST",
                 body = "{}".toRequestBody(JSON)
             )
+        )
+    }
+
+    fun priceImportStructure(token: String, batchId: String): PriceImportStructure {
+        val result = request("admin/price-imports/$batchId/structure", token = token)
+        val sheets = result.optJSONArray("sheets") ?: JSONArray()
+        return PriceImportStructure(
+            batchId = result.optString("batch_id", batchId),
+            sheets = List(sheets.length()) { index ->
+                val sheet = sheets.getJSONObject(index)
+                val preview = sheet.optJSONArray("preview") ?: JSONArray()
+                PriceImportSheetPreview(
+                    name = sheet.optString("name"),
+                    headerCandidate = if (sheet.isNull("header_candidate")) null else sheet.optInt("header_candidate"),
+                    preview = List(preview.length()) { rowIndex ->
+                        val row = preview.optJSONArray(rowIndex) ?: JSONArray()
+                        List(row.length()) { columnIndex -> row.optString(columnIndex) }
+                    }
+                )
+            }
+        )
+    }
+
+    fun reanalyzePriceImport(
+        token: String,
+        batchId: String,
+        sheetName: String,
+        headerRow: Int,
+        mapping: Map<String, String>
+    ): PriceImportBatch {
+        val mappingJson = JSONObject().apply {
+            mapping.filterValues { it.isNotBlank() }.forEach { (field, column) -> put(field, column) }
+        }
+        val body = JSONObject()
+            .put("sheet_name", sheetName)
+            .put("header_row", headerRow)
+            .put("mapping", mappingJson)
+            .toString()
+            .toRequestBody(JSON)
+        return parsePriceImportBatch(
+            request("admin/price-imports/$batchId/analyze", token = token, method = "POST", body = body)
         )
     }
 
