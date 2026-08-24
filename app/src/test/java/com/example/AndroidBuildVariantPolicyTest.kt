@@ -19,6 +19,10 @@ class AndroidBuildVariantPolicyTest {
         assertTrue(buildScript.contains("ALLOW_INSECURE_PRODUCTION_HTTP"))
         assertTrue(buildScript.contains("approvedInsecureProductionApiUrl"))
         assertTrue(buildScript.contains("configuredReleaseApiUrl == approvedInsecureProductionApiUrl"))
+
+        val releaseConfig = File(root, "src/release/res/xml/network_security_config.xml").readText()
+        assertTrue(releaseConfig.contains("cleartextTrafficPermitted=\"false\""))
+        assertTrue(releaseConfig.contains("47.94.227.58"))
     }
 
     @Test

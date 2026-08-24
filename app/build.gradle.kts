@@ -42,8 +42,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 24
-    versionName = "1.1.17"
+    versionCode = 25
+    versionName = "1.1.18"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -75,7 +75,9 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
-      manifestPlaceholders["usesCleartextTraffic"] = "false"
+      // The release network configuration permits cleartext only for the approved
+      // temporary production endpoint while the server is still HTTP-only.
+      manifestPlaceholders["usesCleartextTraffic"] = "true"
       manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal"
       manifestPlaceholders["JPUSH_APPKEY"] = configuredReleaseJpushAppKey
       buildConfigField("String", "API_BASE_URL", "\"$configuredReleaseApiUrl\"")
