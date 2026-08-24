@@ -13,6 +13,8 @@ fun isAdminOnlyScreen(screen: Screen): Boolean = when (screen) {
     is Screen.DeliveryBatchDetail,
     Screen.PriceImports,
     is Screen.PriceImportDetail,
+    Screen.Analytics,
+    is Screen.ProductAnalytics,
     Screen.AddProduct,
     is Screen.EditProduct,
     Screen.DeletedProducts,

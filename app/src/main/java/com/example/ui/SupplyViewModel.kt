@@ -67,6 +67,8 @@ sealed interface Screen {
     data class DeliveryBatchDetail(val batchId: String) : Screen
     object PriceImports : Screen
     data class PriceImportDetail(val batchId: String) : Screen
+    object Analytics : Screen
+    data class ProductAnalytics(val productId: String) : Screen
     object InviteEntry : Screen
     object WebQrScanner : Screen
     object WebLoginConfirm : Screen
@@ -202,6 +204,26 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var isRefreshingProducts by mutableStateOf(false)
         private set
     var dashboard by mutableStateOf(AdminDashboard())
+    var analyticsRange by mutableStateOf(AnalyticsDateRange.recent(30))
+        private set
+    var analyticsUnitId by mutableStateOf("")
+        private set
+    var analyticsCategory by mutableStateOf("")
+        private set
+    var analyticsUnitSort by mutableStateOf("amount")
+        private set
+    var analyticsOverview by mutableStateOf(AnalyticsOverview())
+        private set
+    var analyticsUnits by mutableStateOf<List<AnalyticsUnitItem>>(emptyList())
+        private set
+    var analyticsPrices by mutableStateOf<List<AnalyticsPriceItem>>(emptyList())
+        private set
+    var analyticsInventory by mutableStateOf(AnalyticsInventory())
+        private set
+    var activeProductAnalytics by mutableStateOf<AnalyticsProductDetail?>(null)
+        private set
+    var isAnalyticsLoading by mutableStateOf(false)
+        private set
     var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
     var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
     var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
@@ -720,6 +742,90 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
             }.onFailure {
                 alertMessage = it.toUserMessage("工作台同步失败")
             }
+        }
+    }
+
+    fun setAnalyticsRange(days: Int) {
+        analyticsRange = AnalyticsDateRange.recent(days)
+    }
+
+    fun setAnalyticsCustomRange(startDate: String, endDate: String): Boolean {
+        val start = runCatching { java.time.LocalDate.parse(startDate) }.getOrNull()
+        val end = runCatching { java.time.LocalDate.parse(endDate) }.getOrNull()
+        if (start == null || end == null || start.isAfter(end)) {
+            alertMessage = "请选择正确的开始和结束日期"
+            return false
+        }
+        val days = java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt() + 1
+        if (days !in 1..365) {
+            alertMessage = "单次查询最多支持 365 天"
+            return false
+        }
+        analyticsRange = AnalyticsDateRange(start.toString(), end.toString(), days)
+        return true
+    }
+
+    fun setAnalyticsFilters(unitId: String, category: String) {
+        analyticsUnitId = unitId
+        analyticsCategory = category
+    }
+
+    fun updateAnalyticsUnitSort(sort: String) {
+        if (sort in setOf("amount", "orders", "products")) analyticsUnitSort = sort
+    }
+
+    fun refreshAnalytics(tab: String = "overview") {
+        if (authToken.isBlank() || !canManageIngredients() || isAnalyticsLoading) return
+        isAnalyticsLoading = true
+        viewModelScope.launch {
+            runCatching {
+                when (tab) {
+                    "price" -> analyticsPrices = withContext(Dispatchers.IO) {
+                        apiClient.analyticsPrices(
+                            authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory
+                        )
+                    }
+                    "inventory" -> analyticsInventory = withContext(Dispatchers.IO) {
+                        apiClient.analyticsInventory(authToken)
+                    }
+                    "units" -> analyticsUnits = withContext(Dispatchers.IO) {
+                        apiClient.analyticsUnits(
+                            authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory, analyticsUnitSort
+                        )
+                    }
+                    else -> {
+                        val result = withContext(Dispatchers.IO) {
+                            apiClient.analyticsOverview(
+                                authToken, analyticsRange.startDate, analyticsRange.endDate,
+                                analyticsUnitId, analyticsCategory
+                            ) to apiClient.analyticsUnits(
+                                authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory, analyticsUnitSort
+                            )
+                        }
+                        analyticsOverview = result.first
+                        analyticsUnits = result.second
+                    }
+                }
+            }.onFailure { alertMessage = it.toUserMessage("数据分析加载失败") }
+            isAnalyticsLoading = false
+        }
+    }
+
+    fun openProductAnalytics(productId: String) {
+        if (authToken.isBlank() || !canManageIngredients() || isAnalyticsLoading) return
+        isAnalyticsLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.analyticsProduct(
+                        authToken, productId, analyticsRange.startDate, analyticsRange.endDate
+                    )
+                }
+            }.onSuccess {
+                activeProductAnalytics = it
+                navigateTo(Screen.ProductAnalytics(productId))
+            }.onFailure { alertMessage = it.toUserMessage("食材分析加载失败") }
+            isAnalyticsLoading = false
         }
     }
 

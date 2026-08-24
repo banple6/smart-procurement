@@ -297,6 +297,15 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                         viewModel = viewModel
                     )
                 }
+                is Screen.Analytics -> {
+                    AnalyticsScreen(viewModel)
+                }
+                is Screen.ProductAnalytics -> {
+                    ProductAnalyticsScreen(
+                        productId = (screen as Screen.ProductAnalytics).productId,
+                        viewModel = viewModel
+                    )
+                }
                 is Screen.InviteEntry -> {
                     InviteEntryScreen(viewModel)
                 }

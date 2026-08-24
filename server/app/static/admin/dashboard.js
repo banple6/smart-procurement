@@ -26,7 +26,7 @@
     ["采购管理", [["订单管理", "/admin/orders", "□"], ["配送批次", "/admin/batches", "▤"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
-    ["统计报表", [["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
+    ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
     ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统日志", "/admin/system-logs", "▤"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
   ];
 
@@ -1623,6 +1623,7 @@
     state.loading = true;
     try {
       const route = currentRoute();
+      if (route !== "/admin/analytics") window.AdminAnalytics?.dispose();
       if (route === "/admin/dashboard") await loadDashboard(silent);
       else if (route === "/admin/orders") await loadOrders();
       else if (route.startsWith("/admin/orders/")) await loadOrderDetail(route.split("/").pop());
@@ -1636,6 +1637,7 @@
       else if (route === "/admin/units") await loadUnits();
       else if (route === "/admin/accounts") await loadAccounts();
       else if (route === "/admin/ledger") await loadLedger();
+      else if (route === "/admin/analytics") await window.AdminAnalytics.load();
       else if (route === "/admin/preparation-summary") await loadPreparationSummary();
       else if (route === "/admin/delivery-sheets") await loadDeliverySheets();
       else if (route === "/admin/system") await loadSystem();

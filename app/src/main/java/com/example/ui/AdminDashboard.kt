@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -113,6 +114,21 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                         Icon(Icons.Default.LocalShipping, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
                         Text("配送批次与备货单")
+                    }
+                }
+            }
+            item {
+                SectionPanel("数据分析") {
+                    Text("按日期查看采购、价格、库存和单位数据。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = { viewModel.navigateTo(Screen.Analytics) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Insights, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("打开数据分析")
                     }
                 }
             }

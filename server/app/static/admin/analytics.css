@@ -1,0 +1,203 @@
+.analytics-toolbar,
+.analytics-tabs,
+.analytics-summary,
+.analytics-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.analytics-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 16px;
+  border: 1px solid var(--rule-line);
+  background: var(--reading-surface);
+}
+
+.analytics-filters,
+.analytics-range-buttons,
+.analytics-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+.analytics-filter {
+  display: grid;
+  gap: 5px;
+  min-width: 150px;
+}
+
+.analytics-filter span {
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+
+.analytics-filter input,
+.analytics-filter select {
+  min-height: 44px;
+}
+
+.analytics-range-button,
+.analytics-tab {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  color: var(--police-blue);
+  background: var(--reading-surface);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.analytics-range-button.is-active,
+.analytics-tab.is-active {
+  color: #fff;
+  border-color: var(--police-blue);
+  background: var(--police-blue);
+}
+
+.analytics-tabs {
+  grid-template-columns: repeat(3, max-content);
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--rule-line);
+}
+
+.analytics-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.analytics-metric {
+  min-height: 104px;
+  padding: 16px;
+  border-left: 3px solid var(--police-blue);
+  background: var(--reading-surface);
+  box-shadow: inset 0 0 0 1px var(--rule-line);
+}
+
+.analytics-metric span,
+.analytics-metric small {
+  display: block;
+  color: var(--ink-secondary);
+}
+
+.analytics-metric strong {
+  display: block;
+  margin: 8px 0 4px;
+  color: var(--ink-primary);
+  font-size: 24px;
+}
+
+.analytics-grid {
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
+  margin-bottom: 16px;
+}
+
+.analytics-panel {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--rule-line);
+  background: var(--reading-surface);
+}
+
+.analytics-panel h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+
+.analytics-panel > p {
+  margin: 0 0 12px;
+  color: var(--ink-secondary);
+}
+
+.analytics-chart {
+  width: 100%;
+  height: 340px;
+}
+
+.analytics-chart.compact {
+  height: 300px;
+}
+
+.analytics-loading {
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+  color: var(--ink-secondary);
+  border: 1px dashed var(--rule-line);
+  background: var(--muted-surface);
+}
+
+.analytics-empty {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-secondary);
+  border: 1px dashed var(--rule-line);
+  background: var(--muted-surface);
+}
+
+.analytics-product-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.analytics-product-metrics span {
+  padding: 10px;
+  color: var(--ink-secondary);
+  border: 1px solid var(--rule-line);
+}
+
+.analytics-product-metrics strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-primary);
+}
+
+.analytics-change-up { color: #b42318; font-weight: 700; }
+.analytics-change-down { color: #147d50; font-weight: 700; }
+.analytics-risk-out_of_stock,
+.analytics-risk-warning { color: #b42318; font-weight: 700; }
+.analytics-risk-tight { color: #a15c00; font-weight: 700; }
+.analytics-risk-paused { color: var(--ink-secondary); font-weight: 700; }
+
+.analytics-stock-track {
+  width: 120px;
+  height: 6px;
+  margin-top: 6px;
+  overflow: hidden;
+  background: var(--muted-surface);
+  border: 1px solid var(--rule-line);
+}
+
+.analytics-stock-track span {
+  display: block;
+  height: 100%;
+  background: #2d7d5b;
+}
+
+@media (max-width: 1199px) {
+  .analytics-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 959px) {
+  .analytics-toolbar { grid-template-columns: 1fr; }
+  .analytics-grid { grid-template-columns: 1fr; }
+  .analytics-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 680px) {
+  .analytics-summary { grid-template-columns: 1fr; }
+  .analytics-filter { width: 100%; }
+  .analytics-chart { height: 280px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analytics-range-button,
+  .analytics-tab { transition: none; }
+}

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .database import connect, database_path, init_db, one, private_upload_dir, transaction, upload_dir
 from .metrics import record_request
-from .routers import app_update, auth, batches, dashboard, ledger, orders, price_imports, procurement, products, push, system, unit_web, units, web_auth
+from .routers import analytics, app_update, auth, batches, dashboard, ledger, orders, price_imports, procurement, products, push, system, unit_web, units, web_auth
 from .security import hash_password
 from .services.audit import record_request_audit
 from .web import router as web_router
@@ -88,6 +88,7 @@ api.include_router(units.router)
 api.include_router(products.router)
 api.include_router(orders.router)
 api.include_router(dashboard.router)
+api.include_router(analytics.router)
 api.include_router(ledger.router)
 api.include_router(procurement.router)
 api.include_router(system.router)

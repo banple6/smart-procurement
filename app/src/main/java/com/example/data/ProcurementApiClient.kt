@@ -822,6 +822,64 @@ class ProcurementApiClient(
         )
     }
 
+    fun analyticsOverview(
+        token: String,
+        startDate: String,
+        endDate: String,
+        unitId: String = "",
+        category: String = ""
+    ): AnalyticsOverview = AnalyticsJsonParser.overview(
+        request("admin/analytics/overview?${analyticsQuery(startDate, endDate, unitId, category)}", token = token)
+    )
+
+    fun analyticsUnits(
+        token: String,
+        startDate: String,
+        endDate: String,
+        category: String = "",
+        sort: String = "amount"
+    ): List<AnalyticsUnitItem> = AnalyticsJsonParser.units(
+        request("admin/analytics/units?${analyticsQuery(startDate, endDate, category = category)}&sort=${URLEncoder.encode(sort, Charsets.UTF_8.name())}", token = token)
+    )
+
+    fun analyticsPrices(
+        token: String,
+        startDate: String,
+        endDate: String,
+        category: String = ""
+    ): List<AnalyticsPriceItem> = AnalyticsJsonParser.prices(
+        request("admin/analytics/prices?${analyticsQuery(startDate, endDate, category = category)}", token = token)
+    )
+
+    fun analyticsInventory(token: String): AnalyticsInventory = AnalyticsJsonParser.inventory(
+        request("admin/analytics/inventory", token = token)
+    )
+
+    fun analyticsProduct(
+        token: String,
+        productId: String,
+        startDate: String,
+        endDate: String
+    ): AnalyticsProductDetail = AnalyticsJsonParser.product(
+        request(
+            "admin/analytics/products/${URLEncoder.encode(productId, Charsets.UTF_8.name())}?" +
+                analyticsQuery(startDate, endDate),
+            token = token
+        )
+    )
+
+    private fun analyticsQuery(
+        startDate: String,
+        endDate: String,
+        unitId: String = "",
+        category: String = ""
+    ): String = buildList {
+        add("start_date=${URLEncoder.encode(startDate, Charsets.UTF_8.name())}")
+        add("end_date=${URLEncoder.encode(endDate, Charsets.UTF_8.name())}")
+        if (unitId.isNotBlank()) add("unit_id=${URLEncoder.encode(unitId, Charsets.UTF_8.name())}")
+        if (category.isNotBlank()) add("category=${URLEncoder.encode(category, Charsets.UTF_8.name())}")
+    }.joinToString("&")
+
     fun units(token: String): List<RemoteUnit> {
         val array = requestArray("admin/units", token = token)
         return List(array.length()) { index ->
