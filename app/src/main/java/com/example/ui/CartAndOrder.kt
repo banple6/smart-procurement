@@ -770,7 +770,8 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
                 showConfirm = true
             }
         },
-        modifier = modifier
+        modifier = modifier,
+        enabled = !loading
     )
     if (showConfirm) {
         AlertDialog(

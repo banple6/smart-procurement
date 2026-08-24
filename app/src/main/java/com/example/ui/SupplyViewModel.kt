@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.smartprocurement.internal.BuildConfig
 import com.smartprocurement.internal.data.*
@@ -42,6 +43,17 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 private const val PREFERRED_ENTRY_METHOD_KEY = "preferred_entry_method"
+private const val SAVED_MAIN_TAB_KEY = "main_tab"
+private const val SAVED_ANALYTICS_START_DATE_KEY = "analytics_start_date"
+private const val SAVED_ANALYTICS_END_DATE_KEY = "analytics_end_date"
+private const val SAVED_ANALYTICS_DAYS_KEY = "analytics_days"
+private const val SAVED_ANALYTICS_UNIT_ID_KEY = "analytics_unit_id"
+private const val SAVED_ANALYTICS_CATEGORY_KEY = "analytics_category"
+private const val SAVED_ANALYTICS_UNIT_SORT_KEY = "analytics_unit_sort"
+private const val SAVED_ANALYTICS_TAB_KEY = "analytics_tab"
+private const val SAVED_ANALYTICS_RISK_ONLY_KEY = "analytics_risk_only"
+private const val SAVED_ANALYTICS_SCROLL_INDEX_KEY = "analytics_scroll_index"
+private const val SAVED_ANALYTICS_SCROLL_OFFSET_KEY = "analytics_scroll_offset"
 
 sealed interface Screen {
     object Splash : Screen
@@ -106,7 +118,10 @@ data class IngredientFormState(
     val remark: String = ""
 )
 
-class SupplyViewModel(application: Application) : AndroidViewModel(application) {
+class SupplyViewModel(
+    application: Application,
+    private val savedStateHandle: SavedStateHandle
+) : AndroidViewModel(application) {
 
     private val repository: SupplyRepository
     private val sessionStore = SessionStore(application)
@@ -178,7 +193,13 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     // --- Router Navigation ---
     val navigationStack = mutableStateListOf<Screen>(Screen.Splash)
 
-    var currentTab by mutableStateOf("home") // "home", "category", "cart", "orders", "profile"
+    private var currentTabState by mutableStateOf(savedStateHandle[SAVED_MAIN_TAB_KEY] ?: "home")
+    var currentTab: String
+        get() = currentTabState
+        set(value) {
+            currentTabState = value
+            savedStateHandle[SAVED_MAIN_TAB_KEY] = value
+        }
 
     // --- Profile Info ---
     var currentUser by mutableStateOf<UserEntity?>(null)
@@ -210,22 +231,71 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var dashboard by mutableStateOf(AdminDashboard())
     var isDashboardRefreshing by mutableStateOf(false)
         private set
-    var analyticsRange by mutableStateOf(AnalyticsDateRange.recent(30))
-        private set
-    var analyticsUnitId by mutableStateOf("")
-        private set
-    var analyticsCategory by mutableStateOf("")
-        private set
-    var analyticsUnitSort by mutableStateOf("amount")
-        private set
-    var analyticsSelectedTab by mutableStateOf("overview")
-        private set
-    var analyticsInventoryRiskOnly by mutableStateOf(false)
-        private set
-    var analyticsScrollIndex by mutableStateOf(0)
-        private set
-    var analyticsScrollOffset by mutableStateOf(0)
-        private set
+    private val defaultAnalyticsRange = AnalyticsDateRange.recent(30)
+    private var analyticsRangeState by mutableStateOf(
+        AnalyticsDateRange(
+            startDate = savedStateHandle[SAVED_ANALYTICS_START_DATE_KEY] ?: defaultAnalyticsRange.startDate,
+            endDate = savedStateHandle[SAVED_ANALYTICS_END_DATE_KEY] ?: defaultAnalyticsRange.endDate,
+            days = (savedStateHandle[SAVED_ANALYTICS_DAYS_KEY] ?: defaultAnalyticsRange.days).coerceIn(1, 365)
+        )
+    )
+    var analyticsRange: AnalyticsDateRange
+        get() = analyticsRangeState
+        private set(value) {
+            analyticsRangeState = value
+            savedStateHandle[SAVED_ANALYTICS_START_DATE_KEY] = value.startDate
+            savedStateHandle[SAVED_ANALYTICS_END_DATE_KEY] = value.endDate
+            savedStateHandle[SAVED_ANALYTICS_DAYS_KEY] = value.days
+        }
+    private var analyticsUnitIdState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_UNIT_ID_KEY] ?: "")
+    var analyticsUnitId: String
+        get() = analyticsUnitIdState
+        private set(value) {
+            analyticsUnitIdState = value
+            savedStateHandle[SAVED_ANALYTICS_UNIT_ID_KEY] = value
+        }
+    private var analyticsCategoryState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_CATEGORY_KEY] ?: "")
+    var analyticsCategory: String
+        get() = analyticsCategoryState
+        private set(value) {
+            analyticsCategoryState = value
+            savedStateHandle[SAVED_ANALYTICS_CATEGORY_KEY] = value
+        }
+    private var analyticsUnitSortState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_UNIT_SORT_KEY] ?: "amount")
+    var analyticsUnitSort: String
+        get() = analyticsUnitSortState
+        private set(value) {
+            analyticsUnitSortState = value
+            savedStateHandle[SAVED_ANALYTICS_UNIT_SORT_KEY] = value
+        }
+    private var analyticsSelectedTabState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_TAB_KEY] ?: "overview")
+    var analyticsSelectedTab: String
+        get() = analyticsSelectedTabState
+        private set(value) {
+            analyticsSelectedTabState = value
+            savedStateHandle[SAVED_ANALYTICS_TAB_KEY] = value
+        }
+    private var analyticsInventoryRiskOnlyState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_RISK_ONLY_KEY] ?: false)
+    var analyticsInventoryRiskOnly: Boolean
+        get() = analyticsInventoryRiskOnlyState
+        private set(value) {
+            analyticsInventoryRiskOnlyState = value
+            savedStateHandle[SAVED_ANALYTICS_RISK_ONLY_KEY] = value
+        }
+    private var analyticsScrollIndexState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_SCROLL_INDEX_KEY] ?: 0)
+    var analyticsScrollIndex: Int
+        get() = analyticsScrollIndexState
+        private set(value) {
+            analyticsScrollIndexState = value
+            savedStateHandle[SAVED_ANALYTICS_SCROLL_INDEX_KEY] = value
+        }
+    private var analyticsScrollOffsetState by mutableStateOf(savedStateHandle[SAVED_ANALYTICS_SCROLL_OFFSET_KEY] ?: 0)
+    var analyticsScrollOffset: Int
+        get() = analyticsScrollOffsetState
+        private set(value) {
+            analyticsScrollOffsetState = value
+            savedStateHandle[SAVED_ANALYTICS_SCROLL_OFFSET_KEY] = value
+        }
     var analyticsOverview by mutableStateOf(AnalyticsOverview())
         private set
     var analyticsUnits by mutableStateOf<List<AnalyticsUnitItem>>(emptyList())
@@ -492,7 +562,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                     repository.replaceProducts(products)
                     lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
                 }.onFailure {
-                    alertMessage = it.toUserMessage("食材同步失败")
+                    snackbarMessage = it.toUserMessage("食材同步失败")
                 }
             } finally {
                 isRefreshingProducts = false
@@ -691,7 +761,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 repository.replaceOrders(orders)
             }.onFailure {
-                alertMessage = it.toUserMessage("订单同步失败")
+                snackbarMessage = it.toUserMessage("订单同步失败")
             }
         }
     }
@@ -735,7 +805,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 orderListHasMore = page.hasMore
                 orderListTotal = page.total
             }.onFailure {
-                alertMessage = it.toUserMessage("订单加载失败")
+                snackbarMessage = it.toUserMessage("订单加载失败")
             }
             isOrderListLoading = false
         }
@@ -750,7 +820,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 }
                 repository.upsertOrder(bundle)
             }.onFailure {
-                alertMessage = it.toUserMessage("订单同步失败")
+                snackbarMessage = it.toUserMessage("订单同步失败")
             }
         }
     }
@@ -1249,7 +1319,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 eligibleBatchOrders = orders
                 onSuccess(orders)
             }.onFailure {
-                alertMessage = it.toUserMessage("配送批次加载失败")
+                snackbarMessage = it.toUserMessage("配送批次加载失败")
             }
             isDeliveryBatchLoading = false
         }
@@ -1304,7 +1374,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
                 activeDeliveryBatchSummary = summary
                 if (navigate) navigateTo(Screen.DeliveryBatchDetail(batchId))
             }.onFailure {
-                alertMessage = it.toUserMessage("批次汇总加载失败")
+                snackbarMessage = it.toUserMessage("批次汇总加载失败")
             }
             isDeliveryBatchLoading = false
         }
@@ -1680,6 +1750,7 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun saveIngredient(form: IngredientFormState, onSuccess: () -> Unit) {
+        if (isSavingIngredient) return
         if (!canManageIngredients()) {
             alertMessage = "当前账号无权保存食材"
             return

@@ -404,7 +404,8 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
         indicatorColor = MaterialTheme.colorScheme.primaryContainer
     )
     val navigationDividerColor = MaterialTheme.colorScheme.outlineVariant
-    LaunchedEffect(isAdmin) {
+    LaunchedEffect(viewModel.userRole) {
+        if (viewModel.userRole.isBlank()) return@LaunchedEffect
         viewModel.currentTab = normalizedMainTab(viewModel.userRole, viewModel.currentTab)
         if (isAdmin) {
             while (true) {

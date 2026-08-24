@@ -694,7 +694,7 @@ private fun DetailActions(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
-    var form by remember(productId, viewModel.allProducts.collectAsState().value) {
+    var form by remember(productId) {
         mutableStateOf(viewModel.formStateFor(productId))
     }
     var leavingConfirm by remember { mutableStateOf(false) }

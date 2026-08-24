@@ -65,7 +65,7 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debugConfig")
+      signingConfig = signingConfigs.getByName("release")
       manifestPlaceholders["usesCleartextTraffic"] = allowInsecureHttpRelease.toString()
       buildConfigField("String", "API_BASE_URL", "\"$configuredReleaseApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
@@ -167,6 +167,9 @@ dependencies {
 
 gradle.taskGraph.whenReady {
   if (allTasks.any { it.name.contains("Release") }) {
+    if (!hasReleaseSigning) {
+      throw GradleException("Release build requires the existing production keystore and STORE_PASSWORD/KEY_PASSWORD; debug signing is not allowed")
+    }
     if (!configuredReleaseApiUrl.startsWith("https://") && !allowInsecureHttpRelease) {
       throw GradleException("Release build requires API_BASE_URL starting with https:// unless ALLOW_INSECURE_HTTP_RELEASE=true")
     }
@@ -174,7 +177,10 @@ gradle.taskGraph.whenReady {
       throw GradleException("Release build requires JPUSH_APP_KEY from a Gradle property or environment variable")
     }
   }
-  if (allTasks.any { it.name.contains("Local", ignoreCase = true) } && !configuredLocalApiUrl.matches(Regex("http://[^/]+/api/v1/"))) {
+  val buildsLocalVariant = allTasks.any {
+    it.name.matches(Regex("(?i)^(assemble|bundle|install|compile|package|lint|test)Local.*"))
+  }
+  if (buildsLocalVariant && !configuredLocalApiUrl.matches(Regex("http://[^/]+/api/v1/"))) {
     throw GradleException("Local build requires LOCAL_API_BASE_URL such as http://192.168.2.103:8000/api/v1/")
   }
 }
