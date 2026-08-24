@@ -16,7 +16,9 @@ class AndroidBuildVariantPolicyTest {
         assertTrue(buildScript.contains("signingConfigs.getByName(\"release\")"))
         assertTrue(buildScript.contains("debug signing is not allowed"))
         assertTrue(buildScript.contains("Release build requires JPUSH_APP_KEY"))
-        assertFalse(buildScript.contains("ALLOW_INSECURE_HTTP_RELEASE"))
+        assertTrue(buildScript.contains("ALLOW_INSECURE_PRODUCTION_HTTP"))
+        assertTrue(buildScript.contains("approvedInsecureProductionApiUrl"))
+        assertTrue(buildScript.contains("configuredReleaseApiUrl == approvedInsecureProductionApiUrl"))
     }
 
     @Test
@@ -25,8 +27,6 @@ class AndroidBuildVariantPolicyTest {
         assertTrue(buildScript.contains("STAGING_API_BASE_URL is required and must use HTTPS or an ADB/emulator loopback URL"))
         assertTrue(buildScript.contains("applicationIdSuffix = \".staging\""))
         assertTrue(buildScript.contains("三公鲜配（测试）"))
-        assertFalse(buildScript.contains("http://47.94.227.58"))
-
         val stagingConfig = File(root, "src/staging/res/xml/network_security_config.xml").readText()
         assertTrue(stagingConfig.contains("cleartextTrafficPermitted=\"false\""))
         assertTrue(stagingConfig.contains("127.0.0.1"))

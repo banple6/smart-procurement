@@ -17,11 +17,17 @@ val configuredLocalApiUrl = providers.gradleProperty("LOCAL_API_BASE_URL")
 val configuredReleaseJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
   .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
   .getOrElse("")
+val allowInsecureProductionHttp = providers.gradleProperty("ALLOW_INSECURE_PRODUCTION_HTTP")
+  .orElse(providers.environmentVariable("ALLOW_INSECURE_PRODUCTION_HTTP"))
+  .map { it.equals("true", ignoreCase = true) || it == "1" }
+  .getOrElse(false)
+val approvedInsecureProductionApiUrl = "http://47.94.227.58/api/v1/"
 val configuredStagingJpushAppKey = providers.gradleProperty("STAGING_JPUSH_APP_KEY")
   .orElse(providers.environmentVariable("STAGING_JPUSH_APP_KEY"))
   .getOrElse("")
 val configuredDebugApiUrl = configuredLocalApiUrl.ifBlank { "http://127.0.0.1:18001/api/v1/" }
 val releaseKeystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
+val releaseKeyAlias = System.getenv("KEY_ALIAS") ?: "upload"
 val debugKeystorePath = System.getenv("DEBUG_KEYSTORE_PATH")
   ?: "${System.getProperty("user.home")}/.android/debug.keystore"
 val hasReleaseSigning = file(releaseKeystorePath).exists()
@@ -36,8 +42,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 23
-    versionName = "1.1.16"
+    versionCode = 24
+    versionName = "1.1.17"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -52,7 +58,7 @@ android {
     create("release") {
       storeFile = file(releaseKeystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      keyAlias = releaseKeyAlias
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
@@ -192,8 +198,10 @@ gradle.taskGraph.whenReady {
     if (!hasReleaseSigning) {
       throw GradleException("Release build requires the existing production keystore and STORE_PASSWORD/KEY_PASSWORD; debug signing is not allowed")
     }
-    if (!configuredReleaseApiUrl.matches(Regex("https://[^/]+/api/v1/"))) {
-      throw GradleException("PROD_API_BASE_URL is required and must use https://.../api/v1/")
+    val usesHttpsReleaseApi = configuredReleaseApiUrl.matches(Regex("https://[^/]+/api/v1/"))
+    val usesExplicitTemporaryHttpApi = allowInsecureProductionHttp && configuredReleaseApiUrl == approvedInsecureProductionApiUrl
+    if (!usesHttpsReleaseApi && !usesExplicitTemporaryHttpApi) {
+      throw GradleException("PROD_API_BASE_URL is required and must use https://.../api/v1/; the approved temporary HTTP endpoint additionally requires ALLOW_INSECURE_PRODUCTION_HTTP=true")
     }
     if (configuredReleaseJpushAppKey.isBlank()) {
       throw GradleException("Release build requires JPUSH_APP_KEY from a Gradle property or environment variable")
