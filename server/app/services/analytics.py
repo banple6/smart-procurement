@@ -338,7 +338,7 @@ def _price_events(conn, period: AnalyticsRange, product_id: str | None = None) -
         conn,
         f"""
         SELECT l.id, l.product_id, l.old_price_cents, l.new_price_cents, l.created_at,
-               p.name AS product_name, p.category, p.unit
+               p.name AS product_name, p.category, p.unit, p.created_at AS product_created_at
         FROM product_price_logs l
         JOIN products p ON p.id=l.product_id
         WHERE l.created_at < ? AND COALESCE(p.is_deleted, 0)=0 {product_filter}
@@ -361,6 +361,8 @@ def prices(start_date: str | None, end_date: str | None, category: str | None, p
     for _, values in grouped.items():
         before = [event for event in values if _parse_utc(event["created_at"]) < period.start_utc]
         within = [event for event in values if period.start_utc <= _parse_utc(event["created_at"]) < period.end_utc]
+        product_created_at = _parse_utc(values[-1]["product_created_at"])
+        is_new = period.start_utc <= product_created_at < period.end_utc
         initial = int(before[-1]["new_price_cents"]) if before else (
             int(within[0]["old_price_cents"]) if within and within[0]["old_price_cents"] is not None else None
         )
@@ -378,7 +380,7 @@ def prices(start_date: str | None, end_date: str | None, category: str | None, p
             "max_price_cents": max(period_prices) if period_prices else end_price,
             "change_percent": _percent(end_price, initial) if initial not in (None, 0) else None,
             "change_cents": end_price - initial if initial is not None else None,
-            "is_new": initial is None,
+            "is_new": is_new,
             "change_count": len(within),
         })
     items.sort(key=lambda row: (row["change_percent"] is None, -(abs(row["change_percent"] or 0)), row["product_name"]))
@@ -496,6 +498,8 @@ def product_detail(product_id: str, start_date: str | None, end_date: str | None
     range_start_price = int(before[-1]["new_price_cents"]) if before else (
         int(within[0]["old_price_cents"]) if within and within[0]["old_price_cents"] is not None else None
     )
+    product_created_at = _parse_utc(product["created_at"])
+    is_new = period.start_utc <= product_created_at < period.end_utc
     current_price = int(events[-1]["new_price_cents"]) if events else int(product["price_cents"])
     range_prices = ([range_start_price] if range_start_price is not None else []) + [
         int(event["new_price_cents"]) for event in within
@@ -530,7 +534,7 @@ def product_detail(product_id: str, start_date: str | None, end_date: str | None
             "max_cents": max(range_prices) if range_prices else current_price,
             "change_cents": current_price - range_start_price if range_start_price is not None else None,
             "change_percent": _percent(current_price, range_start_price) if range_start_price not in (None, 0) else None,
-            "is_new": range_start_price is None,
+            "is_new": is_new,
         },
         "period": {
             "order_count": len(period_order_ids),

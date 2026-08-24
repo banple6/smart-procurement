@@ -45,12 +45,12 @@ def seed_analytics_data():
         conn.executemany(
             """
             INSERT INTO products(id, product_code, name, category, spec, unit, price_cents, stock_quantity,
-              reserved_quantity, warning_quantity, supply_status, active)
-            VALUES (?, ?, ?, ?, '散装', ?, ?, ?, ?, ?, ?, 1)
+              reserved_quantity, warning_quantity, supply_status, active, created_at)
+            VALUES (?, ?, ?, ?, '散装', ?, ?, ?, ?, ?, ?, 1, ?)
             """,
             [
-                (product_a, "P-A", "土豆", "蔬菜", "公斤", 600, "10", "2", "3", "normal"),
-                (product_b, "P-B", "苹果", "水果", "箱", 5000, "0", "0", "1", "paused"),
+                (product_a, "P-A", "土豆", "蔬菜", "公斤", 600, "10", "2", "3", "normal", "2026-08-01 00:00:00"),
+                (product_b, "P-B", "苹果", "水果", "箱", 5000, "0", "0", "1", "paused", "2026-08-21 03:30:00"),
             ],
         )
         conn.executemany(
@@ -215,6 +215,57 @@ def test_price_and_product_analytics_use_real_events(tmp_path):
         "is_new": False,
     }
     assert detail.json()["period"]["amount_cents"] == 1800
+
+
+def test_price_baseline_distinguishes_existing_products_from_new_products(tmp_path):
+    client = make_client(tmp_path)
+    headers = admin_headers(client)
+    from app.database import connect
+
+    old_price_product = str(uuid4())
+    unknown_baseline_product = str(uuid4())
+    with connect() as conn:
+        conn.executemany(
+            """INSERT INTO products(id, product_code, name, category, spec, unit, price_cents,
+               stock_quantity, reserved_quantity, warning_quantity, supply_status, active, created_at)
+               VALUES (?, ?, ?, '蔬菜', '散装', '公斤', ?, '0', '0', '0', 'normal', 1, ?)""",
+            [
+                (old_price_product, "P-OLD-PRICE", "旧食材有旧价", 999, "2026-08-01 00:00:00"),
+                (unknown_baseline_product, "P-NO-BASE", "旧食材无基线", 700, "2026-08-01 00:00:00"),
+            ],
+        )
+        conn.executemany(
+            """INSERT INTO product_price_logs(id, product_id, old_price_cents, new_price_cents, created_at)
+               VALUES (?, ?, ?, ?, '2026-08-21 03:00:00')""",
+            [
+                (str(uuid4()), old_price_product, 188, 999),
+                (str(uuid4()), unknown_baseline_product, None, 700),
+            ],
+        )
+        conn.commit()
+
+    items = client.get(
+        "/api/v1/admin/analytics/prices?start_date=2026-08-21&end_date=2026-08-21",
+        headers=headers,
+    ).json()["items"]
+    old_price = next(item for item in items if item["product_id"] == old_price_product)
+    no_baseline = next(item for item in items if item["product_id"] == unknown_baseline_product)
+
+    assert old_price["initial_price_cents"] == 188
+    assert old_price["current_price_cents"] == 999
+    assert old_price["is_new"] is False
+    assert old_price["change_percent"] == 431.4
+    assert no_baseline["initial_price_cents"] is None
+    assert no_baseline["change_percent"] is None
+    assert no_baseline["is_new"] is False
+
+    detail = client.get(
+        f"/api/v1/admin/analytics/products/{unknown_baseline_product}?start_date=2026-08-21&end_date=2026-08-21",
+        headers=headers,
+    ).json()
+    assert detail["price"]["range_start_cents"] is None
+    assert detail["price"]["change_percent"] is None
+    assert detail["price"]["is_new"] is False
 
 
 def test_inventory_risk_and_decimal_shapes(tmp_path):

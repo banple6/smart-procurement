@@ -2,9 +2,12 @@ package com.smartprocurement.internal
 
 import com.smartprocurement.internal.data.AnalyticsDateRange
 import com.smartprocurement.internal.data.AnalyticsJsonParser
+import com.smartprocurement.internal.data.AnalyticsPriceItem
 import com.smartprocurement.internal.ui.Screen
 import com.smartprocurement.internal.ui.analyticsInventoryRiskText
 import com.smartprocurement.internal.ui.analyticsPriceChangeText
+import com.smartprocurement.internal.ui.analyticsPriceBaselineText
+import com.smartprocurement.internal.ui.analyticsPriceStatusText
 import com.smartprocurement.internal.ui.canOpenScreen
 import com.smartprocurement.internal.ui.charts.chartSelectionIndex
 import com.smartprocurement.internal.ui.charts.barSelectionIndex
@@ -62,6 +65,29 @@ class AnalyticsModelsTest {
         assertNull(result.initialPriceCents)
         assertNull(result.changePercent)
         assertEquals(5000L, result.currentPriceCents)
+    }
+
+    @Test
+    fun `price labels use is new instead of missing baseline`() {
+        val existingWithoutBaseline = AnalyticsPriceItem(
+            productId = "old",
+            productName = "旧食材",
+            category = "蔬菜",
+            unit = "公斤",
+            initialPriceCents = null,
+            currentPriceCents = 700,
+            minPriceCents = 700,
+            maxPriceCents = 700,
+            changePercent = null,
+            isNew = false,
+            changeCount = 1
+        )
+        val newProduct = existingWithoutBaseline.copy(productId = "new", productName = "新食材", isNew = true)
+
+        assertEquals("暂无可比价格", analyticsPriceBaselineText(existingWithoutBaseline))
+        assertEquals("暂无可比价格", analyticsPriceStatusText(existingWithoutBaseline))
+        assertEquals("新食材", analyticsPriceBaselineText(newProduct))
+        assertEquals("新食材", analyticsPriceStatusText(newProduct))
     }
 
     @Test

@@ -506,11 +506,23 @@ private fun androidx.compose.foundation.lazy.LazyListScope.priceContent(viewMode
                     Text(item.productName, fontWeight = FontWeight.Bold)
                     Text(item.unit, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${item.initialPriceCents?.let(Money::formatCents) ?: "新建"} → ${Money.formatCents(item.currentPriceCents)}")
-                Text(if (item.isNew) "新食材" else analyticsPriceChangeText(item.changePercent), color = priceChangeColor(item.changePercent), fontWeight = FontWeight.Bold)
+                Text("${analyticsPriceBaselineText(item)} → ${Money.formatCents(item.currentPriceCents)}")
+                Text(analyticsPriceStatusText(item), color = priceChangeColor(item.changePercent), fontWeight = FontWeight.Bold)
             }
         }
     }
+}
+
+internal fun analyticsPriceBaselineText(item: AnalyticsPriceItem): String = when {
+    item.initialPriceCents != null -> Money.formatCents(item.initialPriceCents)
+    item.isNew -> "新食材"
+    else -> "暂无可比价格"
+}
+
+internal fun analyticsPriceStatusText(item: AnalyticsPriceItem): String = when {
+    item.isNew -> "新食材"
+    item.changePercent == null -> "暂无可比价格"
+    else -> analyticsPriceChangeText(item.changePercent)
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.inventoryContent(viewModel: SupplyViewModel) {
