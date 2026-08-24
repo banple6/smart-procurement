@@ -5,19 +5,22 @@ plugins {
   alias(libs.plugins.roborazzi)
 }
 
-val configuredReleaseApiUrl = providers.gradleProperty("API_BASE_URL")
-  .orElse(providers.environmentVariable("API_BASE_URL"))
+val configuredReleaseApiUrl = providers.gradleProperty("PROD_API_BASE_URL")
+  .orElse(providers.environmentVariable("PROD_API_BASE_URL"))
+  .getOrElse("")
+val configuredStagingApiUrl = providers.gradleProperty("STAGING_API_BASE_URL")
+  .orElse(providers.environmentVariable("STAGING_API_BASE_URL"))
   .getOrElse("")
 val configuredLocalApiUrl = providers.gradleProperty("LOCAL_API_BASE_URL")
   .orElse(providers.environmentVariable("LOCAL_API_BASE_URL"))
   .getOrElse("")
-val configuredJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
+val configuredReleaseJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
   .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
   .getOrElse("")
-val allowInsecureHttpRelease = providers.gradleProperty("ALLOW_INSECURE_HTTP_RELEASE")
-  .orElse(providers.environmentVariable("ALLOW_INSECURE_HTTP_RELEASE"))
-  .map { it.equals("true", ignoreCase = true) || it == "1" || it.equals("yes", ignoreCase = true) || it.equals("on", ignoreCase = true) }
-  .getOrElse(false)
+val configuredStagingJpushAppKey = providers.gradleProperty("STAGING_JPUSH_APP_KEY")
+  .orElse(providers.environmentVariable("STAGING_JPUSH_APP_KEY"))
+  .getOrElse("")
+val configuredDebugApiUrl = configuredLocalApiUrl.ifBlank { "http://127.0.0.1:18001/api/v1/" }
 val releaseKeystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
 val debugKeystorePath = System.getenv("DEBUG_KEYSTORE_PATH")
   ?: "${System.getProperty("user.home")}/.android/debug.keystore"
@@ -39,10 +42,10 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
     manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal"
-    manifestPlaceholders["JPUSH_APPKEY"] = configuredJpushAppKey
+    manifestPlaceholders["JPUSH_APPKEY"] = ""
     manifestPlaceholders["JPUSH_CHANNEL"] = "developer-default"
     buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
-    buildConfigField("String", "JPUSH_APP_KEY", "\"$configuredJpushAppKey\"")
+    buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
   }
 
   signingConfigs {
@@ -66,25 +69,36 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
-      manifestPlaceholders["usesCleartextTraffic"] = allowInsecureHttpRelease.toString()
+      manifestPlaceholders["usesCleartextTraffic"] = "false"
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal"
+      manifestPlaceholders["JPUSH_APPKEY"] = configuredReleaseJpushAppKey
       buildConfigField("String", "API_BASE_URL", "\"$configuredReleaseApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"$configuredReleaseJpushAppKey\"")
     }
     create("staging") {
       initWith(getByName("debug"))
       matchingFallbacks += listOf("debug")
       applicationIdSuffix = ".staging"
       manifestPlaceholders["usesCleartextTraffic"] = "true"
-      buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal.staging"
+      manifestPlaceholders["JPUSH_APPKEY"] = configuredStagingJpushAppKey
+      resValue("string", "app_name", "三公鲜配（测试）")
+      buildConfigField("String", "API_BASE_URL", "\"$configuredStagingApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"测试版\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"$configuredStagingJpushAppKey\"")
     }
     create("local") {
       initWith(getByName("debug"))
       matchingFallbacks += listOf("debug")
       applicationIdSuffix = ".local"
       manifestPlaceholders["usesCleartextTraffic"] = "true"
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal.local"
+      manifestPlaceholders["JPUSH_APPKEY"] = ""
+      resValue("string", "app_name", "三公鲜配（本地测试）")
       buildConfigField("String", "API_BASE_URL", "\"$configuredLocalApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"本地验收版\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
     }
     create("orbpreview") {
       initWith(getByName("debug"))
@@ -92,14 +106,22 @@ android {
       applicationIdSuffix = ".orbpreview"
       versionNameSuffix = "-动画预览"
       manifestPlaceholders["usesCleartextTraffic"] = "true"
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal.orbpreview"
+      manifestPlaceholders["JPUSH_APPKEY"] = ""
       resValue("string", "app_name", "三公鲜配动画预览")
-      buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      buildConfigField("String", "API_BASE_URL", "\"$configuredDebugApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"动画预览版\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
     }
     debug {
+      applicationIdSuffix = ".debug"
       manifestPlaceholders["usesCleartextTraffic"] = "true"
-      buildConfigField("String", "API_BASE_URL", "\"http://47.94.227.58/api/v1/\"")
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal.debug"
+      manifestPlaceholders["JPUSH_APPKEY"] = ""
+      resValue("string", "app_name", "三公鲜配（开发）")
+      buildConfigField("String", "API_BASE_URL", "\"$configuredDebugApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"开发版\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
     }
   }
   compileOptions {
@@ -170,17 +192,23 @@ gradle.taskGraph.whenReady {
     if (!hasReleaseSigning) {
       throw GradleException("Release build requires the existing production keystore and STORE_PASSWORD/KEY_PASSWORD; debug signing is not allowed")
     }
-    if (!configuredReleaseApiUrl.startsWith("https://") && !allowInsecureHttpRelease) {
-      throw GradleException("Release build requires API_BASE_URL starting with https:// unless ALLOW_INSECURE_HTTP_RELEASE=true")
+    if (!configuredReleaseApiUrl.matches(Regex("https://[^/]+/api/v1/"))) {
+      throw GradleException("PROD_API_BASE_URL is required and must use https://.../api/v1/")
     }
-    if (configuredJpushAppKey.isBlank()) {
+    if (configuredReleaseJpushAppKey.isBlank()) {
       throw GradleException("Release build requires JPUSH_APP_KEY from a Gradle property or environment variable")
     }
+  }
+  val buildsStagingVariant = allTasks.any { it.name.contains("Staging", ignoreCase = true) }
+  val validStagingApiUrl = configuredStagingApiUrl.matches(Regex("https://[^/]+/api/v1/")) ||
+    configuredStagingApiUrl.matches(Regex("http://(127\\.0\\.0\\.1|localhost|10\\.0\\.2\\.2):[0-9]+/api/v1/"))
+  if (buildsStagingVariant && !validStagingApiUrl) {
+    throw GradleException("STAGING_API_BASE_URL is required and must use HTTPS or an ADB/emulator loopback URL")
   }
   val buildsLocalVariant = allTasks.any {
     it.name.matches(Regex("(?i)^(assemble|bundle|install|compile|package|lint|test)Local.*"))
   }
-  if (buildsLocalVariant && !configuredLocalApiUrl.matches(Regex("http://[^/]+/api/v1/"))) {
-    throw GradleException("Local build requires LOCAL_API_BASE_URL such as http://192.168.2.103:8000/api/v1/")
+  if (buildsLocalVariant && !configuredLocalApiUrl.matches(Regex("http://(127\\.0\\.0\\.1|localhost|10\\.0\\.2\\.2):[0-9]+/api/v1/"))) {
+    throw GradleException("LOCAL_API_BASE_URL is required and must use a loopback host such as http://127.0.0.1:18001/api/v1/")
   }
 }
