@@ -49,6 +49,13 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted -> viewModel.onNotificationPermissionResult(granted) }
+    val workbookDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    ) { uri -> viewModel.onWorkbookDocumentResult(uri) }
+    val requestWorkbookDocument: WorkbookDocumentRequest = { type, ownerId, fileName ->
+        viewModel.beginDocumentExport(type, ownerId)
+        workbookDocumentLauncher.launch(fileName)
+    }
 
     LaunchedEffect(viewModel.notificationPermissionRequestKey) {
         if (viewModel.notificationPermissionRequestKey > 0) {
@@ -265,7 +272,7 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                     AccountManagementScreen(viewModel)
                 }
                 is Screen.Ledger -> {
-                    LedgerScreen(viewModel)
+                    LedgerScreen(viewModel, requestWorkbookDocument)
                 }
                 is Screen.InventoryRecords -> {
                     InventoryRecordsScreen(viewModel)
@@ -274,10 +281,10 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                     SystemStatusScreen(viewModel)
                 }
                 is Screen.PreparationSummary -> {
-                    PreparationSummaryScreen(viewModel)
+                    PreparationSummaryScreen(viewModel, requestWorkbookDocument)
                 }
                 is Screen.DeliverySheets -> {
-                    DeliverySheetsScreen(viewModel)
+                    DeliverySheetsScreen(viewModel, requestWorkbookDocument)
                 }
                 is Screen.DeliveryBatches -> {
                     DeliveryBatchesScreen(viewModel)
@@ -291,7 +298,8 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 is Screen.DeliveryBatchDetail -> {
                     DeliveryBatchDetailScreen(
                         batchId = (screen as Screen.DeliveryBatchDetail).batchId,
-                        viewModel = viewModel
+                        viewModel = viewModel,
+                        requestWorkbookDocument = requestWorkbookDocument
                     )
                 }
                 is Screen.PriceImports -> {

@@ -29,6 +29,7 @@ import com.smartprocurement.internal.notifications.PushNotificationState
 import com.smartprocurement.internal.notifications.PushRegistrationWorker
 import com.smartprocurement.internal.notifications.OrderSyncWorker
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -54,6 +55,19 @@ private const val SAVED_ANALYTICS_TAB_KEY = "analytics_tab"
 private const val SAVED_ANALYTICS_RISK_ONLY_KEY = "analytics_risk_only"
 private const val SAVED_ANALYTICS_SCROLL_INDEX_KEY = "analytics_scroll_index"
 private const val SAVED_ANALYTICS_SCROLL_OFFSET_KEY = "analytics_scroll_offset"
+private const val SAVED_EXTERNAL_ACTION_TYPE_KEY = "external_action_type"
+private const val SAVED_EXTERNAL_ACTION_OWNER_KEY = "external_action_owner"
+private const val SAVED_EXTERNAL_ACTION_PAYLOAD_KEY = "external_action_payload"
+
+private fun restoredExternalAction(savedStateHandle: SavedStateHandle): PendingExternalAction? {
+    val typeName = savedStateHandle.get<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY) ?: return null
+    val type = runCatching { ExternalActionType.valueOf(typeName) }.getOrNull() ?: return null
+    return PendingExternalAction(
+        type = type,
+        ownerId = savedStateHandle[SAVED_EXTERNAL_ACTION_OWNER_KEY] ?: "",
+        payload = savedStateHandle[SAVED_EXTERNAL_ACTION_PAYLOAD_KEY] ?: ""
+    )
+}
 
 sealed interface Screen {
     object Splash : Screen
@@ -133,6 +147,19 @@ class SupplyViewModel(
     private var authToken by mutableStateOf("")
     private var pendingPushEvent: PushEvent? = null
     private val adminUiEventQueue = AdminUiEventQueue()
+    private data class PendingWorkbookSave(
+        val uri: Uri,
+        val type: ExternalActionType,
+        val successMessage: String,
+        val failureMessage: String,
+        val loader: (String) -> ByteArray
+    )
+    private var pendingWorkbookSave: PendingWorkbookSave? = null
+    private val restoredExternalAction = restoredExternalAction(savedStateHandle)
+    private val externalActivityState = ExternalActivityState(
+        initialAction = restoredExternalAction,
+        persist = ::persistExternalAction
+    )
 
     val adminUiEvents = adminUiEventQueue.events
 
@@ -147,21 +174,27 @@ class SupplyViewModel(
                         val remoteUser = withContext(Dispatchers.IO) { apiClient.me(session.token) }
                         authToken = session.token
                         applyRemoteUser(remoteUser)
+                        resumePendingWorkbookSave()
                         if (remoteUser.mustChangePassword) {
+                            externalActivityState.clear()
                             popToRootAndNavigate(Screen.ChangePassword)
                         } else {
                             refreshProducts()
                             refreshOrders()
                             refreshDashboard()
+                            restorePendingExternalContext()
                             preparePushNotifications()
                             OrderSyncWorker.schedule(getApplication())
                             processPendingPushEvent()
                         }
                     }.onFailure {
+                        failPendingWorkbookSave()
+                        externalActivityState.clear()
                         sessionStore.clearSession()
                     }
                 }
             }
+            if (authToken.isBlank()) failPendingWorkbookSave()
         }
     }
 
@@ -191,7 +224,17 @@ class SupplyViewModel(
     private var orderListCursor = ""
 
     // --- Router Navigation ---
-    val navigationStack = mutableStateListOf<Screen>(Screen.Splash)
+    val navigationStack = mutableStateListOf<Screen>().apply {
+        val restored = restoredExternalAction?.restoredScreen()
+        if (restored == null) {
+            add(Screen.Splash)
+        } else if (restored == Screen.Home) {
+            add(Screen.Home)
+        } else {
+            add(Screen.Home)
+            add(restored)
+        }
+    }
 
     private var currentTabState by mutableStateOf(savedStateHandle[SAVED_MAIN_TAB_KEY] ?: "home")
     var currentTab: String
@@ -325,6 +368,8 @@ class SupplyViewModel(
         private set
     var isDeliveryBatchLoading by mutableStateOf(false)
         private set
+    var activeExportType by mutableStateOf<ExternalActionType?>(null)
+        private set
     var priceImportBatches by mutableStateOf<List<PriceImportBatch>>(emptyList())
         private set
     var activePriceImport by mutableStateOf<PriceImportBatch?>(null)
@@ -387,6 +432,71 @@ class SupplyViewModel(
     fun popToRootAndNavigate(screen: Screen) {
         navigationStack.clear()
         navigationStack.add(screen)
+    }
+
+    fun beginShippingCamera(orderId: String, photoPath: String) {
+        externalActivityState.begin(
+            PendingExternalAction(ExternalActionType.SHIPPING_CAMERA, ownerId = orderId, payload = photoPath)
+        )
+    }
+
+    fun consumeShippingCamera(orderId: String): String? =
+        externalActivityState.consume(ExternalActionType.SHIPPING_CAMERA, orderId)?.payload
+
+    fun beginDocumentExport(type: ExternalActionType, ownerId: String = "") {
+        require(type != ExternalActionType.SHIPPING_CAMERA)
+        externalActivityState.begin(PendingExternalAction(type, ownerId = ownerId))
+    }
+
+    fun isDocumentExportBusy(type: ExternalActionType): Boolean =
+        externalActivityState.pendingAction?.type == type || activeExportType == type
+
+    fun consumeDocumentExport(type: ExternalActionType, ownerId: String = ""): Boolean =
+        externalActivityState.consume(type, ownerId) != null
+
+    fun onWorkbookDocumentResult(uri: Uri?) {
+        val action = externalActivityState.pendingAction ?: return
+        if (action.type !in WorkbookExportTypes) return
+        externalActivityState.consume(action.type, action.ownerId)
+        if (uri == null) return
+        when (action.type) {
+            ExternalActionType.BATCH_SUMMARY_EXPORT -> exportDeliveryBatchSummary(action.ownerId, uri)
+            ExternalActionType.BATCH_PICKING_EXPORT -> exportDeliveryBatchPickingList(action.ownerId, uri)
+            ExternalActionType.BATCH_OUTBOUND_EXPORT -> exportDeliveryBatchOutbound(action.ownerId, uri)
+            ExternalActionType.LEDGER_EXPORT -> exportLedger(uri)
+            ExternalActionType.PREPARATION_EXPORT -> exportPreparationSummary(uri)
+            ExternalActionType.DELIVERY_SHEETS_EXPORT -> exportDeliverySheets(uri)
+            else -> Unit
+        }
+    }
+
+    private fun persistExternalAction(action: PendingExternalAction?) {
+        if (action == null) {
+            savedStateHandle.remove<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY)
+            savedStateHandle.remove<String>(SAVED_EXTERNAL_ACTION_OWNER_KEY)
+            savedStateHandle.remove<String>(SAVED_EXTERNAL_ACTION_PAYLOAD_KEY)
+            return
+        }
+        savedStateHandle[SAVED_EXTERNAL_ACTION_TYPE_KEY] = action.type.name
+        savedStateHandle[SAVED_EXTERNAL_ACTION_OWNER_KEY] = action.ownerId
+        savedStateHandle[SAVED_EXTERNAL_ACTION_PAYLOAD_KEY] = action.payload
+    }
+
+    private fun restorePendingExternalContext() {
+        when (val action = externalActivityState.pendingAction ?: restoredExternalAction) {
+            null -> Unit
+            else -> when (action.type) {
+                ExternalActionType.SHIPPING_CAMERA -> refreshOrderDetail(action.ownerId)
+                ExternalActionType.BATCH_SUMMARY_EXPORT,
+                ExternalActionType.BATCH_PICKING_EXPORT,
+                ExternalActionType.BATCH_OUTBOUND_EXPORT -> refreshDeliveryBatch(action.ownerId)
+                ExternalActionType.LEDGER_EXPORT -> refreshLedger()
+                ExternalActionType.PREPARATION_EXPORT -> refreshPreparationSummary()
+                ExternalActionType.DELIVERY_SHEETS_EXPORT -> refreshDeliverySheets()
+                ExternalActionType.PRODUCT_IMPORT_TEMPLATE_EXPORT,
+                ExternalActionType.PRICE_IMPORT_PICKER -> Unit
+            }
+        }
     }
 
     /** Only used by the co-installable animation preview build. */
@@ -1246,19 +1356,12 @@ class SupplyViewModel(
         }
     }
 
-    fun exportLedger(uri: Uri) {
-        if (authToken.isBlank()) return
-        viewModelScope.launch {
-            runCatching {
-                val bytes = withContext(Dispatchers.IO) { apiClient.exportLedger(authToken) }
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-            }.onSuccess {
-                snackbarMessage = "Excel 已保存"
-            }.onFailure {
-                alertMessage = it.toUserMessage("Excel 保存失败")
-            }
-        }
-    }
+    fun exportLedger(uri: Uri) = saveWorkbook(
+        uri = uri,
+        type = ExternalActionType.LEDGER_EXPORT,
+        successMessage = "采购台账已保存",
+        failureMessage = "采购台账保存失败，请重试"
+    ) { token -> apiClient.exportLedger(token) }
 
     fun refreshPreparationSummary() {
         if (authToken.isBlank() || !canManageIngredients()) return
@@ -1269,19 +1372,12 @@ class SupplyViewModel(
         }
     }
 
-    fun exportPreparationSummary(uri: Uri) {
-        if (authToken.isBlank()) return
-        viewModelScope.launch {
-            runCatching {
-                val bytes = withContext(Dispatchers.IO) { apiClient.exportPreparationSummary(authToken) }
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-            }.onSuccess {
-                snackbarMessage = "Excel 已保存"
-            }.onFailure {
-                alertMessage = it.toUserMessage("Excel 保存失败")
-            }
-        }
-    }
+    fun exportPreparationSummary(uri: Uri) = saveWorkbook(
+        uri = uri,
+        type = ExternalActionType.PREPARATION_EXPORT,
+        successMessage = "备货单已保存",
+        failureMessage = "备货单保存失败，请重试"
+    ) { token -> apiClient.exportPreparationSummary(token) }
 
     fun refreshDeliverySheets() {
         if (authToken.isBlank() || !canManageIngredients()) return
@@ -1292,19 +1388,12 @@ class SupplyViewModel(
         }
     }
 
-    fun exportDeliverySheets(uri: Uri) {
-        if (authToken.isBlank()) return
-        viewModelScope.launch {
-            runCatching {
-                val bytes = withContext(Dispatchers.IO) { apiClient.exportDeliverySheets(authToken) }
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-            }.onSuccess {
-                snackbarMessage = "Excel 已保存"
-            }.onFailure {
-                alertMessage = it.toUserMessage("Excel 保存失败")
-            }
-        }
-    }
+    fun exportDeliverySheets(uri: Uri) = saveWorkbook(
+        uri = uri,
+        type = ExternalActionType.DELIVERY_SHEETS_EXPORT,
+        successMessage = "配送单已保存",
+        failureMessage = "配送单保存失败，请重试"
+    ) { token -> apiClient.exportDeliverySheets(token) }
 
     fun refreshDeliveryBatches(onSuccess: (List<DeliveryBatchOrder>) -> Unit = {}) {
         if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
@@ -1396,30 +1485,70 @@ class SupplyViewModel(
         }
     }
 
-    fun exportDeliveryBatchSummary(batchId: String, uri: Uri) = saveWorkbook(uri, "汇总表保存失败") {
-        apiClient.exportDeliveryBatchSummary(authToken, batchId)
+    fun exportDeliveryBatchSummary(batchId: String, uri: Uri) = saveWorkbook(
+        uri, ExternalActionType.BATCH_SUMMARY_EXPORT, "批次汇总表已保存", "汇总表保存失败，请重试"
+    ) { token ->
+        apiClient.exportDeliveryBatchSummary(token, batchId)
     }
 
-    fun exportDeliveryBatchPickingList(batchId: String, uri: Uri) = saveWorkbook(uri, "备货单保存失败") {
-        apiClient.exportDeliveryBatchPickingList(authToken, batchId)
+    fun exportDeliveryBatchPickingList(batchId: String, uri: Uri) = saveWorkbook(
+        uri, ExternalActionType.BATCH_PICKING_EXPORT, "备货单已保存", "备货单保存失败，请重试"
+    ) { token ->
+        apiClient.exportDeliveryBatchPickingList(token, batchId)
     }
 
-    fun exportDeliveryBatchOutbound(batchId: String, uri: Uri) = saveWorkbook(uri, "出库单保存失败") {
-        apiClient.exportDeliveryBatchOutbound(authToken, batchId)
+    fun exportDeliveryBatchOutbound(batchId: String, uri: Uri) = saveWorkbook(
+        uri, ExternalActionType.BATCH_OUTBOUND_EXPORT, "出库单已保存", "出库单保存失败，请重试"
+    ) { token ->
+        apiClient.exportDeliveryBatchOutbound(token, batchId)
     }
 
-    private fun saveWorkbook(uri: Uri, failureMessage: String, loader: () -> ByteArray) {
-        if (authToken.isBlank()) return
-        viewModelScope.launch {
+    private fun saveWorkbook(
+        uri: Uri,
+        type: ExternalActionType,
+        successMessage: String,
+        failureMessage: String,
+        loader: (String) -> ByteArray
+    ) {
+        if (activeExportType == type) return
+        activeExportType = type
+        val request = PendingWorkbookSave(uri, type, successMessage, failureMessage, loader)
+        if (authToken.isBlank()) {
+            pendingWorkbookSave = request
+            return
+        }
+        startWorkbookSave(request, authToken)
+    }
+
+    private fun resumePendingWorkbookSave() {
+        val request = pendingWorkbookSave ?: return
+        pendingWorkbookSave = null
+        startWorkbookSave(request, authToken)
+    }
+
+    private fun failPendingWorkbookSave() {
+        val request = pendingWorkbookSave ?: return
+        pendingWorkbookSave = null
+        activeExportType = null
+        alertMessage = request.failureMessage
+    }
+
+    private fun startWorkbookSave(request: PendingWorkbookSave, token: String) {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             runCatching {
-                val bytes = withContext(Dispatchers.IO) { loader() }
-                getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
-                    ?: error("无法写入所选文件")
+                check(token.isNotBlank()) { "登录已过期，请重新登录" }
+                val bytes = withContext(Dispatchers.IO) { request.loader(token) }
+                withContext(Dispatchers.IO) {
+                    writeWorkbookBytes(bytes) {
+                        getApplication<Application>().contentResolver.openOutputStream(request.uri, "wt")
+                    }
+                }
             }.onSuccess {
-                snackbarMessage = "Excel 已保存"
+                snackbarMessage = request.successMessage
             }.onFailure {
-                alertMessage = it.toUserMessage(failureMessage)
+                alertMessage = it.toUserMessage(request.failureMessage)
             }
+            activeExportType = null
         }
     }
 
@@ -1894,8 +2023,12 @@ class SupplyViewModel(
     }
 
     fun downloadProductImportTemplate(uri: Uri) {
-        if (authToken.isBlank() || !canManageIngredients()) return
-        saveWorkbook(uri, "模板保存失败") { apiClient.downloadProductImportTemplate(authToken) }
+        saveWorkbook(
+            uri = uri,
+            type = ExternalActionType.PRODUCT_IMPORT_TEMPLATE_EXPORT,
+            successMessage = "食材导入模板已保存",
+            failureMessage = "模板保存失败，请重试"
+        ) { token -> apiClient.downloadProductImportTemplate(token) }
     }
 
     fun restoreIngredient(productId: String) {

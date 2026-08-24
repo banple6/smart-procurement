@@ -80,13 +80,19 @@ fun HomeScreen(viewModel: SupplyViewModel) {
     var showImportSummary by remember { mutableStateOf(false) }
     val importTemplateLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri -> uri?.let(viewModel::downloadProductImportTemplate) }
+    ) { uri ->
+        if (viewModel.consumeDocumentExport(ExternalActionType.PRODUCT_IMPORT_TEMPLATE_EXPORT)) {
+            uri?.let(viewModel::downloadProductImportTemplate)
+        }
+    }
     val excelLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        uri?.let {
-            waitingForImportSummary = true
-            viewModel.uploadAndAnalyzePriceImport(it, openDetailAfterAnalyze = false)
+        if (viewModel.consumeDocumentExport(ExternalActionType.PRICE_IMPORT_PICKER)) {
+            uri?.let {
+                waitingForImportSummary = true
+                viewModel.uploadAndAnalyzePriceImport(it, openDetailAfterAnalyze = false)
+            }
         }
     }
     val selectionMode = selectedProductIds.isNotEmpty()
@@ -155,7 +161,10 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedButton(
-                                onClick = { importTemplateLauncher.launch("三公鲜配_食材导入模板.xlsx") },
+                                onClick = {
+                                    viewModel.beginDocumentExport(ExternalActionType.PRODUCT_IMPORT_TEMPLATE_EXPORT)
+                                    importTemplateLauncher.launch("三公鲜配_食材导入模板.xlsx")
+                                },
                                 modifier = Modifier.weight(1f).heightIn(min = 52.dp),
                                 shape = RoundedCornerShape(8.dp)
                             ) {
@@ -165,6 +174,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                             }
                             Button(
                                 onClick = {
+                                    viewModel.beginDocumentExport(ExternalActionType.PRICE_IMPORT_PICKER)
                                     excelLauncher.launch(
                                         arrayOf(
                                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

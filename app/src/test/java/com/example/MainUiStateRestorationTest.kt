@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import com.smartprocurement.internal.ui.SupplyViewModel
+import com.smartprocurement.internal.ui.Screen
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -38,5 +39,22 @@ class MainUiStateRestorationTest {
         assertEquals("products", restored.analyticsUnitSort)
         assertEquals(6, restored.analyticsScrollIndex)
         assertEquals(42, restored.analyticsScrollOffset)
+    }
+
+    @Test
+    fun pendingShippingCameraRestoresBusinessDestinationAfterViewModelRecreation() {
+        val application = ApplicationProvider.getApplicationContext<Application>()
+        val savedState = SavedStateHandle()
+        val first = SupplyViewModel(application, savedState)
+        first.beginShippingCamera("order-restore", "/tmp/shipping-photo.jpg")
+
+        val restoredState = SavedStateHandle(
+            savedState.keys().associateWith { key -> savedState.get<Any?>(key) }
+        )
+        val restored = SupplyViewModel(application, restoredState)
+
+        assertEquals(Screen.ShippingProof("order-restore"), restored.navigationStack.last())
+        assertEquals("/tmp/shipping-photo.jpg", restored.consumeShippingCamera("order-restore"))
+        assertEquals(null, restored.consumeShippingCamera("order-restore"))
     }
 }

@@ -1,7 +1,5 @@
 package com.smartprocurement.internal.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -63,8 +61,6 @@ import com.smartprocurement.internal.domain.money.Money
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-private val ExcelMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 @Composable
 fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? = null) {
@@ -193,21 +189,15 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
 }
 
 @Composable
-fun DeliveryBatchDetailScreen(batchId: String, viewModel: SupplyViewModel) {
+fun DeliveryBatchDetailScreen(
+    batchId: String,
+    viewModel: SupplyViewModel,
+    requestWorkbookDocument: WorkbookDocumentRequest
+) {
     var selectedTab by remember { mutableStateOf(0) }
     var showCloseConfirm by remember { mutableStateOf(false) }
     val batch = viewModel.activeDeliveryBatch?.takeIf { it.id == batchId }
     val summary = viewModel.activeDeliveryBatchSummary?.takeIf { it.batch.id == batchId }
-
-    val summaryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExcelMime)) { uri ->
-        uri?.let { viewModel.exportDeliveryBatchSummary(batchId, it) }
-    }
-    val pickingLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExcelMime)) { uri ->
-        uri?.let { viewModel.exportDeliveryBatchPickingList(batchId, it) }
-    }
-    val outboundLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(ExcelMime)) { uri ->
-        uri?.let { viewModel.exportDeliveryBatchOutbound(batchId, it) }
-    }
 
     LaunchedEffect(batchId) { viewModel.refreshDeliveryBatch(batchId) }
 
@@ -238,24 +228,43 @@ fun DeliveryBatchDetailScreen(batchId: String, viewModel: SupplyViewModel) {
                         if (batch.note.isNotBlank()) Text("备注：${batch.note}", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         OutlinedButton(
-                            onClick = { summaryLauncher.launch(batchFileName("批次汇总", batch.batchNo)) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                        ) { Text("导出汇总表") }
+                            onClick = {
+                                requestWorkbookDocument(
+                                    ExternalActionType.BATCH_SUMMARY_EXPORT,
+                                    batchId,
+                                    batchFileName("批次汇总", batch.batchNo)
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            enabled = !viewModel.isDocumentExportBusy(ExternalActionType.BATCH_SUMMARY_EXPORT)
+                        ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.BATCH_SUMMARY_EXPORT)) "正在保存…" else "导出汇总表") }
 
                         val canPick = batch.orders.any { it.status == "已接单" || it.status == "备货中" }
                         Button(
-                            onClick = { pickingLauncher.launch(batchFileName("备货单", batch.batchNo)) },
+                            onClick = {
+                                requestWorkbookDocument(
+                                    ExternalActionType.BATCH_PICKING_EXPORT,
+                                    batchId,
+                                    batchFileName("备货单", batch.batchNo)
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = canPick
-                        ) { Text("导出备货单") }
+                            enabled = canPick && !viewModel.isDocumentExportBusy(ExternalActionType.BATCH_PICKING_EXPORT)
+                        ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.BATCH_PICKING_EXPORT)) "正在保存…" else "导出备货单") }
                         if (!canPick) Text("当前没有已接单或备货中的订单，暂不能生成备货单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         val canOutbound = batch.orders.any { it.status == "已发货" || it.status == "已完成" }
                         Button(
-                            onClick = { outboundLauncher.launch(batchFileName("出库单", batch.batchNo)) },
+                            onClick = {
+                                requestWorkbookDocument(
+                                    ExternalActionType.BATCH_OUTBOUND_EXPORT,
+                                    batchId,
+                                    batchFileName("出库单", batch.batchNo)
+                                )
+                            },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = canOutbound
-                        ) { Text("导出出库单") }
+                            enabled = canOutbound && !viewModel.isDocumentExportBusy(ExternalActionType.BATCH_OUTBOUND_EXPORT)
+                        ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.BATCH_OUTBOUND_EXPORT)) "正在保存…" else "导出出库单") }
                         if (!canOutbound) Text("订单确认发货后才能生成出库单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         if (batch.status == "open") {

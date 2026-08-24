@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,18 +39,15 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
     val context = LocalContext.current
     val orderFlow = remember(orderId) { viewModel.getOrderFlow(orderId) }
     val order by orderFlow.collectAsState(initial = null)
-    var note by remember { mutableStateOf("") }
-    var photoPaths by remember { mutableStateOf<List<String>>(emptyList()) }
-    var pendingPhotoPath by remember { mutableStateOf("") }
+    var note by rememberSaveable(orderId) { mutableStateOf("") }
+    var photoPaths by rememberSaveable(orderId) { mutableStateOf<List<String>>(emptyList()) }
     var previewPath by remember { mutableStateOf<String?>(null) }
     var showExitConfirm by remember { mutableStateOf(false) }
     val uploading = viewModel.activeShippingUploadId == orderId
 
     fun cleanupLocalPhotos() {
         photoPaths.forEach { File(it).delete() }
-        pendingPhotoPath.takeIf { it.isNotBlank() }?.let { File(it).delete() }
         photoPaths = emptyList()
-        pendingPhotoPath = ""
     }
 
     LaunchedEffect(orderId) {
@@ -67,8 +65,7 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
     BackHandler { leavePage() }
 
     val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val path = pendingPhotoPath
-        pendingPhotoPath = ""
+        val path = viewModel.consumeShippingCamera(orderId).orEmpty()
         if (ok && path.isNotBlank() && File(path).length() > 0) {
             photoPaths = (photoPaths + path).take(3)
         } else if (path.isNotBlank()) {
@@ -82,7 +79,7 @@ fun ShippingProofScreen(orderId: String, viewModel: SupplyViewModel) {
         }
         val dir = File(context.cacheDir, "camera").apply { mkdirs() }
         val file = File(dir, "shipping-${UUID.randomUUID()}.jpg")
-        pendingPhotoPath = file.absolutePath
+        viewModel.beginShippingCamera(orderId, file.absolutePath)
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         takePicture.launch(uri)
     }

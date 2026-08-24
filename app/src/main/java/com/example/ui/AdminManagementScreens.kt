@@ -1,7 +1,5 @@
 package com.smartprocurement.internal.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -189,13 +187,8 @@ fun AccountManagementScreen(viewModel: SupplyViewModel) {
 }
 
 @Composable
-fun LedgerScreen(viewModel: SupplyViewModel) {
+fun LedgerScreen(viewModel: SupplyViewModel, requestWorkbookDocument: WorkbookDocumentRequest) {
     var selectedTab by remember { mutableStateOf(0) }
-    val createDocument = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        uri?.let { viewModel.exportLedger(it) }
-    }
     LaunchedEffect(Unit) { viewModel.refreshLedger() }
     val orderTotals = viewModel.ledgerRows.groupBy { it.orderNo }.mapValues { entry -> entry.value.maxOf { it.totalCents } }
     val totalAmount = orderTotals.values.sum()
@@ -225,10 +218,17 @@ fun LedgerScreen(viewModel: SupplyViewModel) {
                     Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("食材汇总") })
                 }
                 Button(
-                    onClick = { createDocument.launch("三公鲜配_采购台账_${exportDateText()}.xlsx") },
+                    onClick = {
+                        requestWorkbookDocument(
+                            ExternalActionType.LEDGER_EXPORT,
+                            "",
+                            "三公鲜配_采购台账_${exportDateText()}.xlsx"
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("导出 Excel") }
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !viewModel.isDocumentExportBusy(ExternalActionType.LEDGER_EXPORT)
+                ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.LEDGER_EXPORT)) "正在保存…" else "导出 Excel") }
             }
         }
         if (selectedTab == 0) {
@@ -290,12 +290,7 @@ fun InventoryRecordsScreen(viewModel: SupplyViewModel) {
 }
 
 @Composable
-fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
-    val createDocument = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        uri?.let { viewModel.exportPreparationSummary(it) }
-    }
+fun PreparationSummaryScreen(viewModel: SupplyViewModel, requestWorkbookDocument: WorkbookDocumentRequest) {
     LaunchedEffect(Unit) { viewModel.refreshPreparationSummary() }
     AdminListScreen(
         title = "今日备货单",
@@ -307,10 +302,17 @@ fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
                 Text("按食材汇总", fontWeight = FontWeight.Bold)
                 Text("用于备货称重和拣货，数量来自真实订单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { createDocument.launch("三公鲜配_今日备货单_${exportDateText()}.xlsx") },
+                    onClick = {
+                        requestWorkbookDocument(
+                            ExternalActionType.PREPARATION_EXPORT,
+                            "",
+                            "三公鲜配_今日备货单_${exportDateText()}.xlsx"
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("导出 Excel") }
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !viewModel.isDocumentExportBusy(ExternalActionType.PREPARATION_EXPORT)
+                ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.PREPARATION_EXPORT)) "正在保存…" else "导出 Excel") }
             }
         }
         items(viewModel.preparationSummaryItems) { item ->
@@ -326,12 +328,7 @@ fun PreparationSummaryScreen(viewModel: SupplyViewModel) {
 }
 
 @Composable
-fun DeliverySheetsScreen(viewModel: SupplyViewModel) {
-    val createDocument = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    ) { uri ->
-        uri?.let { viewModel.exportDeliverySheets(it) }
-    }
+fun DeliverySheetsScreen(viewModel: SupplyViewModel, requestWorkbookDocument: WorkbookDocumentRequest) {
     LaunchedEffect(Unit) { viewModel.refreshDeliverySheets() }
     AdminListScreen(
         title = "单位配送单",
@@ -343,10 +340,17 @@ fun DeliverySheetsScreen(viewModel: SupplyViewModel) {
                 Text("按单位查看", fontWeight = FontWeight.Bold)
                 Text("用于发货前核对每个单位的订单和配送点。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Button(
-                    onClick = { createDocument.launch("三公鲜配_配送单_${exportDateText()}.xlsx") },
+                    onClick = {
+                        requestWorkbookDocument(
+                            ExternalActionType.DELIVERY_SHEETS_EXPORT,
+                            "",
+                            "三公鲜配_配送单_${exportDateText()}.xlsx"
+                        )
+                    },
                     modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(8.dp)
-                ) { Text("导出 Excel") }
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !viewModel.isDocumentExportBusy(ExternalActionType.DELIVERY_SHEETS_EXPORT)
+                ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.DELIVERY_SHEETS_EXPORT)) "正在保存…" else "导出 Excel") }
             }
         }
         items(viewModel.deliverySheetUnits) { unit ->
