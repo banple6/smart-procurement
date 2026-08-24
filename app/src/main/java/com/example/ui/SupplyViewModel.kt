@@ -27,7 +27,9 @@ import com.smartprocurement.internal.notifications.PushNotificationPolicy
 import com.smartprocurement.internal.notifications.PushNotificationState
 import com.smartprocurement.internal.notifications.PushRegistrationWorker
 import com.smartprocurement.internal.notifications.OrderSyncWorker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -68,7 +70,7 @@ sealed interface Screen {
     object PriceImports : Screen
     data class PriceImportDetail(val batchId: String) : Screen
     object Analytics : Screen
-    data class ProductAnalytics(val productId: String) : Screen
+    data class ProductAnalytics(val productId: String, val productName: String = "") : Screen
     object InviteEntry : Screen
     object WebQrScanner : Screen
     object WebLoginConfirm : Screen
@@ -167,6 +169,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         private set
     var orderListTotal by mutableStateOf(0)
         private set
+    var orderListPresetStatus by mutableStateOf("全部")
+        private set
     var isOrderListLoading by mutableStateOf(false)
         private set
     private var orderListCursor = ""
@@ -204,6 +208,8 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var isRefreshingProducts by mutableStateOf(false)
         private set
     var dashboard by mutableStateOf(AdminDashboard())
+    var isDashboardRefreshing by mutableStateOf(false)
+        private set
     var analyticsRange by mutableStateOf(AnalyticsDateRange.recent(30))
         private set
     var analyticsUnitId by mutableStateOf("")
@@ -211,6 +217,14 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
     var analyticsCategory by mutableStateOf("")
         private set
     var analyticsUnitSort by mutableStateOf("amount")
+        private set
+    var analyticsSelectedTab by mutableStateOf("overview")
+        private set
+    var analyticsInventoryRiskOnly by mutableStateOf(false)
+        private set
+    var analyticsScrollIndex by mutableStateOf(0)
+        private set
+    var analyticsScrollOffset by mutableStateOf(0)
         private set
     var analyticsOverview by mutableStateOf(AnalyticsOverview())
         private set
@@ -222,8 +236,10 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         private set
     var activeProductAnalytics by mutableStateOf<AnalyticsProductDetail?>(null)
         private set
-    var isAnalyticsLoading by mutableStateOf(false)
-        private set
+    private val analyticsLoadStates = mutableStateMapOf<AnalyticsSection, AnalyticsLoadState>()
+    private val analyticsLoadedSections = mutableStateMapOf<AnalyticsSection, Boolean>()
+    private val analyticsJobs = mutableMapOf<AnalyticsSection, Job>()
+    private val analyticsRequestTracker = AnalyticsRequestTracker()
     var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
     var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
     var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
@@ -680,6 +696,11 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun openOrderTab(status: String = "全部") {
+        orderListPresetStatus = status
+        currentTab = "orders"
+    }
+
     fun loadOrderList(
         status: String = "全部",
         dateFrom: String = "",
@@ -734,14 +755,16 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun refreshDashboard() {
-        if (authToken.isBlank() || !canManageIngredients()) return
+    fun refreshDashboard(userInitiated: Boolean = false) {
+        if (authToken.isBlank() || !canManageIngredients() || isDashboardRefreshing) return
+        isDashboardRefreshing = true
         viewModelScope.launch {
             runCatching {
                 dashboard = withContext(Dispatchers.IO) { apiClient.dashboard(authToken) }
             }.onFailure {
-                alertMessage = it.toUserMessage("工作台同步失败")
+                if (userInitiated) snackbarMessage = "更新失败，当前显示上次结果"
             }
+            isDashboardRefreshing = false
         }
     }
 
@@ -770,62 +793,119 @@ class SupplyViewModel(application: Application) : AndroidViewModel(application) 
         analyticsCategory = category
     }
 
+    fun applyAnalyticsFilters(draft: AnalyticsFilterDraft, tab: String = analyticsSelectedTab) {
+        val fields = analyticsFilterFields(tab)
+        if ("unitId" in fields) analyticsUnitId = draft.unitId
+        if ("category" in fields) analyticsCategory = draft.category
+        if ("inventoryRiskOnly" in fields) analyticsInventoryRiskOnly = draft.inventoryRiskOnly
+        if (tab != "inventory") refreshAnalytics(tab, userInitiated = true)
+    }
+
+    fun selectAnalyticsTab(tab: String) {
+        analyticsSelectedTab = AnalyticsSection.fromTab(tab).tabId
+    }
+
+    fun openInventoryRisks() {
+        analyticsSelectedTab = "inventory"
+        analyticsInventoryRiskOnly = true
+        currentTab = "analytics"
+        if (analyticsLoadState("inventory") == AnalyticsLoadState.Idle) refreshAnalytics("inventory")
+    }
+
+    fun saveAnalyticsScroll(index: Int, offset: Int) {
+        analyticsScrollIndex = index.coerceAtLeast(0)
+        analyticsScrollOffset = offset.coerceAtLeast(0)
+    }
+
     fun updateAnalyticsUnitSort(sort: String) {
         if (sort in setOf("amount", "orders", "products")) analyticsUnitSort = sort
     }
 
-    fun refreshAnalytics(tab: String = "overview") {
-        if (authToken.isBlank() || !canManageIngredients() || isAnalyticsLoading) return
-        isAnalyticsLoading = true
-        viewModelScope.launch {
-            runCatching {
-                when (tab) {
-                    "price" -> analyticsPrices = withContext(Dispatchers.IO) {
-                        apiClient.analyticsPrices(
+    fun analyticsLoadState(tab: String): AnalyticsLoadState =
+        analyticsLoadStates[AnalyticsSection.fromTab(tab)] ?: AnalyticsLoadState.Idle
+
+    fun refreshAnalytics(tab: String = analyticsSelectedTab, userInitiated: Boolean = false) {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        val section = AnalyticsSection.fromTab(tab)
+        if (section == AnalyticsSection.PRODUCT) return
+        val generation = analyticsRequestTracker.begin(section)
+        analyticsJobs[section]?.cancel()
+        val keepsContent = analyticsLoadedSections[section] == true
+        analyticsLoadStates[section] = AnalyticsLoadState.Loading(keepsContent)
+        analyticsJobs[section] = viewModelScope.launch {
+            try {
+                when (section) {
+                    AnalyticsSection.PRICE -> {
+                        val result = withContext(Dispatchers.IO) { apiClient.analyticsPrices(
                             authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory
-                        )
+                        ) }
+                        if (analyticsRequestTracker.isLatest(section, generation)) analyticsPrices = result
                     }
-                    "inventory" -> analyticsInventory = withContext(Dispatchers.IO) {
-                        apiClient.analyticsInventory(authToken)
+                    AnalyticsSection.INVENTORY -> {
+                        val result = withContext(Dispatchers.IO) { apiClient.analyticsInventory(authToken) }
+                        if (analyticsRequestTracker.isLatest(section, generation)) analyticsInventory = result
                     }
-                    "units" -> analyticsUnits = withContext(Dispatchers.IO) {
-                        apiClient.analyticsUnits(
+                    AnalyticsSection.UNITS -> {
+                        val result = withContext(Dispatchers.IO) { apiClient.analyticsUnits(
                             authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory, analyticsUnitSort
-                        )
+                        ) }
+                        if (analyticsRequestTracker.isLatest(section, generation)) analyticsUnits = result
                     }
                     else -> {
-                        val result = withContext(Dispatchers.IO) {
-                            apiClient.analyticsOverview(
-                                authToken, analyticsRange.startDate, analyticsRange.endDate,
-                                analyticsUnitId, analyticsCategory
-                            ) to apiClient.analyticsUnits(
-                                authToken, analyticsRange.startDate, analyticsRange.endDate, analyticsCategory, analyticsUnitSort
-                            )
-                        }
-                        analyticsOverview = result.first
-                        analyticsUnits = result.second
+                        val result = withContext(Dispatchers.IO) { apiClient.analyticsOverview(
+                            authToken, analyticsRange.startDate, analyticsRange.endDate,
+                            analyticsUnitId, analyticsCategory
+                        ) }
+                        if (analyticsRequestTracker.isLatest(section, generation)) analyticsOverview = result
                     }
                 }
-            }.onFailure { alertMessage = it.toUserMessage("数据分析加载失败") }
-            isAnalyticsLoading = false
+                if (!analyticsRequestTracker.isLatest(section, generation)) return@launch
+                analyticsLoadedSections[section] = true
+                analyticsLoadStates[section] = AnalyticsLoadState.Ready(System.currentTimeMillis())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (!analyticsRequestTracker.isLatest(section, generation)) return@launch
+                val message = error.toUserMessage("数据更新失败")
+                analyticsLoadStates[section] = AnalyticsLoadState.Error(message, keepsContent)
+                if (keepsContent || userInitiated) snackbarMessage = "更新失败，当前显示上次结果"
+            }
         }
     }
 
-    fun openProductAnalytics(productId: String) {
-        if (authToken.isBlank() || !canManageIngredients() || isAnalyticsLoading) return
-        isAnalyticsLoading = true
-        viewModelScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    apiClient.analyticsProduct(
-                        authToken, productId, analyticsRange.startDate, analyticsRange.endDate
-                    )
+    fun openProductAnalytics(productId: String, productName: String = "") {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        navigateTo(productAnalyticsNavigationTarget(productId, productName))
+        refreshProductAnalytics(productId)
+    }
+
+    fun refreshProductAnalytics(productId: String, userInitiated: Boolean = false) {
+        if (authToken.isBlank() || !canManageIngredients()) return
+        val section = AnalyticsSection.PRODUCT
+        val generation = analyticsRequestTracker.begin(section)
+        analyticsJobs[section]?.cancel()
+        val keepsContent = activeProductAnalytics?.product?.id == productId
+        if (!keepsContent) activeProductAnalytics = null
+        analyticsLoadStates[section] = AnalyticsLoadState.Loading(keepsContent)
+        analyticsJobs[section] = viewModelScope.launch {
+            try {
+                val detail = withContext(Dispatchers.IO) {
+                    apiClient.analyticsProduct(authToken, productId, analyticsRange.startDate, analyticsRange.endDate)
                 }
-            }.onSuccess {
-                activeProductAnalytics = it
-                navigateTo(Screen.ProductAnalytics(productId))
-            }.onFailure { alertMessage = it.toUserMessage("食材分析加载失败") }
-            isAnalyticsLoading = false
+                if (!analyticsRequestTracker.isLatest(section, generation)) return@launch
+                activeProductAnalytics = detail
+                analyticsLoadedSections[section] = true
+                analyticsLoadStates[section] = AnalyticsLoadState.Ready(System.currentTimeMillis())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                if (!analyticsRequestTracker.isLatest(section, generation)) return@launch
+                analyticsLoadStates[section] = AnalyticsLoadState.Error(
+                    error.toUserMessage("食材分析加载失败"),
+                    keepsContent
+                )
+                if (keepsContent || userInitiated) snackbarMessage = "更新失败，当前显示上次结果"
+            }
         }
     }
 

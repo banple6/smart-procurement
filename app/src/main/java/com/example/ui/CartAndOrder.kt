@@ -283,11 +283,11 @@ fun DetailRow(label: String, value: String) {
 fun OrderListScreen(viewModel: SupplyViewModel) {
     val orders by viewModel.allOrders.collectAsState()
     val isAdmin = viewModel.canManageIngredients()
-    var selectedStatus by remember { mutableStateOf("全部") }
+    var selectedStatus by remember(viewModel.orderListPresetStatus) { mutableStateOf(viewModel.orderListPresetStatus) }
     var orderQuery by remember { mutableStateOf("") }
     var dateFrom by remember { mutableStateOf("") }
     var dateTo by remember { mutableStateOf("") }
-    var appliedStatus by remember { mutableStateOf("全部") }
+    var appliedStatus by remember(viewModel.orderListPresetStatus) { mutableStateOf(viewModel.orderListPresetStatus) }
     var appliedQuery by remember { mutableStateOf("") }
     var appliedDateFrom by remember { mutableStateOf("") }
     var appliedDateTo by remember { mutableStateOf("") }
@@ -300,8 +300,8 @@ fun OrderListScreen(viewModel: SupplyViewModel) {
     val groupedOrders = remember(loadedOrders) { loadedOrders.groupBy(::orderMonthKey) }
     val expandedMonths = remember { mutableStateMapOf<String, Boolean>() }
 
-    LaunchedEffect(viewModel.userId, viewModel.userRole) {
-        viewModel.loadOrderList(reset = true)
+    LaunchedEffect(viewModel.userId, viewModel.userRole, viewModel.orderListPresetStatus) {
+        viewModel.loadOrderList(status = viewModel.orderListPresetStatus, reset = true)
     }
     LaunchedEffect(groupedOrders.keys.toList()) {
         groupedOrders.keys.forEachIndexed { index, month ->

@@ -7,6 +7,8 @@ import com.smartprocurement.internal.ui.analyticsInventoryRiskText
 import com.smartprocurement.internal.ui.analyticsPriceChangeText
 import com.smartprocurement.internal.ui.canOpenScreen
 import com.smartprocurement.internal.ui.charts.chartSelectionIndex
+import com.smartprocurement.internal.ui.charts.barSelectionIndex
+import com.smartprocurement.internal.ui.charts.chartLabelIndices
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -104,6 +106,13 @@ class AnalyticsModelsTest {
         assertEquals(1, chartSelectionIndex(150f, 300f, 3))
         assertEquals(2, chartSelectionIndex(300f, 300f, 3))
         assertNull(chartSelectionIndex(10f, 300f, 0))
+        assertEquals(0, chartSelectionIndex(100f, 300f, 1))
+        assertEquals(0, barSelectionIndex(12f, 200f, 3, 10f, 190f))
+        assertEquals(2, barSelectionIndex(189f, 200f, 3, 10f, 190f))
+        assertNull(barSelectionIndex(20f, 200f, 0))
+        assertEquals(listOf(0, 2, 4), chartLabelIndices(5))
+        assertEquals(listOf(0), chartLabelIndices(1))
+        assertTrue(chartLabelIndices(0).isEmpty())
     }
 
     @Test

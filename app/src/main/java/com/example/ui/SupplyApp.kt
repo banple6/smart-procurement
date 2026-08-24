@@ -202,13 +202,19 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
         androidx.compose.animation.AnimatedContent(
             targetState = currentScreen,
             transitionSpec = {
-                androidx.compose.animation.fadeIn(
-                    animationSpec = androidx.compose.animation.core.tween(220)
-                ).togetherWith(
-                    androidx.compose.animation.fadeOut(
-                        animationSpec = androidx.compose.animation.core.tween(220)
+                val duration = 170
+                if (isDetailDestination(targetState) || isDetailDestination(initialState)) {
+                    (slideInHorizontally(androidx.compose.animation.core.tween(duration)) { it / 12 } +
+                        fadeIn(androidx.compose.animation.core.tween(duration)))
+                        .togetherWith(
+                            slideOutHorizontally(androidx.compose.animation.core.tween(duration)) { -it / 16 } +
+                                fadeOut(androidx.compose.animation.core.tween(duration))
+                        )
+                } else {
+                    fadeIn(androidx.compose.animation.core.tween(150)).togetherWith(
+                        fadeOut(androidx.compose.animation.core.tween(150))
                     )
-                )
+                }
             },
             label = "screen_transition"
         ) { screen ->
@@ -303,6 +309,7 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 is Screen.ProductAnalytics -> {
                     ProductAnalyticsScreen(
                         productId = (screen as Screen.ProductAnalytics).productId,
+                        productName = screen.productName,
                         viewModel = viewModel
                     )
                 }
@@ -344,6 +351,9 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
         )
     }
 }
+
+private fun isDetailDestination(screen: Screen): Boolean = screen !is Screen.Home &&
+    screen !is Screen.Login && screen !is Screen.Splash && screen !is Screen.ChangePassword
 
 @Composable
 fun SplashScreen(onFinish: () -> Unit) {
@@ -395,8 +405,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     )
     val navigationDividerColor = MaterialTheme.colorScheme.outlineVariant
     LaunchedEffect(isAdmin) {
-        if (isAdmin && viewModel.currentTab == "home") viewModel.currentTab = "dashboard"
-        if (!isAdmin && viewModel.currentTab == "dashboard") viewModel.currentTab = "home"
+        viewModel.currentTab = normalizedMainTab(viewModel.userRole, viewModel.currentTab)
         if (isAdmin) {
             while (true) {
                 viewModel.refreshDashboard()
@@ -459,7 +468,7 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                             }
                         }
                     },
-                    label = { Text(if (isAdmin) "食材台账" else "申领单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "食材" else "申领单", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = navigationItemColors
                 )
 
@@ -479,15 +488,30 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                             Icon(imageVector = JrxpIcons.OrderDocument, contentDescription = "订单")
                         }
                     },
-                    label = { Text("履约单据", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "订单" else "履约单据", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = navigationItemColors
                 )
+
+                if (isAdmin) {
+                    NavigationBarItem(
+                        selected = viewModel.currentTab == "analytics",
+                        onClick = {
+                            viewModel.currentTab = "analytics"
+                            if (viewModel.analyticsLoadState(viewModel.analyticsSelectedTab) == AnalyticsLoadState.Idle) {
+                                viewModel.refreshAnalytics(viewModel.analyticsSelectedTab)
+                            }
+                        },
+                        icon = { Icon(imageVector = Icons.Default.Insights, contentDescription = "数据") },
+                        label = { Text("数据", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                        colors = navigationItemColors
+                    )
+                }
 
                 NavigationBarItem(
                     selected = viewModel.currentTab == "profile",
                     onClick = { viewModel.currentTab = "profile" },
                     icon = { Icon(imageVector = Icons.Default.Person, contentDescription = "profile") },
-                    label = { Text("身份", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                    label = { Text(if (isAdmin) "我的" else "身份", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                     colors = navigationItemColors
                 )
             }
@@ -498,14 +522,21 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            when (viewModel.currentTab) {
-                "dashboard" -> AdminDashboardScreen(viewModel)
-                "home" -> HomeScreen(viewModel)
-                "ingredients" -> HomeScreen(viewModel)
-                "cart" -> CartScreen(viewModel)
-                "orders" -> OrderListScreen(viewModel)
-                "profile" -> ProfileScreen(viewModel)
-                else -> HomeScreen(viewModel)
+            androidx.compose.animation.Crossfade(
+                targetState = viewModel.currentTab,
+                animationSpec = androidx.compose.animation.core.tween(150),
+                label = "main_tab_transition"
+            ) { tab ->
+                when (tab) {
+                    "dashboard" -> AdminDashboardScreen(viewModel)
+                    "home" -> HomeScreen(viewModel)
+                    "ingredients" -> HomeScreen(viewModel)
+                    "cart" -> CartScreen(viewModel)
+                    "orders" -> OrderListScreen(viewModel)
+                    "analytics" -> AnalyticsScreen(viewModel, showBack = false)
+                    "profile" -> ProfileScreen(viewModel)
+                    else -> HomeScreen(viewModel)
+                }
             }
         }
     }
