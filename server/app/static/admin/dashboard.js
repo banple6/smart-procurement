@@ -51,6 +51,9 @@
     productFormOpen: false,
     productSelectionMode: false,
     selectedProductIds: new Set(),
+    selectedOrderIds: new Set(),
+    orderItems: [],
+    orderBulkBusy: false,
     productFormDefaults: {
       productCategory: "蔬菜",
       productUnit: "公斤",
@@ -652,10 +655,8 @@
   }
 
   async function deleteOrder(button) {
-    const reason = window.prompt(
-      "确认删除该订单？\n删除后将从正常订单列表隐藏，但历史业务及审计记录仍会保留。\n\n请填写删除原因：",
-      "录入错误"
-    );
+    if (!window.confirm("确认删除该订单吗？\n订单将从订单管理列表隐藏，历史采购台账和业务记录仍会保留。")) return;
+    const reason = window.prompt("请填写删除原因：", "录入错误");
     if (reason === null) return;
     if (!reason.trim()) return toast("请填写删除原因");
     const original = button.textContent;
@@ -739,6 +740,114 @@
     return `<div class="table-wrap"><table class="admin-table"><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
   }
 
+  function selectedOrders() {
+    return window.AdminOrderSelectionPolicy.selectedOrders(state.orderItems, state.selectedOrderIds);
+  }
+
+  function renderOrderSelection() {
+    const selected = selectedOrders();
+    document.querySelectorAll(".select-all-orders").forEach((checkbox) => {
+      const count = state.orderItems.length;
+      checkbox.checked = count > 0 && selected.length === count;
+      checkbox.indeterminate = selected.length > 0 && selected.length < count;
+    });
+    const toolbar = $("orderBatchToolbar");
+    if (!toolbar) return;
+    toolbar.hidden = selected.length === 0;
+    $("orderSelectionCount").textContent = `已选择 ${selected.length} 个订单`;
+    const allPending = window.AdminOrderSelectionPolicy.canBulkAccept(selected);
+    const allDeletable = window.AdminOrderSelectionPolicy.canBulkDelete(selected);
+    const acceptButton = $("bulkAcceptOrders");
+    const deleteButton = $("bulkDeleteOrders");
+    acceptButton.disabled = state.orderBulkBusy || !allPending;
+    deleteButton.disabled = state.orderBulkBusy || !allDeletable;
+    if (state.orderBulkBusy) {
+      acceptButton.textContent = "处理中…";
+      deleteButton.textContent = "处理中…";
+    } else {
+      acceptButton.textContent = "批量接单";
+      deleteButton.textContent = "批量删除";
+    }
+    document.querySelectorAll("[data-order-select], [data-order][data-status], [data-lifecycle], [data-delete-order], [data-ship]").forEach((control) => {
+      control.disabled = state.orderBulkBusy;
+    });
+    const clearButton = $("clearOrderSelection");
+    if (clearButton) clearButton.disabled = state.orderBulkBusy;
+    const note = $("orderSelectionNote");
+    note.textContent = selected.length && !allPending
+      ? "所选订单状态不一致，请仅选择待接单订单。"
+      : selected.length && !allDeletable
+        ? "所选订单中包含正在履约的订单，请取消选择后重试。"
+        : "当前仅支持操作本页已选择的订单。";
+  }
+
+  function clearOrderSelection() {
+    state.selectedOrderIds.clear();
+    renderOrderSelection();
+    document.querySelectorAll("[data-order-select]").forEach((checkbox) => { checkbox.checked = false; });
+  }
+
+  async function bulkAcceptOrders() {
+    const selected = selectedOrders();
+    if (!selected.length || !selected.every((order) => order.status === "pending")) {
+      toast("所选订单状态不一致，请仅选择待接单订单");
+      return;
+    }
+    if (!window.confirm(`确认接单所选 ${selected.length} 笔订单吗？`)) return;
+    state.orderBulkBusy = true;
+    renderOrderSelection();
+    let successCount = 0;
+    const failures = [];
+    for (const order of selected) {
+      try {
+        await api(`/api/v1/admin/orders/${order.id}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "accepted", expected_status: order.status, expected_version: Number(order.version || 0) || undefined }),
+        });
+        successCount += 1;
+      } catch (error) {
+        failures.push(`${order.order_no}: ${error.message || "操作失败"}`);
+      }
+    }
+    state.orderBulkBusy = false;
+    state.selectedOrderIds.clear();
+    toast(failures.length ? `成功接单 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已成功接单 ${successCount} 笔订单`);
+    await loadCurrent(true);
+  }
+
+  async function bulkDeleteOrders() {
+    const selected = selectedOrders();
+    if (!selected.length || !selected.every((order) => order.can_delete)) {
+      toast("所选订单中包含正在履约的订单，请取消选择后重试");
+      return;
+    }
+    if (!window.confirm(`确定删除所选 ${selected.length} 个订单吗？\n订单将从订单管理列表移除，历史采购台账和业务记录仍会保留。`)) return;
+    const reason = window.prompt("请填写删除原因：", "批量清理已完成订单");
+    if (reason === null) return;
+    if (!reason.trim()) { toast("请填写删除原因"); return; }
+    state.orderBulkBusy = true;
+    renderOrderSelection();
+    let successCount = 0;
+    const failures = [];
+    for (const order of selected) {
+      try {
+        await api(`/api/v1/admin/orders/${order.id}`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: reason.trim() }),
+        });
+        successCount += 1;
+      } catch (error) {
+        failures.push(`${order.order_no}: ${error.message || "操作失败"}`);
+      }
+    }
+    state.orderBulkBusy = false;
+    state.selectedOrderIds.clear();
+    toast(failures.length ? `成功删除 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已删除 ${successCount} 笔订单`);
+    await loadCurrent(true);
+  }
+
   async function loadOrders() {
     const params = new URLSearchParams(window.location.search);
     const query = new URLSearchParams();
@@ -749,6 +858,9 @@
     if (params.get("query")) query.set("query", params.get("query"));
     if (params.get("archived") === "true") query.set("archived", "true");
     if (params.get("cursor")) query.set("cursor", params.get("cursor"));
+    state.selectedOrderIds.clear();
+    state.orderItems = [];
+    state.orderBulkBusy = false;
     pageShell("订单管理", "接单、备货和完成订单");
     content().innerHTML += `
       <div class="page-toolbar">
@@ -763,11 +875,11 @@
         <button id="orderClearFilterButton" class="table-action" type="button">清除筛选</button>
         <button id="orderArchiveToggle" class="table-action" type="button">${params.get("archived") === "true" ? "查看当前订单" : "查看归档订单"}</button>
       </div>`;
-    const data = await api(`/api/v1/admin/orders?include_items=true&limit=30&${query.toString()}`);
+    const data = await api(`/api/v1/admin/orders?limit=30&${query.toString()}`);
     const items = data.items || data || [];
+    state.orderItems = items;
     const orderRows = items.map((order) => {
       const action = primaryAction(order);
-      const goods = (order.items || []).slice(0, 3).map((item) => `${html(item.product_name || item.product_name_snapshot)} x ${qty(item.quantity)}`).join("<br>");
       const button = action[1] === "ship"
         ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
         : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
@@ -778,7 +890,7 @@
       const deleteButton = order.can_delete
         ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
         : `<button class="table-action danger" type="button" disabled title="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
-      return { order, row: `<tr><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${goods || "--"}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
+      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
     });
     const groups = new Map();
     orderRows.forEach((entry) => {
@@ -787,15 +899,33 @@
       groups.get(month).push(entry.row);
     });
     content().innerHTML += items.length ? `
+      <div id="orderBatchToolbar" class="order-bulk-toolbar" hidden>
+        <div><strong id="orderSelectionCount">已选择 0 个订单</strong><span id="orderSelectionNote">当前仅支持操作本页已选择的订单。</span></div>
+        <div class="page-toolbar"><button id="bulkAcceptOrders" class="table-action primary" type="button">批量接单</button><button id="bulkDeleteOrders" class="table-action danger" type="button">批量删除</button><button id="clearOrderSelection" class="table-action" type="button">取消选择</button></div>
+      </div>
       <div class="order-result-summary">共 ${num(data.total || items.length)} 笔，本页显示 ${num(items.length)} 笔</div>
       <div class="order-month-list">
         ${Array.from(groups.entries()).map(([month, rows], index) => `
           <details class="order-month-group" ${index === 0 ? "open" : ""}>
             <summary><span>${html(orderMonthLabel(month))}</span><small>${rows.length} 笔订单</small></summary>
-            ${table(["订单编号", "单位", "下单时间", "金额", "状态", "食材", "操作"], rows, "暂无订单")}
+            ${table([`<input class="select-all-orders" type="checkbox" aria-label="全选当前页订单" />`, "订单编号", "单位", "下单时间", "金额", "状态", "操作"], rows, "暂无订单")}
           </details>
         `).join("")}
       </div>` : empty("没有符合条件的订单");
+    document.querySelectorAll("[data-order-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.selectedOrderIds.add(checkbox.dataset.orderSelect);
+      else state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
+      renderOrderSelection();
+    }));
+    document.querySelectorAll(".select-all-orders").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, checkbox.checked);
+      document.querySelectorAll("[data-order-select]").forEach((rowCheckbox) => { rowCheckbox.checked = checkbox.checked; });
+      renderOrderSelection();
+    }));
+    $("clearOrderSelection")?.addEventListener("click", clearOrderSelection);
+    $("bulkAcceptOrders")?.addEventListener("click", bulkAcceptOrders);
+    $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
+    renderOrderSelection();
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
     document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));

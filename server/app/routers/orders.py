@@ -103,7 +103,9 @@ def order_actions(order: dict, viewer: dict | None = None) -> dict:
     is_archived = bool(order.get("archived_at"))
     is_deleted = bool(order.get("is_deleted"))
     role = (viewer or {}).get("role", "")
-    can_delete = role == "admin" and not is_deleted and status in {"pending", "cancelled", "voided"}
+    can_delete = role == "admin" and not is_deleted and not is_archived and status in {
+        "pending", "cancelled", "voided", "shipped", "completed",
+    }
     if can_delete:
         delete_reason = ""
     elif role != "admin":
@@ -111,7 +113,7 @@ def order_actions(order: dict, viewer: dict | None = None) -> dict:
     elif status in {"accepted", "preparing"}:
         delete_reason = "请先作废订单，再执行删除"
     elif status in {"shipped", "completed"}:
-        delete_reason = "已发货或已完成订单只能归档"
+        delete_reason = "删除将安全归档订单，历史记录仍会保留"
     else:
         delete_reason = "当前订单不可删除"
     return {
@@ -728,33 +730,31 @@ def soft_delete_order(order_id: str, body: OrderSoftDeleteRequest, admin=Depends
         order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
         if not order:
             raise HTTPException(status_code=404, detail="订单不存在")
-        if order.get("is_deleted"):
+        if order.get("is_deleted") or order.get("archived_at"):
             return {"ok": True, "order_id": order_id, "already_deleted": True}
         if order["status"] == "pending":
             order = _cancel_order(conn, order, admin, reason, "admin_web_or_api")
-        elif order["status"] not in {"cancelled", "voided"}:
+        elif order["status"] not in {"cancelled", "voided", "shipped", "completed"}:
             if order["status"] in {"accepted", "preparing"}:
                 raise HTTPException(status_code=409, detail="请先作废订单，再执行删除")
-            raise HTTPException(status_code=409, detail="已发货或已完成订单只能归档，不能删除")
+            raise HTTPException(status_code=409, detail="当前订单不可删除")
         conn.execute(
             """
             UPDATE orders
-            SET is_deleted = 1, deleted_at = CURRENT_TIMESTAMP, deleted_by = ?,
-                archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
-                archived_by = COALESCE(archived_by, ?), updated_at = CURRENT_TIMESTAMP,
+            SET archived_at = CURRENT_TIMESTAMP, archived_by = ?, updated_at = CURRENT_TIMESTAMP,
                 version = version + 1
             WHERE id = ? AND is_deleted = 0
             """,
-            (admin["id"], admin["id"], order_id),
+            (admin["id"], order_id),
         )
         updated = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'soft_delete', ?, ?, ?)",
             (str(uuid4()), order_id, admin["id"], updated["status"], updated["status"], reason),
         )
-        _audit_lifecycle(conn, updated, admin, "ORDER_SOFT_DELETED", updated["status"], updated["status"], reason, "admin_web_or_api")
+        _audit_lifecycle(conn, updated, admin, "ORDER_ARCHIVED", updated["status"], updated["status"], reason, "admin_web_or_api")
         invalidate_dashboard_cache()
-        return {"ok": True, "order_id": order_id, "already_deleted": False}
+        return {"ok": True, "order_id": order_id, "already_deleted": False, "archived": True}
 
 
 @router.post("/admin/orders/{order_id}/ship")

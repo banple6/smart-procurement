@@ -360,7 +360,7 @@ def test_accept_immediately_enters_preparing_and_repeated_accept_is_idempotent(t
         assert logs == 1
 
 
-def test_pending_order_soft_delete_releases_inventory_and_disappears_from_normal_views(tmp_path):
+def test_pending_order_delete_archives_releases_inventory_and_preserves_history(tmp_path):
     client = make_client(tmp_path)
     admin_headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, admin_headers)
@@ -392,15 +392,14 @@ def test_pending_order_soft_delete_releases_inventory_and_disappears_from_normal
     active_orders = client.get("/api/v1/admin/orders", headers=admin_headers)
     assert active_orders.status_code == 200
     assert all(item["id"] != order["id"] for item in active_orders.json()["items"])
-    deleted_orders = client.get("/api/v1/admin/orders?deleted=true&archived=true", headers=admin_headers)
-    assert deleted_orders.status_code == 200
-    assert any(item["id"] == order["id"] for item in deleted_orders.json()["items"])
-    assert client.get(f"/api/v1/admin/orders/{order['id']}", headers=admin_headers).status_code == 404
-    assert client.get(f"/api/v1/admin/orders/{order['id']}?include_deleted=true", headers=admin_headers).status_code == 200
+    archived_orders = client.get("/api/v1/admin/orders?archived=true", headers=admin_headers)
+    assert archived_orders.status_code == 200
+    assert any(item["id"] == order["id"] for item in archived_orders.json()["items"])
+    assert client.get(f"/api/v1/admin/orders/{order['id']}", headers=admin_headers).status_code == 200
 
     ledger = client.get("/api/v1/admin/ledger", headers=admin_headers)
     assert ledger.status_code == 200
-    assert all(item["order_id"] != order["id"] for item in ledger.json())
+    assert any(item["order_id"] == order["id"] for item in ledger.json())
     summary = client.get(f"/api/v1/admin/batches/{batch.json()['id']}/summary", headers=admin_headers)
     assert summary.status_code == 200
     assert summary.json()["order_count"] == 0
@@ -408,19 +407,25 @@ def test_pending_order_soft_delete_releases_inventory_and_disappears_from_normal
     from app.database import connect
 
     with connect() as conn:
-        stored = conn.execute("SELECT status, is_deleted FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        stored = conn.execute("SELECT status, is_deleted, archived_at FROM orders WHERE id = ?", (order["id"],)).fetchone()
         product_row = conn.execute("SELECT reserved_quantity FROM products WHERE id = ?", (product["id"],)).fetchone()
         soft_delete_logs = conn.execute(
             "SELECT COUNT(*) AS c FROM order_logs WHERE order_id = ? AND action = 'soft_delete'",
             (order["id"],),
         ).fetchone()["c"]
         assert stored["status"] == "cancelled"
-        assert stored["is_deleted"] == 1
+        assert stored["is_deleted"] == 0
+        assert stored["archived_at"]
+        batch_link = conn.execute(
+            "SELECT COUNT(*) AS c FROM delivery_batch_orders WHERE batch_id = ? AND order_id = ?",
+            (batch.json()["id"], order["id"]),
+        ).fetchone()["c"]
         assert str(product_row["reserved_quantity"]) in {"0", "0.0"}
         assert soft_delete_logs == 1
+        assert batch_link == 1
 
 
-def test_non_terminal_and_fulfilled_orders_require_void_or_archive_instead_of_delete(tmp_path):
+def test_non_terminal_delete_is_blocked_and_fulfilled_orders_are_archived(tmp_path):
     client = make_client(tmp_path)
     headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, headers)
@@ -454,8 +459,54 @@ def test_non_terminal_and_fulfilled_orders_require_void_or_archive_instead_of_de
         headers=headers,
         json={"reason": "不应删除已完成订单"},
     )
-    assert completed_delete.status_code == 409
-    assert completed_delete.json()["detail"] == "已发货或已完成订单只能归档，不能删除"
+    assert completed_delete.status_code == 200, completed_delete.text
+    assert completed_delete.json()["archived"] is True
+    archived = client.get("/api/v1/admin/orders?archived=true", headers=headers)
+    assert any(row["id"] == fulfilled_order["id"] for row in archived.json()["items"])
+
+    with connect() as conn:
+        stored = conn.execute("SELECT status, is_deleted, archived_at FROM orders WHERE id = ?", (fulfilled_order["id"],)).fetchone()
+        item_count = conn.execute("SELECT COUNT(*) AS c FROM order_items WHERE order_id = ?", (fulfilled_order["id"],)).fetchone()["c"]
+    assert stored["status"] == "completed"
+    assert stored["is_deleted"] == 0
+    assert stored["archived_at"]
+    assert item_count == 1
+
+
+def test_shipped_order_delete_archives_without_removing_business_history(tmp_path):
+    client = make_client(tmp_path)
+    headers = login(client, "root_admin", "StrongPassword123")
+    product = create_product(client, headers)
+    order = create_unit_order(client, headers, product["id"], "DELS", "1")
+    from app.database import connect
+
+    with connect() as conn:
+        conn.execute(
+            "UPDATE orders SET status = 'shipped', shipped_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (order["id"],),
+        )
+        conn.commit()
+
+    deleted = client.request(
+        "DELETE",
+        f"/api/v1/admin/orders/{order['id']}",
+        headers=headers,
+        json={"reason": "已发货订单归档"},
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["archived"] is True
+
+    with connect() as conn:
+        stored = conn.execute("SELECT status, is_deleted, archived_at FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        item = conn.execute(
+            "SELECT price_cents_snapshot, subtotal_cents FROM order_items WHERE order_id = ?",
+            (order["id"],),
+        ).fetchone()
+    assert stored["status"] == "shipped"
+    assert stored["is_deleted"] == 0
+    assert stored["archived_at"]
+    assert item["price_cents_snapshot"] > 0
+    assert item["subtotal_cents"] > 0
 
 
 def test_product_spec_tracks_unit_defaults_without_overwriting_custom_spec(tmp_path):
