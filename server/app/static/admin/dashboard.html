@@ -30,6 +30,7 @@
           <a id="orderReminderButton" class="secondary-button as-link order-reminder-button" href="/admin/orders?status=pending">
             订单提醒 <span id="orderReminderBadge" class="order-reminder-badge" hidden>0</span>
           </a>
+          <a id="orderReminderNotice" class="order-reminder-notice" href="/admin/orders?status=pending" hidden></a>
           <button id="refreshButton" class="secondary-button" type="button">刷新</button>
           <a class="secondary-button as-link" href="/download">下载 App</a>
           <a class="ghost-button as-link" href="/help/admin">帮助</a>
@@ -162,7 +163,6 @@
         </section>
       </main>
     </div>
-    <a id="orderReminderNotice" class="order-reminder-notice" href="/admin/orders?status=pending" hidden></a>
     <div id="toast" class="toast" hidden></div>
     <script type="module" src="/admin-assets/thinking-orb.js?v=0.3.1"></script>
     <script src="/admin-assets/vendor/echarts-5.6.0/echarts.min.js" defer></script>

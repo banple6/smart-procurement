@@ -774,10 +774,10 @@
     const clearButton = $("clearOrderSelection");
     if (clearButton) clearButton.disabled = state.orderBulkBusy;
     const note = $("orderSelectionNote");
-    note.textContent = selected.length && !allPending
-      ? "所选订单状态不一致，请仅选择待接单订单。"
-      : selected.length && !allDeletable
-        ? "所选订单中包含正在履约的订单，请取消选择后重试。"
+    note.textContent = selected.length && !allDeletable
+      ? "所选订单中包含履约中的订单，不可批量删除。请取消选择后重试。"
+      : selected.length && !allPending
+        ? "所选订单状态不一致，请仅选择待接单订单。"
         : "当前仅支持操作本页已选择的订单。";
   }
 
