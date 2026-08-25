@@ -1,9 +1,6 @@
 package com.smartprocurement.internal.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -30,16 +27,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import coil.compose.AsyncImage
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.domain.product.ProductOptions
 import com.smartprocurement.internal.domain.money.Money
@@ -464,7 +457,6 @@ private fun IngredientCard(
                     modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                 )
             }
-            IngredientImage(product.displayImage(), product.name, Modifier.size(88.dp))
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 // Name and Status
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
@@ -579,9 +571,6 @@ fun ProductDetailScreen(productId: String, viewModel: SupplyViewModel) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item {
-                    IngredientImage(product.displayImage(), product.name, Modifier.fillMaxWidth().aspectRatio(1.5f))
-                }
                 item {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = JrxpDimensions.spacingMd)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
@@ -708,23 +697,10 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
         mutableStateOf(viewModel.formStateFor(productId))
     }
     var leavingConfirm by remember { mutableStateOf(false) }
-    var imageSheet by remember { mutableStateOf(false) }
     var rulesSheet by remember { mutableStateOf(false) }
     var moreSheet by remember { mutableStateOf(false) }
     var showMoreCategories by remember { mutableStateOf(false) }
     var showMoreUnits by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        uri?.let { viewModel.persistIngredientImage(it) { path -> form = form.copy(imagePath = path) } }
-    }
-    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok) viewModel.pendingCameraUri?.let { uri ->
-            viewModel.persistIngredientImage(uri) { path -> form = form.copy(imagePath = path) }
-        }
-    }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) takePicture.launch(viewModel.createCameraUri()) else viewModel.alertMessage = "需要相机权限才能拍照"
-    }
     fun resetForNext(saved: IngredientFormState): IngredientFormState = IngredientFormState(
         category = saved.category,
         unit = saved.unit,
@@ -741,14 +717,6 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
         val resolvedSpec = ProductOptions.resolveSpecForUnit(form.unit, form.spec)
         if (resolvedSpec != form.spec) form = form.copy(spec = resolvedSpec)
     }
-    fun openCamera() {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            takePicture.launch(viewModel.createCameraUri())
-        } else {
-            cameraPermission.launch(Manifest.permission.CAMERA)
-        }
-    }
-
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -793,30 +761,9 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(88.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                            .clickable { imageSheet = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (form.imagePath.isBlank()) {
-                            Text("暂无图片", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, textAlign = TextAlign.Center)
-                        } else {
-                            AsyncImage(model = form.imagePath, contentDescription = form.name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
-                    }
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FormInput("食材名称", form.name, { form = form.copy(name = it) }, viewModel.ingredientErrors["name"])
-                        FormInput("规格", form.spec, { form = form.copy(spec = it) }, viewModel.ingredientErrors["spec"])
-                    }
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FormInput("食材名称", form.name, { form = form.copy(name = it) }, viewModel.ingredientErrors["name"])
+                    FormInput("规格", form.spec, { form = form.copy(spec = it) }, viewModel.ingredientErrors["spec"])
                 }
             }
             item {
@@ -881,24 +828,6 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
                     onClick = { moreSheet = true }
                 )
             }
-        }
-    }
-
-    if (imageSheet) {
-        ModalBottomSheet(onDismissRequest = { imageSheet = false }) {
-            SheetAction("拍照") {
-                imageSheet = false
-                openCamera()
-            }
-            SheetAction("从相册选择") {
-                imageSheet = false
-                photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            }
-            SheetAction("移除图片", enabled = form.imagePath.isNotBlank()) {
-                imageSheet = false
-                form = form.copy(imagePath = "")
-            }
-            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -983,10 +912,8 @@ fun DeletedIngredientsScreen(viewModel: SupplyViewModel) {
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IngredientImage(product.displayImage(), product.name, Modifier.size(64.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(product.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("${product.category} · ${product.spec}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1199,22 +1126,6 @@ private fun IngredientDetailRow(label: String, value: String) {
 }
 
 @Composable
-private fun IngredientImage(model: String, name: String, modifier: Modifier) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-        contentAlignment = Alignment.Center
-    ) {
-        if (model.isBlank()) {
-            Text("暂无图片", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            AsyncImage(model = model, contentDescription = name, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        }
-    }
-}
-
-@Composable
 private fun StatusBadge(status: String) {
     val color = when (status) {
         "库存紧张" -> Color(0xFFE69532)
@@ -1245,7 +1156,6 @@ private fun EmptyState(text: String) {
     }
 }
 
-private fun ProductEntity.displayImage(): String = imagePath.ifBlank { imageUrl }
 private fun ProductEntity.displayStatus(): String = when {
     isDeleted -> "已下架"
     !isAvailable -> "已下架"

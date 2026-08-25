@@ -139,27 +139,6 @@ fun CartScreen(viewModel: SupplyViewModel) {
                         ) {
                             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (p.imageUrl.isBlank()) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(58.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text("暂无图片", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    } else {
-                                        AsyncImage(
-                                            model = p.imageUrl,
-                                            contentDescription = p.name,
-                                            modifier = Modifier
-                                                .size(58.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    }
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(p.spec, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -618,7 +597,7 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
 
                 DocumentSection(title = "食材明细", subtitle = "共 ${orderItems.size} 种") {
                     orderItems.forEach { item ->
-                        Row(
+                        Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = JrxpDimensions.spacingMd)
@@ -630,19 +609,8 @@ fun OrderDetailsScreen(orderId: String, viewModel: SupplyViewModel) {
                                         strokeWidth = 1f
                                     )
                                 },
-                            horizontalArrangement = Arrangement.spacedBy(JrxpDimensions.spacingMd),
-                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            AsyncImage(
-                                model = item.productImageUrl,
-                                contentDescription = item.productName,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentScale = ContentScale.Crop
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
+                            Column {
                                 Text(item.productName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                 Text(item.productSpec, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 Spacer(modifier = Modifier.height(2.dp))

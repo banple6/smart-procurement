@@ -112,7 +112,6 @@ data class IngredientFormState(
     val name: String = "",
     val category: String = "蔬菜",
     val code: String = "",
-    val imagePath: String = "",
     val spec: String = "散装",
     val unit: String = "公斤",
     val minOrderQuantity: String = "1",
@@ -139,7 +138,6 @@ class SupplyViewModel(
 
     private val repository: SupplyRepository
     private val sessionStore = SessionStore(application)
-    private val imageStorage = IngredientImageStorage(application)
     private val appUpdateInstaller = AppUpdateInstaller(application)
     private val apiClient = ProcurementApiClient()
     private val pushPreferences = PushPreferences(application)
@@ -397,7 +395,6 @@ class SupplyViewModel(
     var webLoginResultTitle by mutableStateOf("")
     var webLoginResultMessage by mutableStateOf("")
     var webSessionRecords by mutableStateOf<List<WebSessionRecord>>(emptyList())
-    var pendingCameraUri by mutableStateOf<Uri?>(null)
     var showPushConsentDialog by mutableStateOf(false)
         private set
     var notificationPermissionRequestKey by mutableStateOf(0)
@@ -1858,21 +1855,6 @@ class SupplyViewModel(
     fun canDeleteIngredients(): Boolean = currentUser?.role == "admin"
     fun canRestoreIngredients(): Boolean = currentUser?.role == "admin"
 
-    fun createCameraUri(): Uri {
-        val uri = imageStorage.createCameraUri()
-        pendingCameraUri = uri
-        return uri
-    }
-
-    fun persistIngredientImage(uri: Uri, onSaved: (String) -> Unit) {
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { imageStorage.saveImage(uri) }
-            result.onSuccess(onSaved).onFailure {
-                alertMessage = "图片读取失败，请重新选择或拍摄"
-            }
-        }
-    }
-
     fun formStateFor(productId: String?): IngredientFormState {
         val product = productId?.let { allProducts.value.find { product -> product.id == it } }
         return product?.toFormState() ?: IngredientFormState()
@@ -1912,7 +1894,7 @@ class SupplyViewModel(
                 name = form.name.trim(),
                 spec = form.spec.trim(),
                 unit = form.unit,
-                imageUrl = form.imagePath,
+                imageUrl = existing?.imageUrl ?: "",
                 origin = form.origin.trim(),
                 minQty = form.minOrderQuantity.toDoubleOrNull() ?: 1.0,
                 stepQty = form.quantityStep.toDoubleOrNull() ?: 1.0,
@@ -1921,7 +1903,7 @@ class SupplyViewModel(
                 price = form.internalPrice.toDoubleOrNull() ?: 0.0,
                 category = form.category,
                 code = form.code.trim(),
-                imagePath = form.imagePath,
+                imagePath = existing?.imagePath ?: "",
                 packagingSpec = form.packagingSpec.trim(),
                 stockQuantity = form.stockQuantity,
                 reservedQuantity = existing?.reservedQuantity ?: "0",
@@ -1940,21 +1922,13 @@ class SupplyViewModel(
             )
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    val saved = apiClient.saveProduct(authToken, product)
-                    var imageUploadFailed = false
-                    if (form.imagePath.isNotBlank() && !form.imagePath.startsWith("http") && java.io.File(form.imagePath).exists()) {
-                        imageUploadFailed = runCatching {
-                            apiClient.uploadProductImage(authToken, saved.id, form.imagePath)
-                        }.isFailure
-                    }
-                    imageUploadFailed
+                    apiClient.saveProduct(authToken, product)
                 }
             }
             isSavingIngredient = false
-            result.onSuccess { imageUploadFailed ->
+            result.onSuccess {
                 refreshProducts()
                 snackbarMessage = when {
-                    imageUploadFailed -> "食材已保存，图片上传失败，可稍后重新编辑补传"
                     existing == null -> "食材新增已保存"
                     else -> "食材修改已保存"
                 }
@@ -2266,7 +2240,6 @@ class SupplyViewModel(
         name = name,
         category = category,
         code = code,
-        imagePath = imagePath.ifBlank { imageUrl },
         spec = spec,
         unit = unit,
         minOrderQuantity = minQty.toCleanString(),
