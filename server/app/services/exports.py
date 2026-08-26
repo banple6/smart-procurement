@@ -10,12 +10,15 @@ from .order_status import order_status_payload
 
 LEDGER_HEADERS = [
     "序号",
+    "订单编号",
     "商品分类",
     "商品名称",
+    "规格",
     "计量单位",
     "数量",
     "单价",
     "小计",
+    "订单金额",
     "订单状态",
     "下单时间",
     "单位名称",
@@ -28,17 +31,20 @@ def ledger_workbook(rows: list[dict]) -> bytes:
     ws = wb.active
     ws.title = "订单台账"
     ws.append(LEDGER_HEADERS)
-    summary: dict[tuple[str, str, str], dict[str, float | int | str]] = defaultdict(lambda: {"quantity": 0.0, "subtotal_cents": 0})
+    summary: dict[tuple[str, str, str, str], dict[str, float | int | str]] = defaultdict(lambda: {"quantity": 0.0, "subtotal_cents": 0})
     for index, row in enumerate(rows, start=1):
         ws.append(
             [
                 index,
+                row["order_no"],
                 row["category_snapshot"],
                 row["product_name_snapshot"],
+                row["spec_snapshot"],
                 row["unit_snapshot"],
                 row["quantity"],
                 row["price_cents_snapshot"] / 100,
                 row["subtotal_cents"] / 100,
+                row["total_cents"] / 100,
                 order_status_payload(row["status"])["status_label"],
                 row["created_at"],
                 row["unit_name_snapshot"],
@@ -47,17 +53,19 @@ def ledger_workbook(rows: list[dict]) -> bytes:
         key = (
             row["category_snapshot"],
             row["product_name_snapshot"],
+            row["spec_snapshot"],
             row["unit_snapshot"],
         )
         summary[key]["quantity"] = float(summary[key]["quantity"]) + float(row["quantity"])
         summary[key]["subtotal_cents"] = int(summary[key]["subtotal_cents"]) + int(row["subtotal_cents"])
     summary_ws = wb.create_sheet("商品需求汇总")
-    summary_ws.append(["商品分类", "商品名称", "计量单位", "需求数量", "需求金额"])
-    for (category, name, unit), values in sorted(summary.items(), key=lambda item: item[0][1]):
+    summary_ws.append(["商品分类", "商品名称", "规格", "计量单位", "需求数量", "需求金额"])
+    for (category, name, spec, unit), values in sorted(summary.items(), key=lambda item: item[0][1]):
         summary_ws.append(
             [
                 category,
                 name,
+                spec,
                 unit,
                 values["quantity"],
                 int(values["subtotal_cents"]) / 100,

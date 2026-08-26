@@ -1495,15 +1495,76 @@
   async function loadLedger() {
     pageShell("采购台账", "按订单和食材明细查看，可导出 Excel");
     const params = new URLSearchParams(window.location.search);
-    const query = new URLSearchParams();
-    ["start_date", "end_date", "unit_id", "status", "product", "order_no"].forEach((key) => {
-      if (params.get(key)) query.set(key, params.get(key));
+    const filters = new URLSearchParams();
+    const filterKeys = ["start_date", "end_date", "unit_id", "status", "order_no"];
+    filterKeys.forEach((key) => {
+      if (params.get(key)) filters.set(key, params.get(key));
     });
-    content().innerHTML += `<div class="page-toolbar"><a class="primary-link" href="/api/v1/admin/ledger/export.xlsx?${query.toString()}">导出 Excel</a></div>`;
-    const rows = await api(`/api/v1/admin/ledger?${query.toString()}`);
-    content().innerHTML += table(["订单编号", "单位", "下单时间", "状态", "食材", "数量", "单价", "小计"], rows.slice(0, 300).map((row) => `
-      <tr><td>${html(row.order_no)}</td><td>${html(row.unit_name_snapshot || "--")}</td><td>${dateTime(row.created_at)}</td><td>${statusTag(row.status)}</td><td>${html(row.product_name_snapshot)}</td><td>${qty(row.quantity)}</td><td>${money(row.price_cents_snapshot)}</td><td>${money(row.subtotal_cents)}</td></tr>
-    `), "暂无台账记录");
+    const page = Math.max(1, Number(params.get("page") || "1"));
+    const pageQuery = new URLSearchParams(filters);
+    pageQuery.set("page", String(page));
+    pageQuery.set("page_size", "20");
+    const [units, ledgerData] = await Promise.all([
+      api("/api/v1/admin/units"),
+      api(`/api/v1/admin/ledger?${pageQuery.toString()}`),
+    ]);
+    const rows = ledgerData.items || [];
+    const total = Number(ledgerData.total || 0);
+    const pageSize = Number(ledgerData.page_size || 20);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const startDate = filters.get("start_date") || "";
+    const endDate = filters.get("end_date") || "";
+    const selectedUnit = filters.get("unit_id") || "";
+    const selectedStatus = filters.get("status") || "";
+    const orderNo = filters.get("order_no") || "";
+    const currentExportQuery = filters.toString();
+    const pageLink = (targetPage) => {
+      const target = new URLSearchParams(filters);
+      target.set("page", String(targetPage));
+      return `/admin/ledger?${target.toString()}`;
+    };
+    const statusOptions = [["", "全部状态"], ...Object.entries(statusText)];
+    content().innerHTML += `
+      <article class="panel section-panel">
+        <form id="ledgerFilterForm">
+          <div class="form-grid compact">
+            <label class="form-field"><span>开始日期</span><input name="start_date" type="date" value="${html(startDate)}" /></label>
+            <label class="form-field"><span>结束日期</span><input name="end_date" type="date" value="${html(endDate)}" /></label>
+            <label class="form-field"><span>下单单位</span><select name="unit_id"><option value="">全部单位</option>${units.map((unit) => `<option value="${html(unit.id)}" ${unit.id === selectedUnit ? "selected" : ""}>${html(unit.unit_name)}${unit.active ? "" : "（已停用）"}</option>`).join("")}</select></label>
+            <label class="form-field"><span>订单状态</span><select name="status">${statusOptions.map(([value, label]) => `<option value="${html(value)}" ${value === selectedStatus ? "selected" : ""}>${html(label)}</option>`).join("")}</select></label>
+            <label class="form-field"><span>订单号</span><input name="order_no" type="search" value="${html(orderNo)}" placeholder="例如 SP2026" /></label>
+          </div>
+          <div class="page-toolbar"><button class="table-action primary" type="submit">查询</button><button id="ledgerClearFilters" class="table-action" type="button">清除筛选</button><a class="primary-link" href="/api/v1/admin/ledger/export.xlsx?${currentExportQuery}">导出当前筛选</a><a class="table-action" href="/api/v1/admin/ledger/export.xlsx?all=true">导出全部台账</a></div>
+        </form>
+      </article>
+      <article class="panel table-panel">
+        <div class="panel-header"><div><h2>采购明细</h2><p>共 ${num(total)} 条，当前第 ${num(page)} / ${num(totalPages)} 页。</p></div></div>
+        ${table(["订单编号", "单位", "下单时间", "状态", "食材", "规格", "数量", "单价", "小计", "订单金额"], rows.map((row) => `
+          <tr><td>${html(row.order_no)}</td><td>${html(row.unit_name_snapshot || "--")}</td><td>${dateTime(row.created_at)}</td><td>${statusTag(row.status)}</td><td>${html(row.product_name_snapshot)}</td><td>${html(row.spec_snapshot || "--")}</td><td>${qty(row.quantity)}${html(row.unit_snapshot ? ` ${row.unit_snapshot}` : "")}</td><td>${money(row.price_cents_snapshot)}</td><td>${money(row.subtotal_cents)}</td><td>${money(row.total_cents)}</td></tr>
+        `), "暂无台账记录")}
+        <div class="page-toolbar">
+          ${page > 1 ? `<a class="table-action" href="${pageLink(page - 1)}">上一页</a>` : `<button class="table-action" type="button" disabled>上一页</button>`}
+          ${page < totalPages ? `<a class="table-action" href="${pageLink(page + 1)}">下一页</a>` : `<button class="table-action" type="button" disabled>下一页</button>`}
+        </div>
+      </article>`;
+    $("ledgerFilterForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = new FormData(event.currentTarget);
+      const nextStartDate = String(form.get("start_date") || "").trim();
+      const nextEndDate = String(form.get("end_date") || "").trim();
+      if (nextStartDate && nextEndDate && nextStartDate > nextEndDate) {
+        toast("开始日期不能晚于结束日期");
+        return;
+      }
+      const next = new URLSearchParams();
+      filterKeys.forEach((key) => {
+        const value = String(form.get(key) || "").trim();
+        if (value) next.set(key, value);
+      });
+      next.set("page", "1");
+      window.location.assign(`/admin/ledger?${next.toString()}`);
+    });
+    $("ledgerClearFilters").addEventListener("click", () => window.location.assign("/admin/ledger"));
   }
 
   function deliveryBatchStatus(status) {

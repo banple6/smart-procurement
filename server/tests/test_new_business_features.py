@@ -573,12 +573,12 @@ def test_ledger_export_uses_chinese_status_and_order_price_snapshot(tmp_path):
     workbook = load_workbook(BytesIO(exported.content), data_only=True)
     sheet = workbook["订单台账"]
     assert [cell.value for cell in sheet[1]] == [
-        "序号", "商品分类", "商品名称", "计量单位", "数量", "单价", "小计", "订单状态", "下单时间", "单位名称"
+        "序号", "订单编号", "商品分类", "商品名称", "规格", "计量单位", "数量", "单价", "小计", "订单金额", "订单状态", "下单时间", "单位名称"
     ]
-    assert sheet.cell(2, 6).value == 2
-    assert sheet.cell(2, 7).value == 6
-    assert sheet.cell(2, 8).value == "待接单"
-    assert [cell.value for cell in workbook["商品需求汇总"][1]] == ["商品分类", "商品名称", "计量单位", "需求数量", "需求金额"]
+    assert sheet.cell(2, 8).value == 2
+    assert sheet.cell(2, 9).value == 6
+    assert sheet.cell(2, 11).value == "待接单"
+    assert [cell.value for cell in workbook["商品需求汇总"][1]] == ["商品分类", "商品名称", "规格", "计量单位", "需求数量", "需求金额"]
 
 
 def test_outbound_workbook_uses_order_snapshot_after_current_price_changes(tmp_path):
