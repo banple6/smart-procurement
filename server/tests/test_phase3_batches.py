@@ -94,6 +94,9 @@ def test_phase3_aggregates_by_product_and_unit_and_exports(tmp_path):
     batch_body = batch.json()
     assert batch_body["status"] == "open"
     assert len(batch_body["orders"]) == 4
+    listed = client.get("/api/v1/admin/batches", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["items"][0]["order_count"] == 4
 
     summary = client.get(f"/api/v1/admin/batches/{batch_body['id']}/summary", headers=admin_headers)
     assert summary.status_code == 200, summary.text
@@ -162,6 +165,12 @@ def test_phase3_rejects_pending_duplicate_and_supports_archive_reorganization(tm
     archived = client.delete(f"/api/v1/admin/batches/{first_body['id']}", headers=admin_headers)
     assert archived.status_code == 200, archived.text
     assert archived.json()["status"] == "cancelled"
+    default_batches = client.get("/api/v1/admin/batches", headers=admin_headers)
+    assert default_batches.status_code == 200, default_batches.text
+    assert first_body["id"] not in {item["id"] for item in default_batches.json()["items"]}
+    archived_batches = client.get("/api/v1/admin/batches?status=cancelled", headers=admin_headers)
+    assert archived_batches.status_code == 200, archived_batches.text
+    assert first_body["id"] in {item["id"] for item in archived_batches.json()["items"]}
     eligible = client.get("/api/v1/admin/batches/eligible-orders", headers=admin_headers).json()["items"]
     assert any(order["id"] == preparing["id"] for order in eligible)
 

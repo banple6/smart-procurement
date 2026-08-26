@@ -148,6 +148,10 @@ def list_delivery_batches(
         if status:
             conditions.append("delivery_batches.status = ?")
             params.append(status)
+        else:
+            # Archived batches remain available to audit callers via status=cancelled,
+            # but should not compete with active/completed preparation records.
+            conditions.append("delivery_batches.status IN ('open', 'closed')")
         if date_from:
             conditions.append("date(datetime(delivery_batches.created_at, '+8 hours')) >= date(?)")
             params.append(date_from)
@@ -159,7 +163,7 @@ def list_delivery_batches(
             conn,
             f"""
             SELECT delivery_batches.*,
-                   COUNT(CASE WHEN orders.is_deleted = 0 THEN 1 END) AS order_count,
+                   COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.id END) AS order_count,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.unit_id END) AS unit_count,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN order_items.product_id END) AS product_count
             FROM delivery_batches
