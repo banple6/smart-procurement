@@ -23,7 +23,7 @@
 
   const nav = [
     ["", [["工作台", "/admin/dashboard", "▦"]]],
-    ["采购管理", [["订单管理", "/admin/orders", "□"], ["备货单", "/admin/batches", "▤"]]],
+    ["采购管理", [["订单管理", "/admin/orders", "□"], ["备货单", "/admin/batches", "▤"], ["出库单", "/admin/outbounds", "⇩"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
@@ -53,6 +53,7 @@
     selectedProductIds: new Set(),
     selectedOrderIds: new Set(),
     selectedBatchIds: new Set(),
+    selectedOutboundIds: new Set(),
     orderItems: [],
     orderBulkBusy: false,
     productFormDefaults: {
@@ -1542,11 +1543,11 @@
         </form>
       </article>
       <article class="panel table-panel">
-        <div class="panel-header"><div><h2>备货单记录</h2><p>按日期查看、导出或完成备货；已完成备货单不会生成出库单。</p></div></div>
+        <div class="panel-header"><div><h2>备货单记录</h2><p>按日期查看、导出或完成备货；完成后可按单位生成出库单。</p></div></div>
         <div class="page-toolbar"><input id="batchDateFrom" type="date" value="${html(dateFrom)}" aria-label="开始日期" /><input id="batchDateTo" type="date" value="${html(dateTo)}" aria-label="结束日期" /><button id="batchFilterButton" class="table-action primary" type="button">查询</button><button id="batchClearFilterButton" class="table-action" type="button">清除筛选</button><button id="batchBulkExport" class="table-action" type="button" disabled>批量导出</button></div>
         <div id="batchSelectionSummary" class="order-result-summary">已选择 0 张备货单</div>
         ${table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "名称", "创建时间", "订单", "单位", "食材", "状态", "操作"], batches.map((batch) => `
-          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名备货单")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
+          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名备货单")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "closed" ? `<button class="table-action primary" data-generate-outbound="${batch.id}">生成出库单</button>` : ""} ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
         `), "暂无备货单")}
       </article>`;
     if (preselectIds.length) {
@@ -1610,7 +1611,7 @@
       }
     });
     document.querySelectorAll("[data-batch-complete]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认完成备货吗？完成后不会自动发货，也不会生成出库单。")) return;
+      if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
       button.disabled = true;
       try {
         await api(`/api/v1/admin/batches/${button.dataset.batchComplete}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
@@ -1626,6 +1627,17 @@
         toast("备货单已归档");
         await loadBatches();
       } catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
+    }));
+    document.querySelectorAll("[data-generate-outbound]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认按单位生成出库单吗？重复操作不会重复生成。")) return;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = "生成中";
+      try {
+        const result = await api(`/api/v1/admin/outbounds/from-batch/${button.dataset.generateOutbound}`, { method: "POST" });
+        toast(`已生成 ${num(result.created_count)} 张出库单`);
+        window.location.assign("/admin/outbounds");
+      } catch (error) { toast(error.message || "生成出库单失败"); button.disabled = false; button.textContent = label; }
     }));
   }
 
@@ -1659,6 +1671,7 @@
         <dl class="status-list detail-list"><dt>备货单备注</dt><dd>${html(batch.note || "无")}</dd><dt>创建时间</dt><dd>${dateTime(batch.created_at)}</dd></dl>
         <div class="page-toolbar">
           ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该备货单暂无有效备货需求")}
+          ${batch.status === "closed" ? `<button class="primary-link" data-generate-outbound-detail="${batch.id}">生成出库单</button>` : ""}
           ${batch.status === "open" ? `<button class="secondary-button" data-batch-complete-detail="${batch.id}" data-version="${batch.version}">完成备货</button><button class="danger-button" data-batch-archive-detail="${batch.id}">归档备货单</button>` : ""}
           <a class="table-action" href="/admin/batches">返回备货单列表</a>
         </div>
@@ -1670,7 +1683,7 @@
       <article class="panel table-panel"><div class="panel-header"><div><h2>备货单订单</h2><p>软删除订单不会进入正常备货汇总和单据。</p></div></div>${table(["订单编号", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
     document.querySelectorAll("[data-batch-tab]").forEach((button) => button.addEventListener("click", () => loadBatchDetail(batchId, button.dataset.batchTab)));
     document.querySelectorAll("[data-batch-complete-detail]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认完成备货吗？完成后不会自动发货，也不会生成出库单。")) return;
+      if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
       button.disabled = true;
       try {
         await api(`/api/v1/admin/batches/${batchId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
@@ -1684,6 +1697,139 @@
       try { await api(`/api/v1/admin/batches/${batchId}`, { method: "DELETE" }); toast("备货单已归档"); window.location.assign("/admin/batches"); }
       catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
     }));
+    document.querySelectorAll("[data-generate-outbound-detail]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认按单位生成出库单吗？重复操作不会重复生成。")) return;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = "生成中";
+      try {
+        const result = await api(`/api/v1/admin/outbounds/from-batch/${button.dataset.generateOutboundDetail}`, { method: "POST" });
+        toast(`已生成 ${num(result.created_count)} 张出库单`);
+        window.location.assign("/admin/outbounds");
+      } catch (error) { toast(error.message || "生成出库单失败"); button.disabled = false; button.textContent = label; }
+    }));
+  }
+
+  function outboundStatus(status) {
+    return ({ pending: "待发货", shipped: "已发货", archived: "已归档" })[status] || "未知状态";
+  }
+
+  function outboundStatusTag(status) {
+    return `<span class="status-tag status-${html(status || "unknown")}">${html(outboundStatus(status))}</span>`;
+  }
+
+  async function shipOutbound(button, files, note = "") {
+    const selected = Array.from(files || []).filter(Boolean);
+    if (!selected.length) return toast("请先上传发货照片");
+    if (selected.length > 3) return toast("最多上传三张发货照片");
+    if (!confirm("确认发货这张出库单吗？仅会更新该单位的订单。")) return;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = "提交中";
+    try {
+      const form = new FormData();
+      selected.forEach((file) => form.append("photos", file));
+      form.append("note", note || "");
+      form.append("client_request_id", requestId("web-outbound-ship"));
+      const response = await fetch(`/api/v1/admin/outbounds/${button.dataset.shipOutbound}/ship`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) },
+        body: form,
+      });
+      if (response.status === 401) {
+        window.location.replace("/login?expired=1");
+        throw new Error("登录已过期，请重新登录");
+      }
+      if (!response.ok) {
+        let detail = "";
+        try { detail = (await response.json()).detail || ""; } catch (_) { detail = ""; }
+        throw new Error(detail || "发货失败，请刷新后重试");
+      }
+      toast("已确认发货");
+      await loadCurrent(true);
+    } catch (error) {
+      toast(error.message || "发货失败，请刷新后重试");
+      button.disabled = false;
+      button.textContent = label;
+    }
+  }
+
+  async function loadOutbounds() {
+    pageShell("出库单", "按单位核对配送需求、导出和确认发货");
+    const params = new URLSearchParams(window.location.search);
+    const query = new URLSearchParams();
+    ["date_from", "date_to", "status"].forEach((key) => { if (params.get(key)) query.set(key, params.get(key)); });
+    const data = await api(`/api/v1/admin/outbounds?${query.toString()}`);
+    const outbounds = data.items || [];
+    state.selectedOutboundIds = new Set(Array.from(state.selectedOutboundIds).filter((id) => outbounds.some((item) => item.id === id)));
+    content().innerHTML += `
+      <article class="panel table-panel">
+        <div class="panel-header"><div><h2>单位出库单</h2><p>每个单位独立一张出库单；发货仅影响该单位对应订单。</p></div></div>
+        <div class="page-toolbar">
+          <input id="outboundDateFrom" type="date" value="${html(params.get("date_from") || "")}" aria-label="开始日期" />
+          <input id="outboundDateTo" type="date" value="${html(params.get("date_to") || "")}" aria-label="结束日期" />
+          <select id="outboundStatus" aria-label="出库单状态"><option value="" ${!params.get("status") ? "selected" : ""}>全部有效单据</option><option value="pending" ${params.get("status") === "pending" ? "selected" : ""}>待发货</option><option value="shipped" ${params.get("status") === "shipped" ? "selected" : ""}>已发货</option><option value="archived" ${params.get("status") === "archived" ? "selected" : ""}>已归档</option></select>
+          <button id="outboundFilterButton" class="table-action primary" type="button">查询</button>
+          <button id="outboundClearFilterButton" class="table-action" type="button">清除筛选</button>
+          <button id="outboundBulkExport" class="table-action" type="button" disabled>批量导出</button>
+        </div>
+        <div id="outboundSelectionSummary" class="order-result-summary">已选择 0 张出库单</div>
+        ${table([`<input id="selectAllOutbounds" type="checkbox" aria-label="全选当前页出库单" />`, "出库单号", "单位", "来源备货单", "日期", "订单数量", "食材种类", "状态", "操作"], outbounds.map((item) => `
+          <tr><td><input type="checkbox" data-outbound-select="${item.id}" aria-label="选择出库单 ${html(item.outbound_no)}" /></td><td>${html(item.outbound_no)}</td><td>${html(item.unit_name_snapshot)}</td><td>${html(item.batch_no)}</td><td>${dateTime(item.created_at)}</td><td>${num(item.order_count)}</td><td>${num(item.product_count)}</td><td>${outboundStatusTag(item.status)}</td><td><a class="table-action" href="/admin/outbounds/${item.id}">查看</a> <a class="table-action" href="/api/v1/admin/outbounds/${item.id}/export.xlsx">导出</a> ${item.status === "pending" ? `<a class="table-action primary" href="/admin/outbounds/${item.id}">发货</a>` : ""}</td></tr>
+        `), "暂无出库单。请先在已完成备货单中生成出库单。")}
+      </article>`;
+    const renderSelection = () => {
+      const selected = Array.from(state.selectedOutboundIds);
+      $("outboundSelectionSummary").textContent = `已选择 ${selected.length} 张出库单`;
+      $("outboundBulkExport").disabled = selected.length === 0;
+      const all = $("selectAllOutbounds");
+      if (all) { all.checked = outbounds.length > 0 && selected.length === outbounds.length; all.indeterminate = selected.length > 0 && selected.length < outbounds.length; }
+    };
+    document.querySelectorAll("[data-outbound-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.selectedOutboundIds.add(checkbox.dataset.outboundSelect); else state.selectedOutboundIds.delete(checkbox.dataset.outboundSelect);
+      renderSelection();
+    }));
+    $("selectAllOutbounds")?.addEventListener("change", (event) => {
+      outbounds.forEach((item) => { if (event.target.checked) state.selectedOutboundIds.add(item.id); else state.selectedOutboundIds.delete(item.id); });
+      document.querySelectorAll("[data-outbound-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
+      renderSelection();
+    });
+    $("outboundBulkExport").addEventListener("click", () => {
+      const exportQuery = new URLSearchParams();
+      Array.from(state.selectedOutboundIds).forEach((id) => exportQuery.append("outbound_ids", id));
+      window.location.assign(`/api/v1/admin/outbounds/bulk.zip?${exportQuery.toString()}`);
+    });
+    $("outboundFilterButton").addEventListener("click", () => {
+      const next = new URLSearchParams();
+      if ($("outboundDateFrom").value) next.set("date_from", $("outboundDateFrom").value);
+      if ($("outboundDateTo").value) next.set("date_to", $("outboundDateTo").value);
+      if ($("outboundStatus").value) next.set("status", $("outboundStatus").value);
+      window.location.assign(`/admin/outbounds${next.toString() ? `?${next.toString()}` : ""}`);
+    });
+    $("outboundClearFilterButton").addEventListener("click", () => window.location.assign("/admin/outbounds"));
+    renderSelection();
+  }
+
+  async function loadOutboundDetail(outboundId) {
+    pageShell("出库单详情", "按单位核对本次配送食材并确认发货");
+    const outbound = await api(`/api/v1/admin/outbounds/${outboundId}`);
+    const status = outboundStatus(outbound.status);
+    content().innerHTML += `
+      <article class="panel section-panel">
+        <div class="panel-header"><div><h2>三公鲜配出库单</h2><p>${html(outbound.unit_name_snapshot)} · ${html(outbound.outbound_no)}</p></div>${outboundStatusTag(outbound.status)}</div>
+        <dl class="status-list detail-list"><dt>单位</dt><dd>${html(outbound.unit_name_snapshot)}</dd><dt>配送点</dt><dd>${html(outbound.delivery_point_snapshot || "未填写")}</dd><dt>来源备货单</dt><dd><a href="/admin/batches/${outbound.preparation_batch_id}">${html(outbound.batch_no)}</a></dd><dt>生成时间</dt><dd>${dateTime(outbound.created_at)}</dd></dl>
+        <div class="page-toolbar"><a class="primary-link secondary" href="/api/v1/admin/outbounds/${outbound.id}/export.xlsx">导出出库单</a>${outbound.status === "pending" ? `<button class="danger-button" id="archiveOutboundButton" type="button">归档出库单</button>` : ""}<a class="table-action" href="/admin/outbounds">返回出库单列表</a></div>
+      </article>
+      <article class="panel table-panel"><div class="panel-header"><div><h2>配送食材</h2><p>只包含该单位在来源备货单中的订单明细。</p></div></div>${table(["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"], (outbound.lines || []).map((item, index) => `<tr><td>${index + 1}</td><td>${html(item.category || "其他")}</td><td>${html(item.product_name)}</td><td>${html(item.spec || "--")}</td><td>${html(item.unit)}</td><td><strong>${qty(item.quantity)}</strong></td></tr>`), "暂无配送食材")}</article>
+      <article class="panel table-panel"><div class="panel-header"><div><h2>关联订单</h2><p>发货只会更新以下订单。</p></div></div>${table(["订单编号", "状态", "下单时间", "发货照片"], (outbound.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${num(order.shipping_photo_count)} 张</td></tr>`), "暂无订单")}</article>
+      ${outbound.status === "pending" ? `<article class="panel section-panel"><div class="panel-header"><div><h2>确认发货</h2><p>上传 1 到 3 张发货照片后，才会将本单位订单更新为已发货。</p></div></div><div class="form-grid compact"><label class="form-field"><span>发货照片</span><input id="outboundShippingPhotos" type="file" accept="image/*" capture="environment" multiple /></label><label class="form-field"><span>发货备注</span><input id="outboundShippingNote" type="text" placeholder="可填写数量核对、配送说明" /></label></div><div class="page-toolbar"><button id="shipOutboundButton" class="primary-link" data-ship-outbound="${outbound.id}" type="button">上传照片并确认发货</button></div></article>` : ""}`;
+    $("archiveOutboundButton")?.addEventListener("click", async () => {
+      if (!confirm("确认归档这张待发货出库单吗？订单、备货单和历史记录不会删除。")) return;
+      try { await api(`/api/v1/admin/outbounds/${outbound.id}`, { method: "DELETE" }); toast("出库单已归档"); window.location.assign("/admin/outbounds"); }
+      catch (error) { toast(error.message || "归档失败，请刷新后重试"); }
+    });
+    $("shipOutboundButton")?.addEventListener("click", (event) => shipOutbound(event.currentTarget, $("outboundShippingPhotos").files, $("outboundShippingNote").value || ""));
   }
 
   async function loadPreparationSummary() {
@@ -1849,6 +1995,8 @@
       else if (route.startsWith("/admin/orders/")) await loadOrderDetail(route.split("/").pop());
       else if (route === "/admin/batches") await loadBatches();
       else if (route.startsWith("/admin/batches/")) await loadBatchDetail(route.split("/").pop());
+      else if (route === "/admin/outbounds") await loadOutbounds();
+      else if (route.startsWith("/admin/outbounds/")) await loadOutboundDetail(route.split("/").pop());
       else if (route === "/admin/products" || route.startsWith("/admin/products/")) await loadProducts();
       else if (route === "/admin/price-imports") await loadPriceImports();
       else if (route.endsWith("/mapping") && route.startsWith("/admin/price-imports/")) await loadPriceImportMapping(route.split("/")[3]);

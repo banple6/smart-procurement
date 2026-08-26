@@ -1234,6 +1234,44 @@ def apply_accept_immediately_preparing_migration(conn: sqlite3.Connection):
     )
 
 
+def apply_outbound_orders_migration(conn: sqlite3.Connection):
+    """Persist the unit-level delivery document for a completed preparation batch."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS outbound_orders (
+          id TEXT PRIMARY KEY,
+          outbound_no TEXT NOT NULL UNIQUE,
+          preparation_batch_id TEXT NOT NULL REFERENCES delivery_batches(id),
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          unit_name_snapshot TEXT NOT NULL,
+          delivery_point_snapshot TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'shipped', 'archived')),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          shipped_at TEXT,
+          shipped_by TEXT REFERENCES users(id),
+          ship_request_id TEXT,
+          archived_at TEXT,
+          archived_by TEXT REFERENCES users(id),
+          version INTEGER NOT NULL DEFAULT 1,
+          UNIQUE(preparation_batch_id, unit_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS outbound_order_orders (
+          outbound_order_id TEXT NOT NULL REFERENCES outbound_orders(id) ON DELETE CASCADE,
+          order_id TEXT NOT NULL REFERENCES orders(id),
+          PRIMARY KEY(outbound_order_id, order_id),
+          UNIQUE(order_id)
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_outbound_orders_status_created ON outbound_orders(status, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_outbound_orders_batch ON outbound_orders(preparation_batch_id, unit_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_outbound_order_orders_order ON outbound_order_orders(order_id)")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_orders_ship_request_id ON outbound_orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1266,6 +1304,7 @@ def migrate() -> list[str]:
             ("0020_delivery_batches", apply_delivery_batches_migration),
             ("0021_order_soft_delete", apply_order_soft_delete_migration),
             ("0022_accept_immediately_preparing", apply_accept_immediately_preparing_migration),
+            ("0023_outbound_orders", apply_outbound_orders_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1304,6 +1343,7 @@ def migration_status() -> dict:
         "0020_delivery_batches",
         "0021_order_soft_delete",
         "0022_accept_immediately_preparing",
+        "0023_outbound_orders",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

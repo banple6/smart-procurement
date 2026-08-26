@@ -220,6 +220,43 @@ def batch_outbound_workbook(aggregation: dict) -> bytes:
     return stream.getvalue()
 
 
+def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
+    """Create one printable outbound document for one receiving unit."""
+    wb = Workbook()
+    wb.properties.title = f"三公鲜配出库单 {outbound['outbound_no']}"
+    ws = wb.active
+    ws.title = "出库单"
+    headers = ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
+    _setup_sheet(ws, "三公鲜配出库单", headers, [8, 16, 24, 20, 14, 16])
+    ws.cell(2, 1, f"单位：{outbound['unit_name_snapshot']}")
+    ws.cell(2, 3, f"出库单号：{outbound['outbound_no']}")
+    ws.cell(2, 5, f"日期：{outbound.get('created_at') or ''}")
+    ws.cell(2, 6, f"来源备货单：{outbound['batch_no']}")
+    for index, line in enumerate(lines, start=1):
+        ws.append([
+            index,
+            _report_category(line.get("category") or ""),
+            line["product_name"],
+            line.get("spec") or "",
+            line["unit"],
+            line["quantity"],
+        ])
+    end_row = 3 + len(lines)
+    if lines:
+        _style_data_rows(ws, 4, end_row, len(headers))
+        for cell in ws["F"][3:end_row]:
+            cell.number_format = "0.###"
+    signature_row = end_row + 2
+    ws.cell(signature_row, 1, "出库人：________________")
+    ws.cell(signature_row, 3, "配送人：________________")
+    ws.cell(signature_row, 5, "收货人：________________")
+    ws.cell(signature_row + 1, 1, "日期：________________")
+    ws.row_dimensions[signature_row].height = 28
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
 def batch_summary_workbook(aggregation: dict) -> bytes:
     wb = Workbook()
     wb.properties.title = f"三公鲜配批次汇总 {aggregation['batch']['batch_no']}"
