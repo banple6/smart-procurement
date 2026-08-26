@@ -94,6 +94,17 @@ def create_unit_order(client, admin_headers, product_id, suffix, quantity):
     return order.json()
 
 
+def advance_order_to_preparing(client, admin_headers, order):
+    response = client.patch(
+        f"/api/v1/admin/orders/{order['id']}/status",
+        headers=admin_headers,
+        json={"status": "accepted"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "preparing"
+    return response.json()
+
+
 def test_0020_and_0021_migrations_create_explicit_batch_and_soft_delete_columns(tmp_path):
     make_client(tmp_path)
     from app.database import connect, migration_status
@@ -218,6 +229,8 @@ def test_delivery_batch_membership_and_summary_use_one_explicit_scope(tmp_path):
     product = create_product(client, admin_headers)
     first = create_unit_order(client, admin_headers, product["id"], "01", "100")
     second = create_unit_order(client, admin_headers, product["id"], "02", "200")
+    advance_order_to_preparing(client, admin_headers, first)
+    advance_order_to_preparing(client, admin_headers, second)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=admin_headers,
@@ -239,18 +252,6 @@ def test_delivery_batch_membership_and_summary_use_one_explicit_scope(tmp_path):
     assert payload["by_product"][0]["total_quantity"] == "300"
     assert [item["quantity"] for item in payload["by_product"][0]["unit_breakdown"]] == ["100", "200"]
 
-    picking_before_accept = client.get(
-        f"/api/v1/admin/batches/{batch.json()['id']}/picking-list.xlsx",
-        headers=admin_headers,
-    )
-    assert picking_before_accept.status_code == 409
-    for order in (first, second):
-        accepted = client.patch(
-            f"/api/v1/admin/orders/{order['id']}/status",
-            headers=admin_headers,
-            json={"status": "accepted"},
-        )
-        assert accepted.status_code == 200, accepted.text
     picking = client.get(f"/api/v1/admin/batches/{batch.json()['id']}/picking-list.xlsx", headers=admin_headers)
     assert picking.status_code == 200, picking.text
     workbook = load_workbook(BytesIO(picking.content), data_only=True)
@@ -282,6 +283,8 @@ def test_delivery_batch_aggregates_sixteen_units_without_n_plus_one_semantics(tm
         create_unit_order(client, headers, product["id"], f"{index:02d}", str(index))
         for index in range(1, 17)
     ]
+    for order in orders:
+        advance_order_to_preparing(client, headers, order)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=headers,
@@ -303,6 +306,7 @@ def test_batch_summary_keeps_incompatible_units_separate(tmp_path):
     headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, headers, unit="斤")
     first = create_unit_order(client, headers, product["id"], "UNITA", "10")
+    advance_order_to_preparing(client, headers, first)
     current = client.get(f"/api/v1/products/{product['id']}", headers=headers).json()
     changed = client.put(
         f"/api/v1/admin/products/{product['id']}",
@@ -311,6 +315,7 @@ def test_batch_summary_keeps_incompatible_units_separate(tmp_path):
     )
     assert changed.status_code == 200, changed.text
     second = create_unit_order(client, headers, product["id"], "UNITB", "5")
+    advance_order_to_preparing(client, headers, second)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=headers,
@@ -365,12 +370,20 @@ def test_pending_order_delete_archives_releases_inventory_and_preserves_history(
     admin_headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, admin_headers)
     order = create_unit_order(client, admin_headers, product["id"], "04", "7")
+    advance_order_to_preparing(client, admin_headers, order)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=admin_headers,
         json={"name": "待删除订单批次", "order_ids": [order["id"]]},
     )
     assert batch.status_code == 200, batch.text
+
+    voided = client.post(
+        f"/api/v1/admin/orders/{order['id']}/void",
+        headers=admin_headers,
+        json={"reason": "测试作废后归档"},
+    )
+    assert voided.status_code == 200, voided.text
 
     deleted = client.request(
         "DELETE",
@@ -413,7 +426,7 @@ def test_pending_order_delete_archives_releases_inventory_and_preserves_history(
             "SELECT COUNT(*) AS c FROM order_logs WHERE order_id = ? AND action = 'soft_delete'",
             (order["id"],),
         ).fetchone()["c"]
-        assert stored["status"] == "cancelled"
+        assert stored["status"] == "voided"
         assert stored["is_deleted"] == 0
         assert stored["archived_at"]
         batch_link = conn.execute(
@@ -572,6 +585,7 @@ def test_outbound_workbook_uses_order_snapshot_after_current_price_changes(tmp_p
     headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, headers, price_cents=200)
     order = create_unit_order(client, headers, product["id"], "OUT", "3")
+    advance_order_to_preparing(client, headers, order)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=headers,
@@ -613,6 +627,7 @@ def test_isolated_database_integrity_after_new_business_operations(tmp_path):
     headers = login(client, "root_admin", "StrongPassword123")
     product = create_product(client, headers)
     order = create_unit_order(client, headers, product["id"], "CHK", "4")
+    advance_order_to_preparing(client, headers, order)
     batch = client.post(
         "/api/v1/admin/batches",
         headers=headers,

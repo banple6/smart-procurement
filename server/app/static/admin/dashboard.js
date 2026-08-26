@@ -23,7 +23,7 @@
 
   const nav = [
     ["", [["工作台", "/admin/dashboard", "▦"]]],
-    ["采购管理", [["订单管理", "/admin/orders", "□"], ["配送批次", "/admin/batches", "▤"]]],
+    ["采购管理", [["订单管理", "/admin/orders", "□"], ["备货单", "/admin/batches", "▤"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
     ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
@@ -31,7 +31,7 @@
   ];
 
   const quickActions = [
-    ["配送批次", "/admin/batches", "按明确批次汇总、备货和出库"],
+    ["备货单", "/admin/batches", "选择订单并汇总今日备货需求"],
     ["待接单订单", "/admin/orders?status=pending", "处理新提交采购单"],
     ["食材价格维护", "/admin/products?mode=price", "快速改价和库存"],
     ["Excel 智能导入", "/admin/price-imports", "批量建立食材并同步供应商报价"],
@@ -52,6 +52,7 @@
     productSelectionMode: false,
     selectedProductIds: new Set(),
     selectedOrderIds: new Set(),
+    selectedBatchIds: new Set(),
     orderItems: [],
     orderBulkBusy: false,
     productFormDefaults: {
@@ -759,14 +760,18 @@
     const allDeletable = window.AdminOrderSelectionPolicy.canBulkDelete(selected);
     const acceptButton = $("bulkAcceptOrders");
     const deleteButton = $("bulkDeleteOrders");
+    const batchButton = $("bulkCreateBatchOrders");
     acceptButton.disabled = state.orderBulkBusy || !allPending;
     deleteButton.disabled = state.orderBulkBusy || !allDeletable;
+    const canCreateBatch = selected.length > 0 && selected.every((order) => ["accepted", "preparing"].includes(order.status));
+    if (batchButton) batchButton.disabled = state.orderBulkBusy || !canCreateBatch;
     if (state.orderBulkBusy) {
       acceptButton.textContent = "处理中…";
       deleteButton.textContent = "处理中…";
     } else {
       acceptButton.textContent = "批量接单";
       deleteButton.textContent = "批量删除";
+      if (batchButton) batchButton.textContent = "生成备货单";
     }
     document.querySelectorAll("[data-order-select], [data-order][data-status], [data-lifecycle], [data-delete-order], [data-ship]").forEach((control) => {
       control.disabled = state.orderBulkBusy;
@@ -774,7 +779,9 @@
     const clearButton = $("clearOrderSelection");
     if (clearButton) clearButton.disabled = state.orderBulkBusy;
     const note = $("orderSelectionNote");
-    note.textContent = selected.length && !allDeletable
+    note.textContent = selected.length && canCreateBatch
+      ? "所选订单均可生成备货单。"
+      : selected.length && !allDeletable
       ? "所选订单中包含履约中的订单，不可批量删除。请取消选择后重试。"
       : selected.length && !allPending
         ? "所选订单状态不一致，请仅选择待接单订单。"
@@ -814,6 +821,24 @@
     state.selectedOrderIds.clear();
     toast(failures.length ? `成功接单 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已成功接单 ${successCount} 笔订单`);
     await loadCurrent(true);
+  }
+
+  async function bulkCreatePreparationOrder() {
+    const selected = selectedOrders();
+    if (!selected.length || !selected.every((order) => ["accepted", "preparing"].includes(order.status))) {
+      toast("所选订单中包含不能生成备货单的订单，请仅选择已接单且未进入备货流程的订单");
+      return;
+    }
+    if (!window.confirm(`确认用所选 ${selected.length} 笔订单生成备货单吗？`)) return;
+    state.orderBulkBusy = true;
+    renderOrderSelection();
+    try {
+      const params = new URLSearchParams();
+      selected.forEach((order) => params.append("preselect", order.id));
+      window.location.assign(`/admin/batches?${params.toString()}`);
+    } finally {
+      state.orderBulkBusy = false;
+    }
   }
 
   async function bulkDeleteOrders() {
@@ -901,7 +926,7 @@
     content().innerHTML += items.length ? `
       <div id="orderBatchToolbar" class="order-bulk-toolbar" hidden>
         <div><strong id="orderSelectionCount">已选择 0 个订单</strong><span id="orderSelectionNote">当前仅支持操作本页已选择的订单。</span></div>
-        <div class="page-toolbar"><button id="bulkAcceptOrders" class="table-action primary" type="button">批量接单</button><button id="bulkDeleteOrders" class="table-action danger" type="button">批量删除</button><button id="clearOrderSelection" class="table-action" type="button">取消选择</button></div>
+        <div class="page-toolbar"><button id="bulkAcceptOrders" class="table-action primary" type="button">批量接单</button><button id="bulkCreateBatchOrders" class="table-action primary" type="button">生成备货单</button><button id="bulkDeleteOrders" class="table-action danger" type="button">批量删除</button><button id="clearOrderSelection" class="table-action" type="button">取消选择</button></div>
       </div>
       <div class="order-result-summary">共 ${num(data.total || items.length)} 笔，本页显示 ${num(items.length)} 笔</div>
       <div class="order-month-list">
@@ -924,6 +949,7 @@
     }));
     $("clearOrderSelection")?.addEventListener("click", clearOrderSelection);
     $("bulkAcceptOrders")?.addEventListener("click", bulkAcceptOrders);
+    $("bulkCreateBatchOrders")?.addEventListener("click", bulkCreatePreparationOrder);
     $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
     renderOrderSelection();
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
@@ -1480,45 +1506,87 @@
   }
 
   function deliveryBatchStatus(status) {
-    return ({ open: "进行中", closed: "已完成", cancelled: "已取消" })[status] || "未知状态";
+    return ({ open: "备货中", closed: "已完成", cancelled: "已归档" })[status] || "未知状态";
   }
 
   async function loadBatches() {
-    pageShell("配送批次", "按明确批次组织备货、单位配送和出库单");
+    pageShell("备货单", "把多笔订单汇总成一张备货清单");
+    const params = new URLSearchParams(window.location.search);
+    const dateFrom = params.get("date_from") || "";
+    const dateTo = params.get("date_to") || "";
+    const query = new URLSearchParams();
+    if (dateFrom) query.set("date_from", dateFrom);
+    if (dateTo) query.set("date_to", dateTo);
     const [batchData, eligibleData] = await Promise.all([
-      api("/api/v1/admin/batches"),
+      api(`/api/v1/admin/batches?${query.toString()}`),
       api("/api/v1/admin/batches/eligible-orders"),
     ]);
     const batches = batchData.items || [];
     const eligible = eligibleData.items || [];
+    const preselectIds = params.getAll("preselect");
+    const eligibleIds = new Set(eligible.map((order) => order.id));
+    const missingPreselect = preselectIds.filter((id) => !eligibleIds.has(id));
+    state.selectedBatchIds = new Set(Array.from(state.selectedBatchIds).filter((id) => batches.some((batch) => batch.id === id)));
     content().innerHTML += `
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>新建配送批次</h2><p>只列出已接单并进入备货、且尚未加入其他批次的订单。</p></div></div>
+        <div class="panel-header"><div><h2>生成备货单</h2><p>只列出已接单且尚未进入有效备货单的订单。</p></div></div>
         <form id="batchCreateForm">
           <div class="form-grid compact">
-            <label class="form-field"><span>批次名称</span><input name="name" type="text" required placeholder="例如：上午第一批" /></label>
+            <label class="form-field"><span>备货单名称</span><input name="name" type="text" required placeholder="例如：上午第一批" /></label>
             <label class="form-field"><span>备注</span><input name="note" type="text" placeholder="选填" /></label>
           </div>
           ${table(["选择", "订单编号", "单位", "配送点", "状态", "下单时间", "金额"], eligible.map((order) => `
             <tr><td><input type="checkbox" name="orderId" value="${order.id}" aria-label="选择订单${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot)}</td><td>${html(order.delivery_point_snapshot || "--")}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>
-          `), "当前没有可加入批次的备货订单")}
-          <div class="page-toolbar"><button class="primary-link" type="submit" ${eligible.length ? "" : "disabled"}>创建配送批次</button></div>
+          `), "当前没有可生成备货单的订单")}
+          <div class="page-toolbar"><button class="primary-link" type="submit" ${eligible.length ? "" : "disabled"}>生成备货单</button></div>
         </form>
       </article>
       <article class="panel table-panel">
-        <div class="panel-header"><div><h2>配送批次记录</h2><p>批次范围固定，不使用“今天”代替批次。</p></div></div>
-        ${table(["批次编号", "名称", "订单", "单位", "状态", "创建时间", "操作"], batches.map((batch) => `
-          <tr><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名批次")}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td>${dateTime(batch.created_at)}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看汇总</a></td></tr>
-        `), "暂无配送批次")}
+        <div class="panel-header"><div><h2>备货单记录</h2><p>按日期查看、导出或完成备货；已完成备货单不会生成出库单。</p></div></div>
+        <div class="page-toolbar"><input id="batchDateFrom" type="date" value="${html(dateFrom)}" aria-label="开始日期" /><input id="batchDateTo" type="date" value="${html(dateTo)}" aria-label="结束日期" /><button id="batchFilterButton" class="table-action primary" type="button">查询</button><button id="batchClearFilterButton" class="table-action" type="button">清除筛选</button><button id="batchBulkExport" class="table-action" type="button" disabled>批量导出</button></div>
+        <div id="batchSelectionSummary" class="order-result-summary">已选择 0 张备货单</div>
+        ${table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "名称", "创建时间", "订单", "单位", "食材", "状态", "操作"], batches.map((batch) => `
+          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名备货单")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
+        `), "暂无备货单")}
       </article>`;
-    const preselect = new URLSearchParams(window.location.search).get("preselect");
-    if (preselect) {
-      document.querySelectorAll('input[name="orderId"]').forEach((checkbox) => {
-        if (checkbox.value === preselect) checkbox.checked = true;
-      });
+    if (preselectIds.length) {
+      document.querySelectorAll('input[name="orderId"]').forEach((checkbox) => { checkbox.checked = preselectIds.includes(checkbox.value); });
       const nameInput = document.querySelector('#batchCreateForm input[name="name"]');
       if (nameInput && !nameInput.value) nameInput.value = new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + " 备货";
     }
+    if (missingPreselect.length) toast("部分订单已不能加入备货单，请刷新后检查订单状态。");
+    const renderBatchSelection = () => {
+      const selected = Array.from(state.selectedBatchIds);
+      $("batchSelectionSummary").textContent = `已选择 ${selected.length} 张备货单`;
+      $("batchBulkExport").disabled = selected.length === 0;
+      const selectAll = $("selectAllBatches");
+      if (selectAll) {
+        selectAll.checked = batches.length > 0 && selected.length === batches.length;
+        selectAll.indeterminate = selected.length > 0 && selected.length < batches.length;
+      }
+    };
+    document.querySelectorAll("[data-batch-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.selectedBatchIds.add(checkbox.dataset.batchSelect); else state.selectedBatchIds.delete(checkbox.dataset.batchSelect);
+      renderBatchSelection();
+    }));
+    $("selectAllBatches")?.addEventListener("change", (event) => {
+      batches.forEach((batch) => { if (event.target.checked) state.selectedBatchIds.add(batch.id); else state.selectedBatchIds.delete(batch.id); });
+      document.querySelectorAll("[data-batch-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
+      renderBatchSelection();
+    });
+    $("batchBulkExport")?.addEventListener("click", () => {
+      const query = new URLSearchParams();
+      Array.from(state.selectedBatchIds).forEach((id) => query.append("batch_ids", id));
+      window.location.assign(`/api/v1/admin/batches/bulk.xlsx?${query.toString()}`);
+    });
+    $("batchFilterButton")?.addEventListener("click", () => {
+      const next = new URLSearchParams();
+      if ($("batchDateFrom").value) next.set("date_from", $("batchDateFrom").value);
+      if ($("batchDateTo").value) next.set("date_to", $("batchDateTo").value);
+      window.location.assign(`/admin/batches${next.toString() ? `?${next.toString()}` : ""}`);
+    });
+    $("batchClearFilterButton")?.addEventListener("click", () => { window.location.assign("/admin/batches"); });
+    renderBatchSelection();
     $("batchCreateForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -1536,11 +1604,29 @@
         });
         window.location.assign(`/admin/batches/${batch.id}`);
       } catch (error) {
-        toast(error.message || "创建批次失败");
+        toast(error.message || "生成备货单失败");
         button.disabled = false;
-        button.textContent = "创建配送批次";
+        button.textContent = "生成备货单";
       }
     });
+    document.querySelectorAll("[data-batch-complete]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认完成备货吗？完成后不会自动发货，也不会生成出库单。")) return;
+      button.disabled = true;
+      try {
+        await api(`/api/v1/admin/batches/${button.dataset.batchComplete}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
+        toast("备货已完成");
+        await loadBatches();
+      } catch (error) { toast(error.message || "完成备货失败"); button.disabled = false; }
+    }));
+    document.querySelectorAll("[data-batch-archive]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认归档这张备货单吗？订单和历史记录不会删除，订单可重新组织备货。")) return;
+      button.disabled = true;
+      try {
+        await api(`/api/v1/admin/batches/${button.dataset.batchArchive}`, { method: "DELETE" });
+        toast("备货单已归档");
+        await loadBatches();
+      } catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
+    }));
   }
 
   function batchUnitTable(summary) {
@@ -1558,41 +1644,45 @@
   }
 
   async function loadBatchDetail(batchId, selectedTab = "product") {
-    pageShell("配送批次详情", "同一批次统一汇总、备货和出库");
+    pageShell("备货单详情", "按食材汇总总需求，并按单位核对明细");
     const [batch, summary] = await Promise.all([
       api(`/api/v1/admin/batches/${batchId}`),
       api(`/api/v1/admin/batches/${batchId}/summary`),
     ]);
     const canPick = (batch.orders || []).some((order) => ["accepted", "preparing"].includes(order.status));
-    const canOutbound = (batch.orders || []).some((order) => ["shipped", "completed"].includes(order.status));
     const downloadOrDisabled = (enabled, href, label, reason) => enabled
       ? `<a class="primary-link secondary" href="${href}">${label}</a>`
       : `<span class="secondary-button disabled" title="${html(reason)}">${label}</span>`;
     content().innerHTML += `
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>${html(batch.batch_no)} · ${html(batch.name || "未命名批次")}</h2><p>${num(summary.order_count)} 笔订单 · ${num(summary.unit_count)} 个单位 · ${num(summary.product_count)} 类食材</p></div><span class="status-tag">${html(deliveryBatchStatus(batch.status))}</span></div>
-        <dl class="status-list detail-list"><dt>批次备注</dt><dd>${html(batch.note || "无")}</dd><dt>创建时间</dt><dd>${dateTime(batch.created_at)}</dd><dt>批次金额</dt><dd>${money(summary.total_cents)}</dd></dl>
+        <div class="panel-header"><div><h2>${html(batch.batch_no)} · ${html(batch.name || "未命名备货单")}</h2><p>${num(summary.order_count)} 笔订单 · ${num(summary.unit_count)} 个单位 · ${num(summary.product_count)} 类食材</p></div><span class="status-tag">${html(deliveryBatchStatus(batch.status))}</span></div>
+        <dl class="status-list detail-list"><dt>备货单备注</dt><dd>${html(batch.note || "无")}</dd><dt>创建时间</dt><dd>${dateTime(batch.created_at)}</dd></dl>
         <div class="page-toolbar">
-          <a class="primary-link secondary" href="/api/v1/admin/batches/${batch.id}/summary.xlsx">导出汇总表</a>
-          ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该批次暂无备货中的订单")}
-          ${downloadOrDisabled(canOutbound, `/api/v1/admin/batches/${batch.id}/outbound.xlsx`, "导出出库单", "该批次暂无已发货订单")}
-          ${batch.status === "open" ? `<button class="secondary-button" data-batch-close="${batch.id}" data-version="${batch.version}">完成批次</button>` : ""}
-          <a class="table-action" href="/admin/batches">返回批次列表</a>
+          ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该备货单暂无有效备货需求")}
+          ${batch.status === "open" ? `<button class="secondary-button" data-batch-complete-detail="${batch.id}" data-version="${batch.version}">完成备货</button><button class="danger-button" data-batch-archive-detail="${batch.id}">归档备货单</button>` : ""}
+          <a class="table-action" href="/admin/batches">返回备货单列表</a>
         </div>
       </article>
       <article class="panel table-panel">
         <div class="page-toolbar"><button class="table-action ${selectedTab === "unit" ? "primary" : ""}" data-batch-tab="unit">按单位</button><button class="table-action ${selectedTab === "product" ? "primary" : ""}" data-batch-tab="product">按食材</button></div>
         <div id="batchSummaryBody">${selectedTab === "unit" ? batchUnitTable(summary) : batchProductTable(summary)}</div>
       </article>
-      <article class="panel table-panel"><div class="panel-header"><div><h2>批次订单</h2><p>软删除订单不会进入正常批次汇总和单据。</p></div></div>${table(["订单编号", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
+      <article class="panel table-panel"><div class="panel-header"><div><h2>备货单订单</h2><p>软删除订单不会进入正常备货汇总和单据。</p></div></div>${table(["订单编号", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
     document.querySelectorAll("[data-batch-tab]").forEach((button) => button.addEventListener("click", () => loadBatchDetail(batchId, button.dataset.batchTab)));
-    document.querySelectorAll("[data-batch-close]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认结束这个配送批次吗？结束后不能再添加或移除订单。")) return;
+    document.querySelectorAll("[data-batch-complete-detail]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认完成备货吗？完成后不会自动发货，也不会生成出库单。")) return;
       button.disabled = true;
       try {
         await api(`/api/v1/admin/batches/${batchId}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
+        toast("备货已完成");
         await loadBatchDetail(batchId, selectedTab);
-      } catch (error) { toast(error.message || "完成批次失败"); button.disabled = false; }
+      } catch (error) { toast(error.message || "完成备货失败"); button.disabled = false; }
+    }));
+    document.querySelectorAll("[data-batch-archive-detail]").forEach((button) => button.addEventListener("click", async () => {
+      if (!confirm("确认归档这张备货单吗？订单和历史记录不会删除。")) return;
+      button.disabled = true;
+      try { await api(`/api/v1/admin/batches/${batchId}`, { method: "DELETE" }); toast("备货单已归档"); window.location.assign("/admin/batches"); }
+      catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
     }));
   }
 

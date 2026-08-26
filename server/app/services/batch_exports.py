@@ -144,6 +144,22 @@ def batch_picking_workbook(aggregation: dict) -> bytes:
     return stream.getvalue()
 
 
+def batch_picking_workbook_multi(aggregations: list[dict]) -> bytes:
+    """Export selected preparation orders into one workbook for easy saving."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    for aggregation in aggregations:
+        batch_no = aggregation["batch"]["batch_no"]
+        total = wb.create_sheet(_safe_sheet_title(f"总计-{batch_no}"))
+        _picking_sheet(total, f"三公鲜配备货单（{batch_no}）", aggregation["document_lines"])
+        for category, category_lines in _report_category_lines(aggregation["document_lines"]).items():
+            ws = wb.create_sheet(_safe_sheet_title(f"{batch_no}-{category}"))
+            _picking_sheet(ws, f"{category}备货单（{batch_no}）", category_lines)
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
+
+
 def _outbound_sheet(ws, title: str, lines: list[dict], include_category: bool):
     headers = (["序号", "商品分类"] if include_category else ["序号"]) + ["商品名称", "计量单位", "需求数量", "单价（元）", "小计（元）"]
     widths = ([10, 16] if include_category else [10]) + [24, 14, 16, 16, 18]
