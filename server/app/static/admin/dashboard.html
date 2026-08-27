@@ -9,18 +9,25 @@
     <link rel="stylesheet" href="/admin-assets/analytics.css?v=1.0.1" />
   </head>
   <body class="admin-page">
-    <aside class="sidebar" aria-label="后台导航">
+    <aside id="adminSidebar" class="sidebar" aria-label="后台导航">
       <div class="brand">
         <img class="brand-icon emblem-badge" src="/admin-assets/police-badge.svg" alt="警徽" />
-        <div>
+        <div class="brand-copy">
           <strong>三公鲜配</strong>
           <span>单位食材申领与配送协同平台</span>
         </div>
       </div>
+      <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="折叠侧边栏" aria-expanded="true" title="折叠侧边栏">
+        <span id="sidebarToggleGlyph" aria-hidden="true">‹</span>
+      </button>
       <nav id="navMenu" class="nav-menu"></nav>
     </aside>
+    <button id="mobileNavBackdrop" class="mobile-nav-backdrop" type="button" aria-label="关闭导航"></button>
     <div class="app-frame">
       <header class="topbar">
+        <button id="mobileNavToggle" class="mobile-nav-toggle" type="button" aria-label="打开导航" aria-expanded="false" title="打开导航">
+          <span aria-hidden="true">☰</span>
+        </button>
         <div>
           <h1 id="pageTitle">工作台</h1>
           <p id="businessDate">--</p>

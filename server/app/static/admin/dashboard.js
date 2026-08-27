@@ -20,14 +20,35 @@
   const productUnits = ["公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包"];
   const productStorageMethods = ["常温", "冷藏", "冷冻", "阴凉干燥"];
   const productSupplyStatuses = [["normal", "正常供应"], ["tight", "库存紧张"], ["paused", "暂停供应"]];
+  const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";
+
+  const navIconPaths = {
+    dashboard: '<rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect>',
+    orders: '<rect x="5" y="4" width="14" height="17" rx="2"></rect><path d="M9 4V2.5M15 4V2.5M8.5 10h7M8.5 14h7M8.5 18h4"></path>',
+    batches: '<path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z"></path><path d="M4 8.5V16l8 4.5 8-4.5V8.5M12 13v7.5"></path>',
+    outbound: '<path d="M3 6h11v10H3zM14 9h3l3 3v4h-6z"></path><circle cx="7" cy="18" r="1.7"></circle><circle cx="17" cy="18" r="1.7"></circle>',
+    products: '<path d="M4 10h16l-1.5 10h-13z"></path><path d="M8 10c0-3 1.5-5 4-5s4 2 4 5M9 15h6"></path>',
+    spreadsheet: '<path d="M5 3h10l4 4v14H5z"></path><path d="M15 3v5h4M8 12h8M8 16h8M11 10v8M15 10v8"></path>',
+    inventory: '<path d="M3 10 12 4l9 6v10H3z"></path><path d="M7 20v-6h10v6M7 10h10"></path>',
+    units: '<path d="M4 21V5h10v16M14 10h6v11M7 8h2M7 12h2M7 16h2M16.5 13h1"></path>',
+    accounts: '<circle cx="9" cy="8" r="3"></circle><path d="M3.5 20c.6-4 2.4-6 5.5-6s4.9 2 5.5 6M16 6.5a2.5 2.5 0 0 1 0 5M17.5 14c2 .7 3 2.6 3 5"></path>',
+    analytics: '<path d="M4 20V4M4 20h17"></path><path d="m7 15 4-4 3 2 5-6"></path><circle cx="7" cy="15" r="1"></circle><circle cx="11" cy="11" r="1"></circle><circle cx="14" cy="13" r="1"></circle><circle cx="19" cy="7" r="1"></circle>',
+    ledger: '<path d="M5 3h12a2 2 0 0 1 2 2v16H7a2 2 0 0 1-2-2z"></path><path d="M5 5h12M8 10h7M8 14h7M8 18h5"></path>',
+    download: '<path d="M12 3v12M8 11l4 4 4-4M4 20h16"></path>',
+    help: '<circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.7 2.7 0 1 1 4.2 2.2c-1.1.8-1.7 1.3-1.7 2.8M12 17.5h.01"></path>',
+    sessions: '<rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 21h8M12 18v3M8 9h.01M12 9h5"></path>',
+    system: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.3 2.3-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-3.2v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L6 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H4.6v-3.2h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L6 7.8 8.3 5.5l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h3.2v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.3 2.3-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2V14h-.2a1.7 1.7 0 0 0-1.6 1Z"></path>',
+    status: '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l2.5 2.5"></path>',
+    logout: '<path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9"></path>',
+  };
 
   const nav = [
-    ["", [["工作台", "/admin/dashboard", "▦"]]],
-    ["采购管理", [["订单管理", "/admin/orders", "□"], ["备货单", "/admin/batches", "▤"], ["出库单", "/admin/outbounds", "⇩"]]],
-    ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
-    ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
-    ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"]]],
-    ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统日志", "/admin/system-logs", "▤"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
+    ["", [["工作台", "/admin/dashboard", "dashboard"]]],
+    ["采购管理", [["订单管理", "/admin/orders", "orders"], ["备货单", "/admin/batches", "batches"], ["出库单", "/admin/outbounds", "outbound"]]],
+    ["食材管理", [["食材列表", "/admin/products", "products"], ["Excel 智能导入", "/admin/price-imports", "spreadsheet"], ["库存记录", "/admin/inventory", "inventory"]]],
+    ["组织管理", [["子单位管理", "/admin/units", "units"], ["账号管理", "/admin/accounts", "accounts"]]],
+    ["统计报表", [["数据分析", "/admin/analytics", "analytics"], ["采购台账", "/admin/ledger", "ledger"]]],
+    ["系统", [["下载 App", "/download", "download"], ["帮助中心", "/help/admin", "help"], ["网页登录记录", "/admin/web-sessions", "sessions"], ["系统日志", "/admin/system-logs", "system"], ["系统状态", "/admin/system", "status"], ["退出登录", "#logout", "logout"]]],
   ];
 
   const quickActions = [
@@ -72,6 +93,61 @@
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function navIcon(name) {
+    const path = navIconPaths[name] || navIconPaths.dashboard;
+    return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">${path}</svg>`;
+  }
+
+  function sidebarCollapsed() {
+    try {
+      return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function updateSidebar(collapsed, persist = true) {
+    document.body.classList.toggle("sidebar-collapsed", collapsed);
+    const toggle = $("sidebarToggle");
+    const glyph = $("sidebarToggleGlyph");
+    const label = collapsed ? "展开侧边栏" : "折叠侧边栏";
+    if (toggle) {
+      toggle.setAttribute("aria-label", label);
+      toggle.setAttribute("title", label);
+      toggle.setAttribute("aria-expanded", String(!collapsed));
+    }
+    if (glyph) glyph.textContent = collapsed ? "›" : "‹";
+    if (!persist) return;
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+    } catch (_) {
+      // Navigation remains usable when storage is unavailable.
+    }
+  }
+
+  function closeMobileSidebar() {
+    document.body.classList.remove("sidebar-mobile-open");
+    const toggle = $("mobileNavToggle");
+    if (toggle) toggle.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleMobileSidebar() {
+    const opening = !document.body.classList.contains("sidebar-mobile-open");
+    document.body.classList.toggle("sidebar-mobile-open", opening);
+    const toggle = $("mobileNavToggle");
+    if (toggle) toggle.setAttribute("aria-expanded", String(opening));
+  }
+
+  function setupSidebar() {
+    updateSidebar(sidebarCollapsed(), false);
+    $("sidebarToggle")?.addEventListener("click", () => updateSidebar(!document.body.classList.contains("sidebar-collapsed")));
+    $("mobileNavToggle")?.addEventListener("click", toggleMobileSidebar);
+    $("mobileNavBackdrop")?.addEventListener("click", closeMobileSidebar);
+    window.addEventListener("resize", () => {
+      if (window.innerWidth >= 768) closeMobileSidebar();
+    });
   }
 
   function content() {
@@ -257,13 +333,17 @@
     $("navMenu").innerHTML = nav.map(([title, items]) => {
       const links = items.map(([label, href, icon]) => {
         const active = href !== "#logout" && current.startsWith(href.split("?")[0]);
-        return `<a class="nav-item ${active ? "active" : ""}" href="${href}" data-href="${href}"><span class="nav-icon">${icon}</span><span>${label}</span></a>`;
+        const safeLabel = html(label);
+        return `<a class="nav-item ${active ? "active" : ""}" href="${href}" data-href="${href}" data-label="${safeLabel}" aria-label="${safeLabel}" title="${safeLabel}"><span class="nav-icon">${navIcon(icon)}</span><span class="nav-label">${safeLabel}</span></a>`;
       }).join("");
       return `<div class="nav-section">${title ? `<div class="nav-section-title">${title}</div>` : ""}${links}</div>`;
     }).join("");
     document.querySelectorAll('[data-href="#logout"]').forEach((item) => item.addEventListener("click", (event) => {
       event.preventDefault();
       logout();
+    }));
+    document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => {
+      if (window.innerWidth < 768) closeMobileSidebar();
     }));
   }
 
@@ -2112,6 +2192,7 @@
 
   $("refreshButton").addEventListener("click", () => loadCurrent(false));
   $("logoutButton").addEventListener("click", logout);
+  setupSidebar();
   renderNav();
   loadCurrent(true);
   checkAdminOrderReminders();

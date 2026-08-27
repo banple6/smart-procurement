@@ -1364,7 +1364,9 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     combined_dashboard_source = dashboard_html + dashboard_js
     assert "http://" not in combined_dashboard_source
     assert "https://" not in combined_dashboard_source
-    assert "localStorage" not in dashboard_js
+    assert 'const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";' in dashboard_js
+    assert 'window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"' in dashboard_js
+    assert "window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed))" in dashboard_js
     assert "sessionStorage" not in dashboard_js
     assert "police-badge.svg" in dashboard_html
     assert "\u4eba\u6c11\u8b66\u5bdf\u8b66\u5fbd" not in dashboard_html
