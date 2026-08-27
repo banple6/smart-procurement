@@ -1219,6 +1219,182 @@ button.primary-link {
   min-width: 150px;
 }
 
+.org-success {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.org-success span {
+  flex: 1 1 280px;
+}
+
+.action-menu {
+  position: relative;
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.action-menu summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-line);
+  border-radius: 4px;
+  color: var(--duty-blue);
+  background: #fff;
+  cursor: pointer;
+  list-style: none;
+}
+
+.action-menu summary::-webkit-details-marker { display: none; }
+.action-menu[open] summary { border-color: var(--duty-blue); }
+
+.action-menu button {
+  display: block;
+  width: max-content;
+  min-width: 116px;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink-primary);
+  background: #fff;
+  text-align: left;
+}
+
+.action-menu button:hover,
+.action-menu button:focus-visible {
+  color: var(--duty-blue);
+  background: var(--pale-blue);
+}
+
+.action-menu[open] > button {
+  position: relative;
+  z-index: 5;
+  border-inline: 1px solid var(--rule-line);
+}
+
+.action-menu[open] > button:last-child {
+  border-bottom: 1px solid var(--rule-line);
+  border-radius: 0 0 4px 4px;
+}
+
+.org-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 41, 87, 0.36);
+}
+
+.org-dialog {
+  width: min(680px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--rule-line);
+  border-radius: 6px;
+  background: var(--reading-surface);
+  box-shadow: 0 18px 54px rgba(10, 41, 87, 0.28);
+}
+
+.org-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--soft-divider);
+}
+
+.org-dialog-header h2 {
+  margin: 0;
+  color: var(--command-navy);
+  font-size: var(--font-size-section-title);
+  line-height: var(--line-height-section-title);
+}
+
+.dialog-close {
+  display: grid;
+  width: 40px;
+  min-height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: var(--ink-secondary);
+  background: transparent;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.dialog-close:hover,
+.dialog-close:focus-visible { color: var(--command-navy); background: var(--pale-blue); }
+
+.org-dialog-body > p { margin: 16px 20px 0; color: var(--ink-secondary); }
+.dialog-actions { justify-content: flex-end; margin: 0; padding: 0 16px 16px; }
+
+.account-type-picker {
+  display: flex;
+  gap: 18px;
+  padding: 16px 20px 0;
+  color: var(--ink-primary);
+}
+
+.account-type-picker label,
+.permission-option { display: inline-flex; align-items: flex-start; gap: 9px; }
+
+.account-type-picker input,
+.permission-option input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--duty-blue);
+}
+
+.permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--soft-divider);
+}
+
+.permission-grid legend { padding: 0 6px; color: var(--ink-secondary); font-size: var(--font-size-label); }
+
+.permission-option {
+  min-height: 54px;
+  padding: 9px;
+  border: 1px solid var(--soft-divider);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.permission-option.high-risk { border-color: #e7c48c; background: #fffaf0; }
+.permission-option span { display: grid; gap: 2px; }
+.permission-option strong { color: var(--ink-primary); font-size: var(--font-size-label); }
+.permission-option small { color: var(--ink-secondary); font-size: 12px; line-height: 18px; }
+
+.credential-notice { padding: 0 20px; }
+.credential-notice dl {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 10px 16px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--soft-divider);
+  border-radius: 4px;
+  background: #fff;
+}
+
+.credential-notice dt { color: var(--ink-secondary); }
+.credential-notice dd { margin: 0; color: var(--command-navy); font-weight: 600; word-break: break-all; }
+
 .toast {
   position: fixed;
   right: 24px;
@@ -1550,4 +1726,7 @@ button.primary-link {
   .content { padding: 16px; }
   .metric-grid, .quick-grid { grid-template-columns: 1fr; }
   .order-bulk-toolbar { align-items: stretch; flex-direction: column; }
+  .permission-grid { grid-template-columns: 1fr; }
+  .org-dialog-backdrop { align-items: end; padding: 0; }
+  .org-dialog { max-height: 88vh; border-radius: 6px 6px 0 0; }
 }

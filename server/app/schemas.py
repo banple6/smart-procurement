@@ -61,6 +61,8 @@ class ManagerRegistrationReview(BaseModel):
 
 
 class UnitCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     unit_code: str
     unit_name: str
     default_delivery_point: str = ""
@@ -68,6 +70,8 @@ class UnitCreate(BaseModel):
 
 
 class UnitUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     unit_code: Optional[str] = None
     unit_name: Optional[str] = None
     default_delivery_point: Optional[str] = None
@@ -86,6 +90,40 @@ class UserCreate(BaseModel):
     role: str
     unit_id: Optional[str] = None
     must_change_password: bool = True
+
+
+class UnitUserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    password: str
+    display_name: str
+    unit_id: str
+
+
+class AdminUserCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    username: str
+    password: str
+    display_name: str
+    can_manage_accounts: bool = False
+    can_issue_manager_invites: bool = False
+    can_view_system_status: bool = False
+    can_view_detailed_metrics: bool = False
+    can_manage_backups: bool = False
+    can_restore_backups: bool = False
+
+
+class UserPermissionsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    can_manage_accounts: bool = False
+    can_issue_manager_invites: bool = False
+    can_view_system_status: bool = False
+    can_view_detailed_metrics: bool = False
+    can_manage_backups: bool = False
+    can_restore_backups: bool = False
 
 
 class UserUpdate(BaseModel):

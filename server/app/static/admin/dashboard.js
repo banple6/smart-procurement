@@ -1545,31 +1545,235 @@
     render(initial);
   }
 
+  const accountPermissionDefinitions = [
+    ["can_manage_accounts", "账号管理", "可创建、停用和重置内部账号"],
+    ["can_issue_manager_invites", "发放管理员邀请", "可签发管理员邀请注册链接"],
+    ["can_view_system_status", "查看系统状态", "可查看服务状态与运行信息"],
+    ["can_view_detailed_metrics", "查看详细指标", "可查看系统详细运行指标"],
+    ["can_manage_backups", "备份管理", "可执行备份管理操作"],
+    ["can_restore_backups", "恢复备份", "高风险权限，可发起恢复相关操作"],
+  ];
+
+  function accountTypeLabel(role) {
+    return role === "admin" ? "管理员" : "子单位账号";
+  }
+
+  function activeLabel(active) {
+    return active ? "启用" : "停用";
+  }
+
+  function accountPermissionInputs(account = {}) {
+    return accountPermissionDefinitions.map(([key, label, note]) => `
+      <label class="permission-option ${key === "can_restore_backups" ? "high-risk" : ""}">
+        <input type="checkbox" name="${key}" ${account[key] ? "checked" : ""} />
+        <span><strong>${label}</strong><small>${note}</small></span>
+      </label>
+    `).join("");
+  }
+
+  function openOrgDialog(title, body) {
+    $("orgDialog")?.remove();
+    document.body.insertAdjacentHTML("beforeend", `
+      <div id="orgDialog" class="org-dialog-backdrop" role="presentation">
+        <section class="org-dialog" role="dialog" aria-modal="true" aria-labelledby="orgDialogTitle">
+          <header class="org-dialog-header"><div><h2 id="orgDialogTitle">${html(title)}</h2></div><button id="closeOrgDialog" class="dialog-close" type="button" aria-label="关闭">×</button></header>
+          <div class="org-dialog-body">${body}</div>
+        </section>
+      </div>
+    `);
+    const close = () => $("orgDialog")?.remove();
+    $("closeOrgDialog").addEventListener("click", close);
+    $("orgDialog").addEventListener("click", (event) => {
+      if (event.target === $("orgDialog")) close();
+    });
+    return { root: $("orgDialog"), close };
+  }
+
+  function formButtonBusy(button, busy, idleText) {
+    button.disabled = busy;
+    button.textContent = busy ? "提交中..." : idleText;
+  }
+
+  function applyOrgFilters(route, values) {
+    const params = new URLSearchParams();
+    Object.entries(values).forEach(([key, value]) => {
+      const text = String(value || "").trim();
+      if (text) params.set(key, text);
+    });
+    window.history.replaceState({}, "", `${route}${params.toString() ? `?${params}` : ""}`);
+  }
+
+  function openUnitDialog(unit = null) {
+    const editing = Boolean(unit);
+    const dialog = openOrgDialog(editing ? "编辑子单位" : "新增子单位", `
+      <form id="unitForm">
+        <div class="form-grid compact">
+          <label class="form-field"><span>单位名称 *</span><input name="unit_name" maxlength="80" required value="${html(unit?.unit_name || "")}" /></label>
+          <label class="form-field"><span>单位编码 *</span><input name="unit_code" maxlength="40" required pattern="[A-Za-z0-9_-]+" value="${html(unit?.unit_code || "")}" /></label>
+          <label class="form-field span-2"><span>默认配送点</span><input name="default_delivery_point" maxlength="160" value="${html(unit?.default_delivery_point || "")}" /></label>
+          <label class="form-field span-2"><span>地址备注</span><input name="address_note" maxlength="300" value="${html(unit?.address_note || "")}" /></label>
+          ${editing ? `<label class="switch-field span-2"><input name="active" type="checkbox" ${unit.active ? "checked" : ""} />启用该子单位</label>` : ""}
+        </div>
+        <p id="unitFormError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button class="secondary-button" id="cancelUnitForm" type="button">取消</button><button class="primary-link" type="submit">${editing ? "保存修改" : "创建子单位"}</button></div>
+      </form>
+    `);
+    $("cancelUnitForm").addEventListener("click", dialog.close);
+    $("unitForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const submit = form.querySelector('[type="submit"]');
+      const error = $("unitFormError");
+      const payload = {
+        unit_name: data.get("unit_name"), unit_code: data.get("unit_code"),
+        default_delivery_point: data.get("default_delivery_point"), address_note: data.get("address_note"),
+      };
+      if (editing) payload.active = form.active.checked;
+      formButtonBusy(submit, true, editing ? "保存修改" : "创建子单位");
+      try {
+        const result = await api(editing ? `/api/v1/admin/units/${unit.id}` : "/api/v1/admin/units", {
+          method: editing ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        });
+        dialog.close();
+        if (!editing) {
+          state.orgCreatedUnit = result;
+          toast("子单位创建成功");
+        } else toast("子单位已更新");
+        await loadUnits();
+      } catch (requestError) {
+        error.textContent = requestError.message || "保存失败";
+        error.hidden = false;
+        formButtonBusy(submit, false, editing ? "保存修改" : "创建子单位");
+      }
+    });
+  }
+
+  function unitAccountLink(unit) {
+    return `/admin/accounts?unit_id=${encodeURIComponent(unit.id)}&create=unit`;
+  }
+
   async function loadUnits() {
-    pageShell("子单位管理", "单位名称、编码、配送点和启用状态");
-    const units = await api("/api/v1/admin/units");
-    content().innerHTML += table(["单位名称", "单位编码", "默认配送点", "账号数", "订单数", "状态", "操作"], units.map((unit) => `
-      <tr><td>${html(unit.unit_name)}</td><td>${html(unit.unit_code)}</td><td>${html(unit.default_delivery_point || "--")}</td><td>${num(unit.account_count)}</td><td>${num(unit.order_count)}</td><td>${unit.active ? "启用" : "停用"}</td><td><button class="table-action" data-unit="${unit.id}" data-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></td></tr>
-    `), "暂无子单位");
-    document.querySelectorAll("[data-unit]").forEach((button) => button.addEventListener("click", async () => {
-      await mutate(`/api/v1/admin/units/${button.dataset.unit}/status`, { active: button.dataset.active === "1" });
+    const params = new URLSearchParams(window.location.search);
+    const query = (params.get("query") || "").trim().toLowerCase();
+    const status = params.get("status") || "all";
+    pageShell("子单位管理", "维护单位资料、配送点和关联账号");
+    const [viewer, units] = await Promise.all([api("/api/v1/auth/me"), api("/api/v1/admin/units")]);
+    const canManage = Boolean(viewer.can_manage_accounts);
+    const rows = units.filter((unit) => {
+      const haystack = `${unit.unit_name} ${unit.unit_code}`.toLowerCase();
+      return (!query || haystack.includes(query)) && (status === "all" || String(Boolean(unit.active)) === status);
+    });
+    const created = state.orgCreatedUnit;
+    state.orgCreatedUnit = null;
+    content().innerHTML += `
+      ${created ? `<article class="notice-banner org-success"><strong>子单位创建成功</strong><span>${html(created.unit_name)} 已创建。下一步可为该单位创建登录账号。</span><a class="primary-link" href="${unitAccountLink(created)}">创建登录账号</a></article>` : ""}
+      ${canManage ? `<div class="page-toolbar"><button id="createUnitButton" class="primary-link" type="button">+ 新增子单位</button></div>` : `<div class="notice-banner">当前账号仅可查看子单位，组织和账号变更需要“账号管理”权限。</div>`}
+      <form id="unitFilters" class="compact-form page-toolbar"><label class="form-field"><span>单位名称 / 编码</span><input name="query" value="${html(params.get("query") || "")}" placeholder="搜索单位" /></label><label class="form-field"><span>状态</span><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部</option><option value="true" ${status === "true" ? "selected" : ""}>启用</option><option value="false" ${status === "false" ? "selected" : ""}>停用</option></select></label><button class="secondary-button" type="submit">筛选</button></form>
+    `;
+    content().innerHTML += table(["单位名称", "单位编码", "默认配送点", "关联账号", "订单数", "状态", "更新时间", "操作"], rows.map((unit) => `
+      <tr><td>${html(unit.unit_name)}</td><td>${html(unit.unit_code)}</td><td>${html(unit.default_delivery_point || "--")}</td><td><a class="text-link" href="${unitAccountLink(unit)}">${num(unit.account_count)} 个</a></td><td>${num(unit.order_count)}</td><td>${activeLabel(unit.active)}</td><td>${dateTime(unit.updated_at)}</td><td>${canManage ? `<button class="table-action" data-edit-unit="${unit.id}">编辑</button><details class="action-menu"><summary>更多</summary><button type="button" data-unit-status="${unit.id}" data-next-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></details>` : "--"}</td></tr>
+    `), "暂无符合条件的子单位");
+    $("createUnitButton")?.addEventListener("click", () => openUnitDialog());
+    $("unitFilters").addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); applyOrgFilters("/admin/units", { query: data.get("query"), status: data.get("status") === "all" ? "" : data.get("status") }); loadUnits(); });
+    document.querySelectorAll("[data-edit-unit]").forEach((button) => button.addEventListener("click", () => openUnitDialog(units.find((unit) => unit.id === button.dataset.editUnit))));
+    document.querySelectorAll("[data-unit-status]").forEach((button) => button.addEventListener("click", async () => {
+      const active = button.dataset.nextActive === "1";
+      if (!confirm(`确认${active ? "启用" : "停用"}该子单位吗？${active ? "" : "停用后关联账号不能继续登录，历史记录不会删除。"}`)) return;
+      button.disabled = true;
+      try { await api(`/api/v1/admin/units/${button.dataset.unitStatus}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }) }); toast(`子单位已${active ? "启用" : "停用"}`); await loadUnits(); } catch (error) { toast(error.message || "操作失败"); button.disabled = false; }
     }));
   }
 
+  function accountFormFields(type, units, selectedUnitId) {
+    const activeUnits = units.filter((unit) => unit.active);
+    const unitField = type === "unit" ? `<label class="form-field span-2"><span>所属子单位 *</span><select name="unit_id" required><option value="">请选择所属子单位</option>${activeUnits.map((unit) => `<option value="${unit.id}" ${unit.id === selectedUnitId ? "selected" : ""}>${html(unit.unit_name)}（${html(unit.unit_code)}）</option>`).join("")}</select></label>` : "";
+    return `<div class="form-grid compact"><label class="form-field"><span>账号 *</span><input name="username" minlength="3" maxlength="32" required placeholder="字母、数字、点、横线或下划线" /></label><label class="form-field"><span>显示名称 *</span><input name="display_name" maxlength="80" required /></label>${unitField}<label class="form-field"><span>临时密码 *</span><input name="password" type="password" minlength="8" autocomplete="new-password" required /></label><label class="form-field"><span>确认临时密码 *</span><input name="password_confirm" type="password" minlength="8" autocomplete="new-password" required /></label>${type === "admin" ? `<fieldset class="permission-grid span-2"><legend>权限</legend>${accountPermissionInputs()}</fieldset>` : ""}</div>`;
+  }
+
+  function openAccountDialog(units, preselectUnitId = "") {
+    let type = "unit";
+    const dialog = openOrgDialog("新增账号", `<div class="account-type-picker"><label><input type="radio" name="accountType" value="unit" checked /> 子单位账号</label><label><input type="radio" name="accountType" value="admin" /> 管理员账号</label></div><form id="accountForm"><div id="accountFormFields">${accountFormFields(type, units, preselectUnitId)}</div><p id="accountFormError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelAccountForm" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">创建账号</button></div></form>`);
+    const redraw = () => {
+      dialog.root.querySelectorAll('input[name="accountType"]').forEach((radio) => { radio.checked = radio.value === type; });
+      $("accountFormFields").innerHTML = accountFormFields(type, units, preselectUnitId);
+    };
+    dialog.root.querySelectorAll('input[name="accountType"]').forEach((radio) => radio.addEventListener("change", (event) => { type = event.currentTarget.value; redraw(); }));
+    $("cancelAccountForm").addEventListener("click", dialog.close);
+    $("accountForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const password = String(data.get("password") || "");
+      const error = $("accountFormError");
+      if (password !== String(data.get("password_confirm") || "")) { error.textContent = "两次输入的密码不一致"; error.hidden = false; return; }
+      const payload = { username: data.get("username"), display_name: data.get("display_name"), password };
+      if (type === "unit") payload.unit_id = data.get("unit_id");
+      accountPermissionDefinitions.forEach(([key]) => { if (type === "admin") payload[key] = data.get(key) === "on"; });
+      if (payload.can_restore_backups && !confirm("“恢复备份”属于高风险权限，确认授予吗？")) return;
+      const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "创建账号");
+      try {
+        const created = await api(type === "unit" ? "/api/v1/admin/accounts/unit-user" : "/api/v1/admin/accounts/admin", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        dialog.close();
+        showOneTimeCredentials(created, password, () => loadAccounts());
+      } catch (requestError) {
+        error.textContent = requestError.message || "创建账号失败"; error.hidden = false; formButtonBusy(submit, false, "创建账号");
+      }
+    });
+  }
+
+  function showOneTimeCredentials(account, password, done) {
+    const dialog = openOrgDialog("账号创建成功", `<div class="credential-notice"><p>请立即安全告知使用人。关闭此窗口后，系统不会再次显示临时密码。</p><dl><dt>账号</dt><dd>${html(account.username)}</dd><dt>临时密码</dt><dd>${html(password)}</dd></dl><div class="page-toolbar dialog-actions"><button id="credentialsDone" class="primary-link" type="button">我已记录</button></div></div>`);
+    $("credentialsDone").addEventListener("click", async () => { dialog.close(); await done(); toast("账号创建成功"); });
+  }
+
+  function openAccountEditDialog(account, units) {
+    const dialog = openOrgDialog("编辑账号", `<form id="accountEditForm"><div class="form-grid compact"><label class="form-field"><span>账号</span><input value="${html(account.username)}" disabled /></label><label class="form-field"><span>账号类型</span><input value="${accountTypeLabel(account.role)}" disabled /></label><label class="form-field"><span>显示名称 *</span><input name="display_name" required value="${html(account.display_name)}" /></label>${account.role === "unit_user" ? `<label class="form-field"><span>所属子单位 *</span><select name="unit_id" required>${units.filter((unit) => unit.active || unit.id === account.unit_id).map((unit) => `<option value="${unit.id}" ${unit.id === account.unit_id ? "selected" : ""}>${html(unit.unit_name)}（${html(unit.unit_code)}）</option>`).join("")}</select></label>` : ""}</div><p id="accountEditError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelAccountEdit" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存修改</button></div></form>`);
+    $("cancelAccountEdit").addEventListener("click", dialog.close);
+    $("accountEditForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存修改"); try { await api(`/api/v1/admin/accounts/${account.id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ display_name: data.get("display_name"), ...(account.role === "unit_user" ? { unit_id: data.get("unit_id") } : {}) }) }); dialog.close(); toast("账号已更新"); await loadAccounts(); } catch (error) { $("accountEditError").textContent = error.message || "保存失败"; $("accountEditError").hidden = false; formButtonBusy(submit, false, "保存修改"); } });
+  }
+
+  function openPasswordResetDialog(account) {
+    const dialog = openOrgDialog("重置密码", `<form id="passwordResetForm"><p>重置后该账号现有登录状态会立即失效，并要求下次登录后修改密码。</p><div class="form-grid compact"><label class="form-field"><span>新临时密码 *</span><input name="password" type="password" minlength="8" autocomplete="new-password" required /></label><label class="form-field"><span>确认新临时密码 *</span><input name="password_confirm" type="password" minlength="8" autocomplete="new-password" required /></label></div><p id="passwordResetError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelPasswordReset" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">重置密码</button></div></form>`);
+    $("cancelPasswordReset").addEventListener("click", dialog.close);
+    $("passwordResetForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const password = String(data.get("password") || ""); if (password !== String(data.get("password_confirm") || "")) { $("passwordResetError").textContent = "两次输入的密码不一致"; $("passwordResetError").hidden = false; return; } const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "重置密码"); try { await api(`/api/v1/admin/accounts/${account.id}/reset-password`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ new_password: password }) }); dialog.close(); showOneTimeCredentials(account, password, () => loadAccounts()); } catch (error) { $("passwordResetError").textContent = error.message || "重置失败"; $("passwordResetError").hidden = false; formButtonBusy(submit, false, "重置密码"); } });
+  }
+
+  function openPermissionsDialog(account) {
+    const dialog = openOrgDialog("管理员权限", `<form id="permissionForm"><p>权限修改立即生效。恢复备份为高风险权限，默认关闭。</p><fieldset class="permission-grid">${accountPermissionInputs(account)}</fieldset><p id="permissionError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelPermissionForm" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存权限</button></div></form>`);
+    $("cancelPermissionForm").addEventListener("click", dialog.close);
+    $("permissionForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const data = new FormData(form); const payload = {}; accountPermissionDefinitions.forEach(([key]) => { payload[key] = data.get(key) === "on"; }); if (payload.can_restore_backups && !confirm("“恢复备份”属于高风险权限，确认保存吗？")) return; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存权限"); try { await api(`/api/v1/admin/accounts/${account.id}/permissions`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); dialog.close(); toast("权限已更新"); await loadAccounts(); } catch (error) { $("permissionError").textContent = error.message || "保存失败"; $("permissionError").hidden = false; formButtonBusy(submit, false, "保存权限"); } });
+  }
+
   async function loadAccounts() {
-    pageShell("账号管理", "内部账号和所属单位");
-    const users = await api("/api/v1/admin/users");
-    content().innerHTML += table(["登录账号", "显示名称", "角色", "所属单位", "首次改密", "最近登录", "状态", "操作"], users.map((user) => `
-      <tr><td>${html(user.username)}</td><td>${html(user.display_name)}</td><td>${user.role === "admin" ? "管理员" : "子单位"}</td><td>${html(user.unit_name || "--")}</td><td>${user.must_change_password ? "是" : "否"}</td><td>${dateTime(user.last_login_at)}</td><td>${user.active ? "启用" : "停用"}</td><td><button class="table-action" data-user="${user.id}" data-active="${user.active ? "0" : "1"}">${user.active ? "停用" : "启用"}</button><button class="table-action" data-reset="${user.id}">重置密码</button></td></tr>
-    `), "暂无账号");
-    document.querySelectorAll("[data-user]").forEach((button) => button.addEventListener("click", async () => {
-      await mutate(`/api/v1/admin/users/${button.dataset.user}/status`, { active: button.dataset.active === "1" });
-    }));
-    document.querySelectorAll("[data-reset]").forEach((button) => button.addEventListener("click", async () => {
-      const password = prompt("请输入新初始密码，至少 8 位并包含字母和数字");
-      if (!password) return;
-      await mutate(`/api/v1/admin/users/${button.dataset.reset}/reset-password`, { new_password: password, must_change_password: true }, "POST");
-    }));
+    const params = new URLSearchParams(window.location.search);
+    const query = (params.get("query") || "").trim().toLowerCase();
+    const role = params.get("role") || "all";
+    const unitId = params.get("unit_id") || "";
+    const status = params.get("status") || "all";
+    pageShell("账号管理", "创建和维护子单位、管理员登录账号");
+    const [viewer, units, users] = await Promise.all([api("/api/v1/auth/me"), api("/api/v1/admin/units"), api(`/api/v1/admin/users${unitId ? `?unit_id=${encodeURIComponent(unitId)}` : ""}`)]);
+    const canManage = Boolean(viewer.can_manage_accounts);
+    const rows = users.filter((user) => {
+      const haystack = `${user.username} ${user.display_name}`.toLowerCase();
+      return (!query || haystack.includes(query)) && (role === "all" || user.role === role) && (status === "all" || String(Boolean(user.active)) === status);
+    });
+    content().innerHTML += `
+      ${canManage ? `<div class="page-toolbar"><button id="createAccountButton" class="primary-link" type="button">+ 新增账号</button></div>` : `<div class="notice-banner">当前账号仅可查看账号信息，创建、重置、停用和权限变更需要“账号管理”权限。</div>`}
+      <form id="accountFilters" class="compact-form page-toolbar"><label class="form-field"><span>账号 / 姓名</span><input name="query" value="${html(params.get("query") || "")}" placeholder="搜索账号" /></label><label class="form-field"><span>账号类型</span><select name="role"><option value="all" ${role === "all" ? "selected" : ""}>全部</option><option value="unit_user" ${role === "unit_user" ? "selected" : ""}>子单位账号</option><option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option></select></label><label class="form-field"><span>所属单位</span><select name="unit_id"><option value="">全部</option>${units.map((unit) => `<option value="${unit.id}" ${unit.id === unitId ? "selected" : ""}>${html(unit.unit_name)}</option>`).join("")}</select></label><label class="form-field"><span>状态</span><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部</option><option value="true" ${status === "true" ? "selected" : ""}>启用</option><option value="false" ${status === "false" ? "selected" : ""}>停用</option></select></label><button class="secondary-button" type="submit">筛选</button></form>
+    `;
+    content().innerHTML += table(["账号", "显示名称", "类型", "所属单位", "状态", "最后登录", "操作"], rows.map((user) => `
+      <tr><td>${html(user.username)}</td><td>${html(user.display_name)}</td><td>${accountTypeLabel(user.role)}</td><td>${html(user.unit_name || "--")}</td><td>${activeLabel(user.active)}</td><td>${dateTime(user.last_login_at)}</td><td>${canManage ? `<button class="table-action" data-edit-account="${user.id}">编辑</button><details class="action-menu"><summary>更多</summary>${user.role === "admin" ? `<button type="button" data-permissions="${user.id}">权限</button>` : ""}<button type="button" data-reset-account="${user.id}">重置密码</button>${user.id === viewer.id ? "" : `<button type="button" data-account-status="${user.id}" data-next-active="${user.active ? "0" : "1"}">${user.active ? "停用" : "启用"}</button>`}</details>` : "--"}</td></tr>
+    `), "暂无符合条件的账号");
+    $("createAccountButton")?.addEventListener("click", () => openAccountDialog(units, unitId));
+    $("accountFilters").addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); applyOrgFilters("/admin/accounts", { query: data.get("query"), role: data.get("role") === "all" ? "" : data.get("role"), unit_id: data.get("unit_id"), status: data.get("status") === "all" ? "" : data.get("status") }); loadAccounts(); });
+    document.querySelectorAll("[data-edit-account]").forEach((button) => button.addEventListener("click", () => openAccountEditDialog(users.find((user) => user.id === button.dataset.editAccount), units)));
+    document.querySelectorAll("[data-reset-account]").forEach((button) => button.addEventListener("click", () => openPasswordResetDialog(users.find((user) => user.id === button.dataset.resetAccount))));
+    document.querySelectorAll("[data-permissions]").forEach((button) => button.addEventListener("click", () => openPermissionsDialog(users.find((user) => user.id === button.dataset.permissions))));
+    document.querySelectorAll("[data-account-status]").forEach((button) => button.addEventListener("click", async () => { const active = button.dataset.nextActive === "1"; const user = users.find((item) => item.id === button.dataset.accountStatus); if (!confirm(`确认${active ? "启用" : "停用"}账号“${user.username}”吗？${active ? "" : "停用后该账号不能继续登录，历史业务记录不会删除。"}`)) return; button.disabled = true; try { await api(`/api/v1/admin/accounts/${user.id}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }) }); toast(`账号已${active ? "启用" : "停用"}`); await loadAccounts(); } catch (error) { toast(error.message || "操作失败"); button.disabled = false; } }));
+    if (params.get("create") === "unit" && canManage) {
+      const next = new URLSearchParams(params); next.delete("create"); window.history.replaceState({}, "", `/admin/accounts?${next.toString()}`); openAccountDialog(units, unitId);
+    }
   }
 
   async function loadLedger() {

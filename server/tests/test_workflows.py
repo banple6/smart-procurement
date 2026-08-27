@@ -1144,6 +1144,162 @@ def test_unit_disable_blocks_login_and_order_creation_but_keeps_history(tmp_path
     assert len(history.json()["items"][0]["items"]) == 1
 
 
+def test_unit_edit_does_not_rewrite_order_unit_snapshot(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, product_id = create_unit_user_product_order(client)
+    created = client.post(
+        "/api/v1/orders",
+        headers=unit_headers,
+        json={"client_request_id": "REQ-unit-snapshot-1", "items": [{"product_id": product_id, "quantity": "1"}]},
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["unit_name_snapshot"] == "第一食堂"
+
+    updated = client.put(
+        f"/api/v1/admin/units/{unit_id}",
+        headers=admin_headers,
+        json={"unit_name": "第一食堂（新名称）"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["unit_name"] == "第一食堂（新名称）"
+
+    history = client.get(f"/api/v1/admin/orders?unit_id={unit_id}&include_items=true", headers=admin_headers)
+    assert history.status_code == 200, history.text
+    assert history.json()["items"][0]["unit_name_snapshot"] == "第一食堂"
+
+
+def test_organization_management_direct_accounts_permissions_and_safe_audit(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+
+    created_unit = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": " TEST002 ", "unit_name": " 测试子单位02 ", "default_delivery_point": " 二号食堂 "},
+    )
+    assert created_unit.status_code == 200, created_unit.text
+    unit = created_unit.json()
+    assert unit["unit_code"] == "TEST002"
+    assert unit["unit_name"] == "测试子单位02"
+    assert unit["default_delivery_point"] == "二号食堂"
+
+    duplicate = client.post(
+        "/api/v1/admin/units",
+        headers=admin_headers,
+        json={"unit_code": "TEST002", "unit_name": "重复单位"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "单位编码已存在，请更换后重试"
+
+    forged_role = client.post(
+        "/api/v1/admin/accounts/unit-user",
+        headers=admin_headers,
+        json={
+            "username": "test-unit02", "display_name": "二号单位采购员", "password": "Test12345",
+            "unit_id": unit["id"], "role": "admin",
+        },
+    )
+    assert forged_role.status_code == 422
+
+    unit_user = client.post(
+        "/api/v1/admin/accounts/unit-user",
+        headers=admin_headers,
+        json={"username": "test-unit02", "display_name": "二号单位采购员", "password": "Test12345", "unit_id": unit["id"]},
+    )
+    assert unit_user.status_code == 200, unit_user.text
+    assert unit_user.json()["role"] == "unit_user"
+    assert unit_user.json()["unit_id"] == unit["id"]
+    assert unit_user.json()["must_change_password"] is True
+    assert unit_user.json()["can_manage_accounts"] is False
+
+    accounts = client.get(f"/api/v1/admin/users?unit_id={unit['id']}", headers=admin_headers)
+    assert accounts.status_code == 200
+    listed_user = accounts.json()[0]
+    assert listed_user["username"] == "test-unit02"
+    assert "password_hash" not in listed_user
+    assert "token_hash" not in listed_user
+
+    created_admin = client.post(
+        "/api/v1/admin/accounts/admin",
+        headers=admin_headers,
+        json={"username": "test-admin02", "display_name": "第二管理员", "password": "Admin12345"},
+    )
+    assert created_admin.status_code == 200, created_admin.text
+    assert created_admin.json()["role"] == "admin"
+    assert created_admin.json()["unit_id"] == ""
+    assert all(created_admin.json()[field] is False for field in (
+        "can_manage_accounts", "can_issue_manager_invites", "can_view_system_status", "can_view_detailed_metrics", "can_manage_backups", "can_restore_backups",
+    ))
+    limited_headers = login(client, "test-admin02", "Admin12345")
+    forbidden = client.post(
+        "/api/v1/admin/accounts/unit-user",
+        headers=limited_headers,
+        json={"username": "forbidden-unit", "display_name": "不可创建", "password": "Blocked123", "unit_id": unit["id"]},
+    )
+    assert forbidden.status_code == 403
+    assert client.post(
+        f"/api/v1/admin/accounts/{unit_user.json()['id']}/reset-password",
+        headers=limited_headers,
+        json={"new_password": "Blocked123"},
+    ).status_code == 403
+    assert client.patch(
+        f"/api/v1/admin/accounts/{unit_user.json()['id']}/status",
+        headers=limited_headers,
+        json={"active": False},
+    ).status_code == 403
+    assert client.patch(
+        f"/api/v1/admin/accounts/{created_admin.json()['id']}/permissions",
+        headers=limited_headers,
+        json={"can_manage_accounts": True},
+    ).status_code == 403
+
+    unit_headers = login(client, "test-unit02", "Test12345")
+    reset = client.post(
+        f"/api/v1/admin/accounts/{unit_user.json()['id']}/reset-password",
+        headers=admin_headers,
+        json={"new_password": "Newtest123"},
+    )
+    assert reset.status_code == 200, reset.text
+    assert client.get("/api/v1/auth/me", headers=unit_headers).status_code == 401
+    assert client.post("/api/v1/auth/login", json={"username": "test-unit02", "password": "Test12345"}).status_code == 401
+    assert client.post("/api/v1/auth/login", json={"username": "test-unit02", "password": "Newtest123"}).status_code == 200
+
+    self_disable = client.patch(
+        "/api/v1/admin/accounts/" + next(item["id"] for item in client.get("/api/v1/admin/users", headers=admin_headers).json() if item["username"] == "root_admin") + "/status",
+        headers=admin_headers,
+        json={"active": False},
+    )
+    assert self_disable.status_code == 400
+    assert self_disable.json()["detail"] == "不能停用当前登录账号"
+
+    remove_last_manage_permission = client.patch(
+        "/api/v1/admin/accounts/" + next(item["id"] for item in client.get("/api/v1/admin/users", headers=admin_headers).json() if item["username"] == "root_admin") + "/permissions",
+        headers=admin_headers,
+        json={
+            "can_manage_accounts": False,
+            "can_issue_manager_invites": True,
+            "can_view_system_status": True,
+            "can_view_detailed_metrics": True,
+            "can_manage_backups": True,
+            "can_restore_backups": True,
+        },
+    )
+    assert remove_last_manage_permission.status_code == 409
+    assert remove_last_manage_permission.json()["detail"] == "不能移除最后一个账号管理员权限"
+
+    from app.database import connect
+
+    with connect() as conn:
+        audit_rows = conn.execute(
+            "SELECT action, before_json, after_json FROM audit_logs WHERE action IN ('UNIT_CREATED', 'USER_CREATED', 'ADMIN_CREATED', 'USER_PASSWORD_RESET')"
+        ).fetchall()
+    assert {row["action"] for row in audit_rows} >= {"UNIT_CREATED", "USER_CREATED", "ADMIN_CREATED", "USER_PASSWORD_RESET"}
+    serialized = "\n".join(f"{row['before_json']}\n{row['after_json']}" for row in audit_rows)
+    assert "Test12345" not in serialized
+    assert "Newtest123" not in serialized
+    assert "password_hash" not in serialized
+
+
 def test_order_list_include_items_and_client_request_id_idempotency(tmp_path):
     client = make_client(tmp_path)
     admin_headers, unit_headers, _, product_id = create_unit_user_product_order(client)
@@ -1364,8 +1520,8 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     combined_dashboard_source = dashboard_html + dashboard_js
     assert "http://" not in combined_dashboard_source
     assert "https://" not in combined_dashboard_source
-    assert '/admin-assets/dashboard.css?v=0.3.5.0' in dashboard_html
-    assert '/admin-assets/dashboard.js?v=0.3.5.0' in dashboard_html
+    assert '/admin-assets/dashboard.css?v=0.3.6.0' in dashboard_html
+    assert '/admin-assets/dashboard.js?v=0.3.6.0' in dashboard_html
     assert 'const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";' in dashboard_js
     assert 'window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"' in dashboard_js
     assert "window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed))" in dashboard_js
@@ -1393,6 +1549,13 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "productUnit" in dashboard_js
     assert 'name="productPrice"' in dashboard_js
     assert 'name="productStock"' in dashboard_js
+    assert "+ 新增子单位" in dashboard_js
+    assert "+ 新增账号" in dashboard_js
+    assert "openUnitDialog" in dashboard_js
+    assert "openAccountDialog" in dashboard_js
+    assert "/api/v1/admin/accounts/unit-user" in dashboard_js
+    assert "/api/v1/admin/accounts/admin" in dashboard_js
+    assert "can_manage_accounts" in dashboard_js
     assert 'method: "POST"' in dashboard_js
     assert '"/api/v1/admin/products"' in dashboard_js
     assert "保存并继续添加" in dashboard_js

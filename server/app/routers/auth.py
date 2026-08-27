@@ -59,6 +59,12 @@ def public_user(user: dict, unit: dict | None = None) -> dict:
         "default_delivery_point": unit["default_delivery_point"] if unit else "",
         "active": bool(user["active"]),
         "must_change_password": bool(user["must_change_password"]),
+        "can_manage_accounts": bool(user.get("can_manage_accounts", 0)),
+        "can_issue_manager_invites": bool(user.get("can_issue_manager_invites", 0)),
+        "can_view_system_status": bool(user.get("can_view_system_status", 0)),
+        "can_view_detailed_metrics": bool(user.get("can_view_detailed_metrics", 0)),
+        "can_manage_backups": bool(user.get("can_manage_backups", 0)),
+        "can_restore_backups": bool(user.get("can_restore_backups", 0)),
     }
 
 

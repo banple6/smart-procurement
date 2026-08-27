@@ -1,15 +1,141 @@
+import json
 import os
+import re
+import sqlite3
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..database import all_rows, connect, one, revoke_unit_sessions, revoke_user_sessions, transaction, write_audit
-from ..dependencies import require_admin_user, require_manage_backups
+from ..dependencies import require_admin_user
 from ..registration import generate_invite_token, invite_hash, masked_phone, phone_hash
-from ..schemas import AdminInviteCreate, ManagerRegistrationReview, ResetPasswordRequest, StatusPatch, UnitCreate, UnitUpdate, UserCreate, UserUpdate
+from .auth import validate_new_password, validate_username
+from ..schemas import (
+    AdminInviteCreate,
+    AdminUserCreate,
+    ManagerRegistrationReview,
+    ResetPasswordRequest,
+    StatusPatch,
+    UnitCreate,
+    UnitUpdate,
+    UnitUserCreate,
+    UserCreate,
+    UserPermissionsUpdate,
+    UserUpdate,
+)
 from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+PERMISSION_FIELDS = (
+    "can_manage_accounts",
+    "can_issue_manager_invites",
+    "can_view_system_status",
+    "can_view_detailed_metrics",
+    "can_manage_backups",
+    "can_restore_backups",
+)
+UNIT_CODE_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def require_manage_accounts(admin=Depends(require_admin_user)):
+    if not bool(admin.get("can_manage_accounts", 0)):
+        raise HTTPException(status_code=403, detail="当前账号无权管理组织和账号")
+    return admin
+
+
+def _required_text(value: str, label: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail=f"{label}不能为空")
+    return normalized
+
+
+def _unit_payload(body: UnitCreate | UnitUpdate, partial: bool = False) -> dict:
+    raw = body.model_dump(exclude_unset=partial)
+    fields = {}
+    if "unit_code" in raw:
+        unit_code = _required_text(raw["unit_code"], "单位编码")
+        if not UNIT_CODE_RE.fullmatch(unit_code):
+            raise HTTPException(status_code=400, detail="单位编码只能包含字母、数字、横线或下划线")
+        fields["unit_code"] = unit_code
+    if "unit_name" in raw:
+        fields["unit_name"] = _required_text(raw["unit_name"], "单位名称")
+    for field in ("default_delivery_point", "address_note"):
+        if field in raw:
+            fields[field] = (raw[field] or "").strip()
+    if "active" in raw:
+        fields["active"] = int(bool(raw["active"]))
+    return fields
+
+
+def _safe_unit_payload(row: dict) -> dict:
+    return {
+        "unit_code": row.get("unit_code", ""),
+        "unit_name": row.get("unit_name", ""),
+        "default_delivery_point": row.get("default_delivery_point", ""),
+        "address_note": row.get("address_note", ""),
+        "active": bool(row.get("active", 0)),
+    }
+
+
+def _safe_user_payload(row: dict) -> dict:
+    return {
+        "username": row.get("username", ""),
+        "display_name": row.get("display_name", ""),
+        "role": row.get("role", ""),
+        "unit_id": row.get("unit_id") or "",
+        "active": bool(row.get("active", 0)),
+        "must_change_password": bool(row.get("must_change_password", 0)),
+        **{field: bool(row.get(field, 0)) for field in PERMISSION_FIELDS},
+    }
+
+
+def _public_user(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "display_name": row["display_name"],
+        "role": row["role"],
+        "unit_id": row.get("unit_id") or "",
+        "unit_name": row.get("unit_name") or "",
+        "unit_code": row.get("unit_code") or "",
+        "active": bool(row["active"]),
+        "must_change_password": bool(row["must_change_password"]),
+        "last_login_at": row.get("last_login_at") or "",
+        "created_at": row.get("created_at") or "",
+        "updated_at": row.get("updated_at") or "",
+        **{field: bool(row.get(field, 0)) for field in PERMISSION_FIELDS},
+    }
+
+
+def _user_row(conn, user_id: str) -> dict | None:
+    return one(
+        conn,
+        """
+        SELECT u.*, units.unit_name, units.unit_code
+        FROM users u
+        LEFT JOIN units ON units.id = u.unit_id
+        WHERE u.id = ?
+        """,
+        (user_id,),
+    )
+
+
+def _active_account_manager_count(conn) -> int:
+    return one(
+        conn,
+        "SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND active = 1 AND can_manage_accounts = 1",
+    )["count"]
+
+
+def _raise_unique_error(error: sqlite3.IntegrityError, kind: str):
+    message = str(error).lower()
+    if "units.unit_code" in message:
+        raise HTTPException(status_code=409, detail="单位编码已存在，请更换后重试") from None
+    if "users.username" in message:
+        raise HTTPException(status_code=409, detail="账号已存在") from None
+    raise error
 
 
 @router.get("/units")
@@ -29,90 +155,186 @@ def list_units(admin=Depends(require_admin_user)):
 
 
 @router.post("/units")
-def create_unit(body: UnitCreate, admin=Depends(require_admin_user)):
+def create_unit(body: UnitCreate, admin=Depends(require_manage_accounts)):
+    fields = _unit_payload(body)
     unit_id = str(uuid4())
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO units(id, unit_code, unit_name, default_delivery_point, address_note) VALUES (?, ?, ?, ?, ?)",
-            (unit_id, body.unit_code, body.unit_name, body.default_delivery_point, body.address_note),
-        )
-        conn.commit()
-        return one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+    try:
+        with transaction() as conn:
+            conn.execute(
+                "INSERT INTO units(id, unit_code, unit_name, default_delivery_point, address_note, active) VALUES (?, ?, ?, ?, ?, 1)",
+                (unit_id, fields["unit_code"], fields["unit_name"], fields.get("default_delivery_point", ""), fields.get("address_note", "")),
+            )
+            row = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+            write_audit(conn, admin["id"], admin["role"], "UNIT_CREATED", "unit", unit_id, after_json=json.dumps(_safe_unit_payload(row), ensure_ascii=False))
+            return row
+    except sqlite3.IntegrityError as error:
+        _raise_unique_error(error, "unit")
 
 
 @router.put("/units/{unit_id}")
-def update_unit(unit_id: str, body: UnitUpdate, admin=Depends(require_admin_user)):
-    fields = body.model_dump(exclude_unset=True)
+def update_unit(unit_id: str, body: UnitUpdate, admin=Depends(require_manage_accounts)):
+    fields = _unit_payload(body, partial=True)
     if not fields:
         raise HTTPException(status_code=400, detail="请填写需要保存的内容")
     assignments = ", ".join(f"{key} = ?" for key in fields)
-    values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
-    with connect() as conn:
-        conn.execute(f"UPDATE units SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*values, unit_id))
-        conn.commit()
-        return one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+    try:
+        with transaction() as conn:
+            before = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+            if not before:
+                raise HTTPException(status_code=404, detail="子单位不存在")
+            conn.execute(f"UPDATE units SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*fields.values(), unit_id))
+            if not bool(fields.get("active", before["active"])):
+                revoke_unit_sessions(conn, unit_id)
+            row = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+            status_changed = "active" in fields and bool(before["active"]) != bool(row["active"])
+            write_audit(
+                conn,
+                admin["id"],
+                admin["role"],
+                ("UNIT_ENABLED" if row["active"] else "UNIT_DISABLED") if status_changed else "UNIT_UPDATED",
+                "unit",
+                unit_id,
+                before_json=json.dumps(_safe_unit_payload(before), ensure_ascii=False),
+                after_json=json.dumps(_safe_unit_payload(row), ensure_ascii=False),
+            )
+            return row
+    except sqlite3.IntegrityError as error:
+        _raise_unique_error(error, "unit")
 
 
 @router.patch("/units/{unit_id}/status")
-def update_unit_status(unit_id: str, body: StatusPatch, admin=Depends(require_admin_user)):
-    with connect() as conn:
+def update_unit_status(unit_id: str, body: StatusPatch, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        before = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+        if not before:
+            raise HTTPException(status_code=404, detail="子单位不存在")
         conn.execute("UPDATE units SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (int(body.active), unit_id))
         if not body.active:
             revoke_unit_sessions(conn, unit_id)
-        conn.commit()
-        return one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+        row = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "UNIT_ENABLED" if body.active else "UNIT_DISABLED",
+            "unit",
+            unit_id,
+            before_json=json.dumps(_safe_unit_payload(before), ensure_ascii=False),
+            after_json=json.dumps(_safe_unit_payload(row), ensure_ascii=False),
+        )
+        return row
 
 
 @router.get("/users")
-def list_users(admin=Depends(require_admin_user)):
+def list_users(unit_id: str | None = None, admin=Depends(require_admin_user)):
     with connect() as conn:
+        where = "WHERE u.unit_id = ?" if unit_id else ""
+        params = (unit_id,) if unit_id else ()
         return all_rows(
             conn,
-            """
-            SELECT u.id, u.username, u.display_name, u.role, u.unit_id, units.unit_name,
-              u.active, u.must_change_password, u.last_login_at, u.created_at, u.updated_at
+            f"""
+            SELECT u.id, u.username, u.display_name, u.role, u.unit_id, units.unit_name, units.unit_code,
+              u.active, u.must_change_password, u.last_login_at, u.created_at, u.updated_at,
+              u.can_manage_accounts, u.can_issue_manager_invites, u.can_view_system_status,
+              u.can_view_detailed_metrics, u.can_manage_backups, u.can_restore_backups
             FROM users u
             LEFT JOIN units ON units.id = u.unit_id
+            {where}
             ORDER BY u.created_at DESC
             """,
+            params,
         )
 
 
 @router.post("/users")
-def create_user(body: UserCreate, admin=Depends(require_admin_user)):
+def create_user(body: UserCreate, admin=Depends(require_manage_accounts)):
+    """Compatibility endpoint for existing clients; new Web flows use fixed-role endpoints below."""
     if body.role not in ("admin", "unit_user"):
         raise HTTPException(status_code=400, detail="账号角色不正确")
-    if body.role == "unit_user" and not body.unit_id:
+    return _create_account(
+        username=body.username,
+        password=body.password,
+        display_name=body.display_name,
+        role=body.role,
+        unit_id=body.unit_id,
+        must_change_password=body.must_change_password,
+        permissions={},
+        admin=admin,
+    )
+
+
+def _create_account(*, username: str, password: str, display_name: str, role: str, unit_id: str | None, must_change_password: bool, permissions: dict, admin: dict):
+    normalized_username = (username or "").strip()
+    validate_username(normalized_username)
+    validate_new_password(normalized_username, password)
+    normalized_display_name = _required_text(display_name, "显示名称")
+    if role == "unit_user" and not unit_id:
         raise HTTPException(status_code=400, detail="请选择所属单位")
     user_id = str(uuid4())
-    with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO users(
-              id, username, password_hash, display_name, role, unit_id, must_change_password,
-              can_manage_accounts, can_issue_manager_invites, can_view_system_status,
-              can_view_detailed_metrics, can_manage_backups, can_restore_backups
+    try:
+        with transaction() as conn:
+            if role == "unit_user":
+                unit = one(conn, "SELECT * FROM units WHERE id = ?", (unit_id,))
+                if not unit or not unit["active"]:
+                    raise HTTPException(status_code=400, detail="所属单位不可用")
+            values = {field: int(bool(permissions.get(field, False))) if role == "admin" else 0 for field in PERMISSION_FIELDS}
+            conn.execute(
+                """
+                INSERT INTO users(
+                  id, username, password_hash, display_name, role, unit_id, active, must_change_password,
+                  can_manage_accounts, can_issue_manager_invites, can_view_system_status,
+                  can_view_detailed_metrics, can_manage_backups, can_restore_backups
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    user_id, normalized_username, hash_password(password), normalized_display_name, role,
+                    unit_id if role == "unit_user" else None, int(bool(must_change_password)),
+                    *(values[field] for field in PERMISSION_FIELDS),
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
+            row = _user_row(conn, user_id)
+            write_audit(
+                conn,
+                admin["id"],
+                admin["role"],
+                "ADMIN_CREATED" if role == "admin" else "USER_CREATED",
+                "user",
                 user_id,
-                body.username,
-                hash_password(body.password),
-                body.display_name,
-                body.role,
-                body.unit_id,
-                int(body.must_change_password),
-                1 if body.role == "admin" else 0,
-                1 if body.role == "admin" else 0,
-                1 if body.role == "admin" else 0,
-                1 if body.role == "admin" else 0,
-                1 if body.role == "admin" else 0,
-                1 if body.role == "admin" else 0,
-            ),
-        )
-        conn.commit()
-        return one(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password FROM users WHERE id = ?", (user_id,))
+                after_json=json.dumps(_safe_user_payload(row), ensure_ascii=False),
+            )
+            return _public_user(row)
+    except sqlite3.IntegrityError as error:
+        _raise_unique_error(error, "user")
+
+
+@router.post("/accounts/unit-user")
+def create_unit_user_account(body: UnitUserCreate, admin=Depends(require_manage_accounts)):
+    return _create_account(
+        username=body.username,
+        password=body.password,
+        display_name=body.display_name,
+        role="unit_user",
+        unit_id=body.unit_id,
+        must_change_password=True,
+        permissions={},
+        admin=admin,
+    )
+
+
+@router.post("/accounts/admin")
+def create_admin_account(body: AdminUserCreate, admin=Depends(require_manage_accounts)):
+    permissions = {field: bool(getattr(body, field)) for field in PERMISSION_FIELDS}
+    return _create_account(
+        username=body.username,
+        password=body.password,
+        display_name=body.display_name,
+        role="admin",
+        unit_id=None,
+        must_change_password=True,
+        permissions=permissions,
+        admin=admin,
+    )
 
 
 @router.post("/invites")
@@ -178,12 +400,6 @@ def create_registration_invite(body: AdminInviteCreate, admin=Depends(require_ad
             "qr_payload": f"jingrongxianpei://invite?token={token}",
             "notice": "该邀请码关闭后不再完整显示，请立即复制。",
         }
-
-
-def require_manage_accounts(admin=Depends(require_admin_user)):
-    if not bool(admin.get("can_manage_accounts", 0)):
-        raise HTTPException(status_code=403, detail="当前账号无权审批管理者申请")
-    return admin
 
 
 @router.get("/manager-registration-requests")
@@ -289,38 +505,145 @@ def revoke_registration_invite(invite_id: str, admin=Depends(require_admin_user)
     return {"ok": True, "id": invite_id, "status": "revoked"}
 
 
-@router.put("/users/{user_id}")
-def update_user(user_id: str, body: UserUpdate, admin=Depends(require_admin_user)):
+def _update_user_profile(user_id: str, body: UserUpdate, admin: dict) -> dict:
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         raise HTTPException(status_code=400, detail="请填写需要保存的内容")
-    assignments = ", ".join(f"{key} = ?" for key in fields)
-    values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
-    with connect() as conn:
+    if "display_name" in fields:
+        fields["display_name"] = _required_text(fields["display_name"], "显示名称")
+    with transaction() as conn:
+        before = _user_row(conn, user_id)
+        if not before:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        if "unit_id" in fields:
+            if before["role"] != "unit_user":
+                raise HTTPException(status_code=400, detail="管理员账号不能绑定子单位")
+            unit = one(conn, "SELECT * FROM units WHERE id = ?", (fields["unit_id"],)) if fields["unit_id"] else None
+            if not unit or not unit["active"]:
+                raise HTTPException(status_code=400, detail="所属单位不可用")
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
         conn.execute(f"UPDATE users SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*values, user_id))
         if {"unit_id", "must_change_password"} & set(fields):
             revoke_user_sessions(conn, user_id)
-        conn.commit()
-        return one(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password FROM users WHERE id = ?", (user_id,))
+        row = _user_row(conn, user_id)
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "USER_UPDATED",
+            "user",
+            user_id,
+            before_json=json.dumps(_safe_user_payload(before), ensure_ascii=False),
+            after_json=json.dumps(_safe_user_payload(row), ensure_ascii=False),
+        )
+        return _public_user(row)
+
+
+@router.put("/users/{user_id}")
+def update_user(user_id: str, body: UserUpdate, admin=Depends(require_manage_accounts)):
+    return _update_user_profile(user_id, body, admin)
+
+
+@router.put("/accounts/{user_id}")
+def update_account(user_id: str, body: UserUpdate, admin=Depends(require_manage_accounts)):
+    return _update_user_profile(user_id, body, admin)
+
+
+def _reset_password(user_id: str, body: ResetPasswordRequest, admin: dict) -> dict:
+    with transaction() as conn:
+        target = _user_row(conn, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        validate_new_password(target["username"], body.new_password)
+        conn.execute(
+            "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (hash_password(body.new_password), user_id),
+        )
+        revoke_user_sessions(conn, user_id)
+        row = _user_row(conn, user_id)
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "USER_PASSWORD_RESET",
+            "user",
+            user_id,
+            before_json=json.dumps(_safe_user_payload(target), ensure_ascii=False),
+            after_json=json.dumps(_safe_user_payload(row), ensure_ascii=False),
+        )
+        return {"ok": True, "user": _public_user(row)}
 
 
 @router.post("/users/{user_id}/reset-password")
-def reset_password(user_id: str, body: ResetPasswordRequest, admin=Depends(require_admin_user)):
-    with connect() as conn:
-        conn.execute(
-            "UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (hash_password(body.new_password), int(body.must_change_password), user_id),
-        )
-        revoke_user_sessions(conn, user_id)
-        conn.commit()
-        return {"ok": True}
+def reset_password(user_id: str, body: ResetPasswordRequest, admin=Depends(require_manage_accounts)):
+    return _reset_password(user_id, body, admin)
 
 
-@router.patch("/users/{user_id}/status")
-def update_user_status(user_id: str, body: StatusPatch, admin=Depends(require_admin_user)):
-    with connect() as conn:
+@router.post("/accounts/{user_id}/reset-password")
+def reset_account_password(user_id: str, body: ResetPasswordRequest, admin=Depends(require_manage_accounts)):
+    return _reset_password(user_id, body, admin)
+
+
+def _set_user_status(user_id: str, body: StatusPatch, admin: dict) -> dict:
+    with transaction() as conn:
+        target = _user_row(conn, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        if not body.active and user_id == admin["id"]:
+            raise HTTPException(status_code=400, detail="不能停用当前登录账号")
+        if not body.active and target["role"] == "admin" and bool(target.get("can_manage_accounts", 0)) and _active_account_manager_count(conn) <= 1:
+            raise HTTPException(status_code=409, detail="不能停用最后一个账号管理员")
         conn.execute("UPDATE users SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (int(body.active), user_id))
         if not body.active:
             revoke_user_sessions(conn, user_id)
-        conn.commit()
-        return one(conn, "SELECT id, username, display_name, role, unit_id, active, must_change_password FROM users WHERE id = ?", (user_id,))
+        row = _user_row(conn, user_id)
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "USER_ENABLED" if body.active else "USER_DISABLED",
+            "user",
+            user_id,
+            before_json=json.dumps(_safe_user_payload(target), ensure_ascii=False),
+            after_json=json.dumps(_safe_user_payload(row), ensure_ascii=False),
+        )
+        return _public_user(row)
+
+
+@router.patch("/users/{user_id}/status")
+def update_user_status(user_id: str, body: StatusPatch, admin=Depends(require_manage_accounts)):
+    return _set_user_status(user_id, body, admin)
+
+
+@router.patch("/accounts/{user_id}/status")
+def update_account_status(user_id: str, body: StatusPatch, admin=Depends(require_manage_accounts)):
+    return _set_user_status(user_id, body, admin)
+
+
+@router.patch("/accounts/{user_id}/permissions")
+def update_account_permissions(user_id: str, body: UserPermissionsUpdate, admin=Depends(require_manage_accounts)):
+    fields = {field: int(bool(getattr(body, field))) for field in PERMISSION_FIELDS}
+    with transaction() as conn:
+        target = _user_row(conn, user_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        if target["role"] != "admin":
+            raise HTTPException(status_code=400, detail="子单位账号不支持管理员权限设置")
+        removing_last_manager = bool(target.get("active", 0)) and bool(target.get("can_manage_accounts", 0)) and not bool(fields["can_manage_accounts"])
+        if removing_last_manager and _active_account_manager_count(conn) <= 1:
+            raise HTTPException(status_code=409, detail="不能移除最后一个账号管理员权限")
+        assignments = ", ".join(f"{field} = ?" for field in PERMISSION_FIELDS)
+        conn.execute(f"UPDATE users SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*(fields[field] for field in PERMISSION_FIELDS), user_id))
+        row = _user_row(conn, user_id)
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "USER_PERMISSIONS_UPDATED",
+            "user",
+            user_id,
+            before_json=json.dumps(_safe_user_payload(target), ensure_ascii=False),
+            after_json=json.dumps(_safe_user_payload(row), ensure_ascii=False),
+        )
+        return _public_user(row)
