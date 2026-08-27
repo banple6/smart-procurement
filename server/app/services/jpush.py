@@ -106,7 +106,11 @@ class JPushClient:
                     "extras": {
                         "event_id": event_id,
                         "event_type": event_type,
+                        "entity_type": str(details.get("entity_type") or "order"),
+                        "entity_id": str(details.get("entity_id") or order_id),
                         "order_id": order_id,
+                        "version": str(details.get("version") or ""),
+                        "occurred_at": str(details.get("occurred_at") or ""),
                     },
                 }
             },

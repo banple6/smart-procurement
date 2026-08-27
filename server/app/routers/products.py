@@ -102,6 +102,21 @@ def ensure_expected_product_version(existing: dict, expected_version: int | None
         raise HTTPException(status_code=409, detail="食材信息已被其他操作员更新，请刷新后重试")
 
 
+def update_current_product(conn, assignments: str, values: list, product_id: str, expected_version: int | None) -> None:
+    """Apply a product mutation only to the revision the caller reviewed."""
+    where = "id = ?"
+    params = [*values, product_id]
+    if expected_version is not None:
+        where += " AND version = ?"
+        params.append(expected_version)
+    cursor = conn.execute(
+        f"UPDATE products SET {assignments}, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE {where}",
+        params,
+    )
+    if cursor.rowcount != 1:
+        raise HTTPException(status_code=409, detail="食材信息已被其他操作员更新，请刷新后重试")
+
+
 def ensure_can_supply(price_cents: int, supply_status: str, active: bool):
     if active and supply_status in ("normal", "tight") and price_cents <= 0:
         raise HTTPException(status_code=400, detail="请先填写商品价格")
@@ -216,7 +231,7 @@ def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
     fields["spec"] = resolve_product_spec(fields["unit"], fields.get("spec"))
     validate_product_payload(fields)
     product_id = str(uuid4())
-    with connect() as conn:
+    with transaction() as conn:
         conn.execute(
             """
             INSERT INTO products(id, product_code, name, category, spec, unit, price_cents, stock_quantity,
@@ -235,7 +250,6 @@ def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
             "INSERT INTO product_price_logs(id, product_id, old_price_cents, new_price_cents, actor_id) VALUES (?, ?, NULL, ?, ?)",
             (str(uuid4()), product_id, fields["price_cents"], admin["id"]),
         )
-        conn.commit()
         invalidate_dashboard_cache()
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 
@@ -244,7 +258,7 @@ def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
 def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_admin_user)):
     fields = body.model_dump(exclude_unset=True)
     expected_version = fields.pop("expected_version", None)
-    with connect() as conn:
+    with transaction() as conn:
         existing = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
         if not existing:
             raise HTTPException(status_code=404, detail="食材不存在")
@@ -256,7 +270,7 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
         if fields:
             assignments = ", ".join(f"{key} = ?" for key in fields)
             values = [int(v) if isinstance(v, bool) else v for v in fields.values()]
-            conn.execute(f"UPDATE products SET {assignments}, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (*values, product_id))
+            update_current_product(conn, assignments, values, product_id, expected_version)
         if "price_cents" in fields and fields["price_cents"] != existing["price_cents"]:
             conn.execute(
                 "INSERT INTO product_price_logs(id, product_id, old_price_cents, new_price_cents, actor_id) VALUES (?, ?, ?, ?, ?)",
@@ -265,7 +279,6 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
         if "stock_quantity" in fields and fields["stock_quantity"] != existing["stock_quantity"]:
             delta = as_decimal(fields["stock_quantity"]) - as_decimal(existing["stock_quantity"])
             log_inventory(conn, product_id, None, "admin_adjust", delta, admin["id"], "编辑食材库存")
-        conn.commit()
         invalidate_dashboard_cache()
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 
@@ -274,9 +287,8 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
 async def upload_image(product_id: str, file: UploadFile, admin=Depends(require_admin_user)):
     max_mb = int(os.getenv("MAX_UPLOAD_MB", "5"))
     path = await save_upload(file, max_mb=max_mb)
-    with connect() as conn:
+    with transaction() as conn:
         conn.execute("UPDATE products SET image_path = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (path, product_id))
-        conn.commit()
         invalidate_dashboard_cache()
         return {"image_path": path}
 
@@ -291,18 +303,20 @@ def patch_status(product_id: str, body: ProductStatusPatch, admin=Depends(requir
             raise HTTPException(status_code=404, detail="食材不存在")
         ensure_expected_product_version(existing, body.expected_version)
         ensure_can_supply(int(existing["price_cents"]), body.supply_status, body.active)
-        conn.execute(
-            "UPDATE products SET supply_status = ?, active = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (body.supply_status, int(body.active), product_id),
+        update_current_product(
+            conn,
+            "supply_status = ?, active = ?",
+            [body.supply_status, int(body.active)],
+            product_id,
+            body.expected_version,
         )
-        conn.commit()
         invalidate_dashboard_cache()
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 
 
 @router.post("/admin/products/{product_id}/restore")
 def restore_product(product_id: str, admin=Depends(require_admin_user)):
-    with connect() as conn:
+    with transaction() as conn:
         existing = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
         if not existing:
             raise HTTPException(status_code=404, detail="食材不存在")
@@ -324,15 +338,11 @@ def patch_price(product_id: str, body: ProductPricePatch, admin=Depends(require_
             raise HTTPException(status_code=404, detail="食材不存在")
         ensure_expected_product_version(existing, body.expected_version)
         if body.price_cents != existing["price_cents"]:
-            conn.execute(
-                "UPDATE products SET price_cents = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (body.price_cents, product_id),
-            )
+            update_current_product(conn, "price_cents = ?", [body.price_cents], product_id, body.expected_version)
             conn.execute(
                 "INSERT INTO product_price_logs(id, product_id, old_price_cents, new_price_cents, actor_id) VALUES (?, ?, ?, ?, ?)",
                 (str(uuid4()), product_id, existing["price_cents"], body.price_cents, admin["id"]),
             )
-            conn.commit()
             invalidate_dashboard_cache()
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 
@@ -340,7 +350,7 @@ def patch_price(product_id: str, body: ProductPricePatch, admin=Depends(require_
 @router.patch("/admin/products/{product_id}/stock")
 def patch_stock(product_id: str, body: ProductStockPatch, admin=Depends(require_admin_user)):
     new_stock = as_decimal(body.stock_quantity)
-    with connect() as conn:
+    with transaction() as conn:
         existing = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
         if not existing:
             raise HTTPException(status_code=404, detail="食材不存在")
@@ -349,12 +359,8 @@ def patch_stock(product_id: str, body: ProductStockPatch, admin=Depends(require_
         if new_stock < reserved:
             raise HTTPException(status_code=409, detail="库存不能小于已预占库存")
         delta = new_stock - as_decimal(existing["stock_quantity"])
-        conn.execute(
-            "UPDATE products SET stock_quantity = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (decimal_text(new_stock), product_id),
-        )
+        update_current_product(conn, "stock_quantity = ?", [decimal_text(new_stock)], product_id, body.expected_version)
         log_inventory(conn, product_id, None, "admin_adjust", delta, admin["id"], body.detail)
-        conn.commit()
         invalidate_dashboard_cache()
         return product_out(one(conn, "SELECT * FROM products WHERE id = ?", (product_id,)))
 

@@ -1520,8 +1520,8 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     combined_dashboard_source = dashboard_html + dashboard_js
     assert "http://" not in combined_dashboard_source
     assert "https://" not in combined_dashboard_source
-    assert '/admin-assets/dashboard.css?v=0.3.6.0' in dashboard_html
-    assert '/admin-assets/dashboard.js?v=0.3.6.0' in dashboard_html
+    assert '/admin-assets/dashboard.css?v=0.3.7.0' in dashboard_html
+    assert '/admin-assets/dashboard.js?v=0.3.7.0' in dashboard_html
     assert 'const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";' in dashboard_js
     assert 'window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"' in dashboard_js
     assert "window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed))" in dashboard_js
@@ -1740,7 +1740,13 @@ def test_order_transactions_enqueue_uuid_push_events_without_sensitive_payload(t
     assert created_event["recipient_unit_id"] is None
     assert str(UUID(created_event["event_id"])) == created_event["event_id"]
     payload = json.loads(created_event["payload_json"])
-    assert payload == {"order_id": order["id"], "order_no": order["order_no"]}
+    assert payload["event_type"] == "ORDER_CREATED"
+    assert payload["entity_type"] == "order"
+    assert payload["entity_id"] == order["id"]
+    assert payload["order_id"] == order["id"]
+    assert payload["order_no"] == order["order_no"]
+    assert payload["version"] == 1
+    assert payload["occurred_at"]
     assert "不要进入推送" not in created_event["payload_json"]
 
     accepted = client.patch(
@@ -1750,19 +1756,23 @@ def test_order_transactions_enqueue_uuid_push_events_without_sensitive_payload(t
     )
     assert accepted.status_code == 200, accepted.text
     with connect() as conn:
-        status_event = one(
+        status_events = all_rows(
             conn,
-            "SELECT * FROM push_outbox WHERE order_id = ? AND event_type = 'ORDER_STATUS_CHANGED'",
+            "SELECT * FROM push_outbox WHERE order_id = ? AND event_type = 'ORDER_STATUS_CHANGED' ORDER BY id",
             (order["id"],),
         )
-    assert status_event
-    assert status_event["recipient_scope"] == "unit"
-    assert status_event["recipient_unit_id"] == unit_id
-    assert json.loads(status_event["payload_json"]) == {
-        "order_id": order["id"],
-        "order_no": order["order_no"],
-        "status": "preparing",
-    }
+    assert [event["recipient_scope"] for event in status_events] == ["unit", "admins"]
+    assert status_events[0]["recipient_unit_id"] == unit_id
+    for status_event in status_events:
+        payload = json.loads(status_event["payload_json"])
+        assert payload["event_type"] == "ORDER_STATUS_CHANGED"
+        assert payload["entity_type"] == "order"
+        assert payload["entity_id"] == order["id"]
+        assert payload["order_id"] == order["id"]
+        assert payload["order_no"] == order["order_no"]
+        assert payload["status"] == "preparing"
+        assert payload["version"] == accepted.json()["version"]
+        assert payload["occurred_at"]
 
 
 def test_web_qr_login_is_bound_one_time_and_routes_by_server_role(tmp_path):

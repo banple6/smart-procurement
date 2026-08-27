@@ -94,15 +94,31 @@ def release_product(
 
 
 def complete_product(conn, product_id: str, quantity: Decimal, order_id: str, actor_id: str):
-    product = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
-    if not product:
-        raise HTTPException(status_code=404, detail="食材不存在")
-    new_stock = as_decimal(product["stock_quantity"]) - quantity
-    new_reserved = as_decimal(product["reserved_quantity"]) - quantity
-    if new_stock < 0 or new_reserved < 0:
-        raise HTTPException(status_code=409, detail="库存不足，请减少数量")
-    conn.execute(
-        "UPDATE products SET stock_quantity = ?, reserved_quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (decimal_text(new_stock), decimal_text(new_reserved), product_id),
+    # Keep the stock transition in SQLite.  A caller always owns a business
+    # transaction, so this conditional update cannot lose a concurrent stock
+    # reservation or let either quantity become negative.
+    cursor = conn.execute(
+        """
+        UPDATE products
+        SET stock_quantity = decimal_sub(stock_quantity, ?),
+            reserved_quantity = decimal_sub(reserved_quantity, ?),
+            version = version + 1,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+          AND CAST(stock_quantity AS REAL) >= CAST(? AS REAL)
+          AND CAST(reserved_quantity AS REAL) >= CAST(? AS REAL)
+        """,
+        (
+            decimal_text(quantity),
+            decimal_text(quantity),
+            product_id,
+            decimal_text(quantity),
+            decimal_text(quantity),
+        ),
     )
+    if cursor.rowcount != 1:
+        product = one(conn, "SELECT id FROM products WHERE id = ?", (product_id,))
+        if not product:
+            raise HTTPException(status_code=404, detail="食材不存在")
+        raise HTTPException(status_code=409, detail="库存不足，请减少数量")
     log_inventory(conn, product_id, order_id, "order_complete", quantity, actor_id)

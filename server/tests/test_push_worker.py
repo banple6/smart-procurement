@@ -98,7 +98,17 @@ def test_jpush_client_uses_registration_id_and_reports_provider_acceptance():
     android = captured["payload"]["notification"]["android"]
     assert android["channel_id"] == "new_orders"
     assert android["title"] == "三公鲜配 · 新订单"
-    assert set(android["extras"]) == {"event_id", "event_type", "order_id"}
+    assert set(android["extras"]) == {
+        "event_id",
+        "event_type",
+        "entity_type",
+        "entity_id",
+        "order_id",
+        "version",
+        "occurred_at",
+    }
+    assert android["extras"]["entity_type"] == "order"
+    assert android["extras"]["entity_id"] == android["extras"]["order_id"]
     assert "test-master-secret" not in json.dumps(captured["payload"])
 
 

@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
 from fastapi.testclient import TestClient
@@ -642,3 +643,35 @@ def test_isolated_database_integrity_after_new_business_operations(tmp_path):
         assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_product_price_expected_version_prevents_concurrent_overwrite(tmp_path):
+    client_a = make_client(tmp_path)
+    headers_a = login(client_a, "root_admin", "StrongPassword123")
+    product = create_product(client_a, headers_a, code="SYNC-PRICE-001", name="同步价格食材")
+
+    from app.main import app
+
+    client_b = TestClient(app)
+    headers_b = login(client_b, "root_admin", "StrongPassword123")
+    version = product["version"]
+
+    def change_price(client, headers, cents):
+        return client.patch(
+            f"/api/v1/admin/products/{product['id']}/price",
+            headers=headers,
+            json={"price_cents": cents, "expected_version": version},
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda args: change_price(*args),
+                [(client_a, headers_a, 350), (client_b, headers_b, 380)],
+            )
+        )
+
+    assert sorted(response.status_code for response in responses) == [200, 409]
+    current = client_a.get(f"/api/v1/products/{product['id']}", headers=headers_a).json()
+    assert current["version"] == version + 1
+    assert current["price_cents"] in {350, 380}
