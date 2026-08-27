@@ -197,7 +197,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                         ) {
                             Icon(Icons.Default.LocalShipping, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("配送批次与备货单")
+                            Text("备货单")
                         }
                     }
                 }

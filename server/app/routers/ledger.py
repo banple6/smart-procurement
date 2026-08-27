@@ -127,7 +127,12 @@ def ledger(
         }
 
 
-def _ledger_filename(start_date: str | None, end_date: str | None, export_all: bool) -> str:
+def _ledger_filename(
+    start_date: str | None,
+    end_date: str | None,
+    export_all: bool,
+    has_non_date_filter: bool,
+) -> str:
     today = date.today().strftime("%Y%m%d")
     if export_all:
         return f"三公鲜配_采购台账_全部_{today}.xlsx"
@@ -138,7 +143,8 @@ def _ledger_filename(start_date: str | None, end_date: str | None, export_all: b
         return f"三公鲜配_采购台账_{start_date.replace('-', '')}起.xlsx"
     if end_date:
         return f"三公鲜配_采购台账_截至{end_date.replace('-', '')}.xlsx"
-    return f"三公鲜配_采购台账_{today}.xlsx"
+    scope = "当前筛选" if has_non_date_filter else "全部"
+    return f"三公鲜配_采购台账_{scope}_{today}.xlsx"
 
 
 @router.get("/ledger/export.xlsx")
@@ -160,5 +166,12 @@ def export_ledger(
     return Response(
         content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers=excel_attachment(_ledger_filename(start_date, end_date, all)),
+        headers=excel_attachment(
+            _ledger_filename(
+                start_date,
+                end_date,
+                all,
+                any((unit_id, status, product, order_no)),
+            )
+        ),
     )

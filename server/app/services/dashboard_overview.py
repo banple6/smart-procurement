@@ -248,8 +248,8 @@ def task_payload(conn, now_utc: datetime, tight_count: int, open_issues: int) ->
             "unit_label": "笔",
             "oldest_wait_seconds": wait_seconds(now_utc, oldest_timestamp(conn, ("accepted", "preparing"), "accepted_at")),
             "priority": "normal",
-            "action_label": "查看备货",
-            "target_url": "/admin/preparation-summary",
+            "action_label": "查看备货单",
+            "target_url": "/admin/batches",
         },
     ]
     return tasks

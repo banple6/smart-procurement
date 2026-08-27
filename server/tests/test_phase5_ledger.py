@@ -143,6 +143,10 @@ def test_phase5_ledger_filters_snapshots_archives_and_exports(tmp_path):
     assert {row[1] for row in worksheet_rows(all_book["订单台账"])[1:]} == {first["order_no"], second["order_no"], third["order_no"]}
     assert "全部" in unquote(all_history.headers["content-disposition"])
 
+    unfiltered = client.get("/api/v1/admin/ledger/export.xlsx", headers=headers)
+    assert unfiltered.status_code == 200, unfiltered.text
+    assert "全部" in unquote(unfiltered.headers["content-disposition"])
+
     empty_export = client.get("/api/v1/admin/ledger/export.xlsx?unit_id=does-not-exist", headers=headers)
     assert empty_export.status_code == 400
     assert empty_export.json()["detail"] == "当前筛选条件下没有可导出的采购台账"

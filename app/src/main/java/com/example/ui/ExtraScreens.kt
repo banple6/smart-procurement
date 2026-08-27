@@ -381,8 +381,8 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
             "完善单位" to listOf("进入子单位管理", "填写单位名称、编码", "设置默认配送点"),
             "创建账号" to listOf("进入账号管理", "创建子单位账号", "初始密码只告知使用人"),
             "维护食材" to listOf("进入食材列表", "维护名称、规格、价格", "核对库存和供应状态"),
-            "处理订单" to listOf("进入订单管理", "按状态接单、备货", "上传照片并确认发货"),
-            "备货配送" to listOf("查看当前备货", "查看单位配送", "导出 Excel 清单"),
+            "处理订单" to listOf("进入订单管理", "接单后按需要集中处理订单", "生成备货单并完成备货"),
+            "出库发货" to listOf("在 Web 管理端按单位生成出库单", "上传照片并确认发货", "子单位确认收货"),
             "检查系统" to listOf("进入系统状态", "确认服务和备份", "核查 Web 会话情况")
         )
     } else {
@@ -395,7 +395,9 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
             "异常说明" to listOf("数量或质量异常", "按页面提示填写说明", "等待管理员处理")
         )
     }
-    val workflowImage = if (isAdmin) R.drawable.workflow_admin_tutorial else R.drawable.workflow_unit_tutorial
+    // The archived administrator image describes the retired fulfillment flow.
+    // Keep the current administrator guide as accessible step-by-step text.
+    val workflowImage = if (isAdmin) null else R.drawable.workflow_unit_tutorial
     Scaffold(
         topBar = { GovernmentTopBar(title = "帮助与教程", onBack = { viewModel.navigateBack() }) }
     ) { padding ->
@@ -416,15 +418,17 @@ fun HelpTutorialScreen(viewModel: SupplyViewModel) {
                         if (isAdmin) "管理员公测上线操作指引" else "子单位食材申领操作指引",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    GovernmentSecondaryButton(
-                        text = if (showFullWorkflow) "收起完整流程图" else "查看完整流程图",
-                        onClick = { showFullWorkflow = !showFullWorkflow },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (showFullWorkflow) {
+                    if (workflowImage != null) {
+                        GovernmentSecondaryButton(
+                            text = if (showFullWorkflow) "收起完整流程图" else "查看完整流程图",
+                            onClick = { showFullWorkflow = !showFullWorkflow },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (showFullWorkflow && workflowImage != null) {
                         Image(
                             painter = painterResource(workflowImage),
-                            contentDescription = if (isAdmin) "管理员常用流程图" else "子单位常用流程图",
+                            contentDescription = "子单位常用流程图",
                             contentScale = ContentScale.FillWidth,
                             modifier = Modifier
                                 .fillMaxWidth()

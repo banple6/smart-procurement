@@ -101,10 +101,6 @@ def help_index():
             <a class="quick-card" href="/download"><strong>下载 App</strong><span>安装 Android App 后扫码登录网页端</span></a>
           </div>
           <div class="workflow-preview-grid" aria-label="流程图">
-            <a class="workflow-preview-card" href="/help/admin">
-              <img src="/admin-assets/workflow-admin-tutorial.png" alt="管理员常用流程图" loading="lazy" />
-              <strong>管理员使用流程图</strong>
-            </a>
             <a class="workflow-preview-card" href="/help/unit">
               <img src="/admin-assets/workflow-unit-tutorial.png" alt="子单位常用流程图" loading="lazy" />
               <strong>子单位使用流程图</strong>
@@ -123,19 +119,15 @@ def help_admin():
         """
         <section class="public-panel help-article">
           <h2>管理员常用流程</h2>
-          <figure class="workflow-figure">
-            <a href="/admin-assets/workflow-admin-tutorial.png" target="_blank" rel="noopener">
-              <img src="/admin-assets/workflow-admin-tutorial.png" alt="管理员常用流程图" loading="lazy" />
-            </a>
-            <figcaption>点击图片可打开高清大图。</figcaption>
-          </figure>
           <ol>
             <li>在“子单位管理”完善单位名称、编码和默认配送点。</li>
             <li>在“账号管理”创建子单位账号，初始密码只告知使用人。</li>
             <li>在“食材列表”维护名称、规格、价格、库存和供应状态。</li>
-            <li>在“订单管理”接单后自动进入备货，备齐后上传照片并确认发货。</li>
-            <li>在“当前备货”和“单位配送”查看待处理清单并导出 Excel。</li>
-            <li>在“系统状态”确认服务、备份和 Web 会话情况。</li>
+            <li>子单位提交订单后，在“订单管理”接单；可按需要集中处理订单。</li>
+            <li>将已接单订单生成“备货单”，按食材汇总需求并完成备货。</li>
+            <li>完成备货后按单位生成“出库单”，核对每个单位的配送需求。</li>
+            <li>发货时上传发货照片并确认发货；子单位收到食材后确认收货。</li>
+            <li>在“采购台账”按日期、单位和状态查询并导出历史记录；在“数据分析”查看采购趋势、单位需求、价格和库存情况。</li>
           </ol>
         </section>
         """,
@@ -196,6 +188,22 @@ def admin_root(request: Request):
     if isinstance(result, Response):
         return result
     return RedirectResponse("/admin/dashboard", status_code=302)
+
+
+@router.get("/admin/preparation-summary", include_in_schema=False)
+def legacy_preparation_summary(request: Request):
+    result = web_admin_user_or_response(request)
+    if isinstance(result, Response):
+        return result
+    return RedirectResponse("/admin/batches", status_code=302)
+
+
+@router.get("/admin/delivery-sheets", include_in_schema=False)
+def legacy_delivery_sheets(request: Request):
+    result = web_admin_user_or_response(request)
+    if isinstance(result, Response):
+        return result
+    return RedirectResponse("/admin/outbounds", status_code=302)
 
 
 @router.get("/admin/{path:path}", include_in_schema=False)

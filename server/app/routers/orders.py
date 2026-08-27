@@ -13,6 +13,7 @@ from ..schemas import OrderCreate, OrderLifecycleReason, OrderSoftDeleteRequest,
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
 from ..services.order_status import order_status_payload
+from ..services.outbound_reconciliation import reconcile_outbound_status_for_orders
 from ..services.push_outbox import enqueue_order_created, enqueue_order_status_changed
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 from ..services.local_time import display_local_time, local_now
@@ -849,6 +850,7 @@ async def ship_order(
             )
             updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
             enqueue_order_status_changed(conn, updated_order, "shipped")
+            reconcile_outbound_status_for_orders(conn, [order_id], admin)
             invalidate_dashboard_cache()
             return order_out(conn, updated_order, viewer=admin)
     except Exception:

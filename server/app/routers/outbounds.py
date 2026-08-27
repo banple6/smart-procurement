@@ -11,6 +11,7 @@ from ..dependencies import require_admin_user
 from ..services.batch_exports import outbound_order_workbook
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.local_time import display_local_time, local_now
+from ..services.outbound_reconciliation import FULFILLED_ORDER_STATUSES, reconcile_outbound_status_for_orders
 from ..services.push_outbox import enqueue_order_status_changed
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads
 
@@ -332,8 +333,16 @@ async def ship_outbound_order(
         if outbound["status"] != "pending":
             raise HTTPException(status_code=409, detail="当前出库单不能确认发货")
         orders = _outbound_orders(conn, outbound_id)
-        if not orders or any(order["status"] != "preparing" for order in orders):
+        if not orders or any(order["status"] not in FULFILLED_ORDER_STATUSES | {"preparing"} for order in orders):
             raise HTTPException(status_code=409, detail="出库单中的订单状态已变化，请刷新后重试")
+        if not any(order["status"] == "preparing" for order in orders):
+            with transaction() as reconcile_conn:
+                reconcile_conn.execute(
+                    "UPDATE outbound_orders SET ship_request_id = ? WHERE id = ? AND ship_request_id IS NULL",
+                    (request_id, outbound_id),
+                )
+                reconcile_outbound_status_for_orders(reconcile_conn, [order["id"] for order in orders], admin)
+                return _outbound_out(reconcile_conn, _outbound(reconcile_conn, outbound_id), include_details=True)
     processed = await process_shipping_uploads(
         uploads,
         order_no=outbound["outbound_no"],
@@ -352,9 +361,18 @@ async def ship_outbound_order(
             if current["status"] != "pending":
                 raise HTTPException(status_code=409, detail="当前出库单不能确认发货")
             orders = _outbound_orders(conn, outbound_id)
-            if not orders or any(order["status"] != "preparing" for order in orders):
+            if not orders or any(order["status"] not in FULFILLED_ORDER_STATUSES | {"preparing"} for order in orders):
                 raise HTTPException(status_code=409, detail="出库单中的订单状态已变化，请刷新后重试")
-            for order in orders:
+            preparing_orders = [order for order in orders if order["status"] == "preparing"]
+            if not preparing_orders:
+                cleanup_photos(processed)
+                conn.execute(
+                    "UPDATE outbound_orders SET ship_request_id = ? WHERE id = ? AND ship_request_id IS NULL",
+                    (request_id, outbound_id),
+                )
+                reconcile_outbound_status_for_orders(conn, [order["id"] for order in orders], admin)
+                return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
+            for order in preparing_orders:
                 for photo in processed:
                     conn.execute(
                         """
@@ -380,14 +398,10 @@ async def ship_outbound_order(
                 updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order["id"],))
                 enqueue_order_status_changed(conn, updated_order, "shipped")
             conn.execute(
-                """
-                UPDATE outbound_orders
-                SET status = 'shipped', shipped_at = CURRENT_TIMESTAMP, shipped_by = ?, ship_request_id = ?,
-                    version = version + 1, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND status = 'pending'
-                """,
-                (admin["id"], request_id, outbound_id),
+                "UPDATE outbound_orders SET ship_request_id = ? WHERE id = ? AND status = 'pending' AND ship_request_id IS NULL",
+                (request_id, outbound_id),
             )
+            reconcile_outbound_status_for_orders(conn, [order["id"] for order in orders], admin)
             write_audit(
                 conn,
                 admin["id"],

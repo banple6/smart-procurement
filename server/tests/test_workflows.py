@@ -1267,7 +1267,7 @@ def test_web_admin_pages_require_qr_session_and_logout_clears_cookie(tmp_path):
     assert client.get("/api/v1/web-auth/me").status_code == 401
 
 
-def test_public_help_pages_embed_role_workflow_tutorial_images(tmp_path):
+def test_public_help_pages_keep_only_current_role_workflow_tutorial_images(tmp_path):
     client = make_client(tmp_path)
 
     help_index = client.get("/help")
@@ -1277,12 +1277,33 @@ def test_public_help_pages_embed_role_workflow_tutorial_images(tmp_path):
     assert help_index.status_code == 200
     assert admin.status_code == 200
     assert unit.status_code == 200
-    assert "/admin-assets/workflow-admin-tutorial.png" in help_index.text
     assert "/admin-assets/workflow-unit-tutorial.png" in help_index.text
-    assert "/admin-assets/workflow-admin-tutorial.png" in admin.text
+    assert "/admin-assets/workflow-admin-tutorial.png" not in help_index.text
+    assert "/admin-assets/workflow-admin-tutorial.png" not in admin.text
     assert "/admin-assets/workflow-unit-tutorial.png" in unit.text
     assert "管理员常用流程" in admin.text
+    assert "生成“备货单”" in admin.text
+    assert "按单位生成“出库单”" in admin.text
     assert "子单位常用流程" in unit.text
+
+
+def test_legacy_admin_pages_redirect_to_current_workflow(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers, unit_headers, unit_id, _ = create_unit_user_product_order(client)
+    admin_me = client.get("/api/v1/auth/me", headers=admin_headers).json()
+    set_web_session(client, admin_me["id"], "admin")
+
+    preparation = client.get("/admin/preparation-summary", follow_redirects=False)
+    delivery = client.get("/admin/delivery-sheets", follow_redirects=False)
+
+    assert preparation.status_code == 302
+    assert preparation.headers["location"] == "/admin/batches"
+    assert delivery.status_code == 302
+    assert delivery.headers["location"] == "/admin/outbounds"
+
+    unit_me = client.get("/api/v1/auth/me", headers=unit_headers).json()
+    set_web_session(client, unit_me["id"], "unit_user", unit_id)
+    assert client.get("/admin/preparation-summary", follow_redirects=False).status_code == 403
 
 
 def test_web_qr_challenge_allows_http_public_beta_when_explicitly_enabled(tmp_path, monkeypatch):

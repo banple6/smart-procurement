@@ -191,7 +191,7 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "采购台账") { viewModel.navigateTo(Screen.Ledger) }
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
                         ProfileMenuItem(icon = Icons.Default.Description, title = "Excel 智能导入") { viewModel.navigateTo(Screen.PriceImports) }
-                        ProfileMenuItem(icon = Icons.Default.LocalShipping, title = "配送批次") { viewModel.navigateTo(Screen.DeliveryBatches) }
+                        ProfileMenuItem(icon = Icons.Default.LocalShipping, title = "备货单") { viewModel.navigateTo(Screen.DeliveryBatches) }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
                         ProfileMenuItem(
                             icon = Icons.Default.Notifications,

@@ -77,7 +77,7 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
             )
             selectedOrderIds = result.selectedOrderIds
             if (result.missingPreselectedOrder) {
-                viewModel.snackbarMessage = "订单已接单，但当前无法加入新配送批次，请刷新后检查订单状态。"
+                viewModel.snackbarMessage = "订单已接单，但当前无法加入新备货单，请刷新后检查订单状态。"
             }
         }
     }
@@ -87,7 +87,7 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
 
     Scaffold(
         topBar = {
-            BatchTopBar("配送批次", viewModel::navigateBack) { viewModel.refreshDeliveryBatches() }
+            BatchTopBar("备货单", viewModel::navigateBack) { viewModel.refreshDeliveryBatches() }
         }
     ) { padding ->
         LazyColumn(
@@ -97,17 +97,17 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
         ) {
             item {
                 BatchPanel {
-                    Text("建立本次配送范围", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("建立本次备货范围", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        "批次只包含本次明确选择的订单，不会把其他日期或配送周期的订单自动混入。",
+                        "备货单只包含本次明确选择的订单，不会把其他日期或配送周期的订单自动混入。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("批次名称（可选）") },
-                        placeholder = { Text("例如：8月21日下午配送") },
+                        label = { Text("备货单名称（可选）") },
+                        placeholder = { Text("例如：8月21日下午备货") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -141,7 +141,7 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
             }
 
             if (viewModel.eligibleBatchOrders.isEmpty()) {
-                item { BatchEmpty("暂无可加入批次的订单。订单接单后会直接进入备货状态并显示在这里。") }
+                item { BatchEmpty("暂无可加入备货单的订单。订单接单后会直接进入备货状态并显示在这里。") }
             } else {
                 items(viewModel.eligibleBatchOrders, key = { it.id }) { order ->
                     EligibleOrderRow(
@@ -169,16 +169,16 @@ fun DeliveryBatchesScreen(viewModel: SupplyViewModel, preselectOrderId: String? 
                         shape = RoundedCornerShape(8.dp),
                         enabled = selectedOrderIds.isNotEmpty() && !viewModel.isDeliveryBatchLoading
                     ) {
-                        Text(if (viewModel.isDeliveryBatchLoading) "正在创建" else "创建配送批次（${selectedOrderIds.size} 笔订单）")
+                        Text(if (viewModel.isDeliveryBatchLoading) "正在生成" else "生成备货单（${selectedOrderIds.size} 笔订单）")
                     }
                 }
             }
 
             item {
-                Text("历史配送批次", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+                Text("备货单记录", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
             }
             if (viewModel.deliveryBatches.isEmpty()) {
-                item { BatchEmpty("暂无配送批次") }
+                item { BatchEmpty("暂无备货单") }
             } else {
                 items(viewModel.deliveryBatches, key = { it.id }) { batch ->
                     DeliveryBatchRow(batch = batch, onClick = { viewModel.openDeliveryBatch(batch.id) })
@@ -203,7 +203,7 @@ fun DeliveryBatchDetailScreen(
 
     Scaffold(
         topBar = {
-            BatchTopBar("批次详情", viewModel::navigateBack) { viewModel.refreshDeliveryBatch(batchId) }
+            BatchTopBar("备货单详情", viewModel::navigateBack) { viewModel.refreshDeliveryBatch(batchId) }
         }
     ) { padding ->
         LazyColumn(
@@ -212,7 +212,7 @@ fun DeliveryBatchDetailScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (batch == null || summary == null) {
-                item { BatchEmpty(if (viewModel.isDeliveryBatchLoading) "正在加载批次汇总" else "批次数据暂不可用") }
+                item { BatchEmpty(if (viewModel.isDeliveryBatchLoading) "正在加载备货单汇总" else "备货单数据暂不可用") }
             } else {
                 item {
                     BatchPanel {
@@ -224,7 +224,7 @@ fun DeliveryBatchDetailScreen(
                             Text(batchStatusLabel(batch.status), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         }
                         Text("${summary.orderCount} 笔订单 · ${summary.unitCount} 个单位 · ${summary.productCount} 种食材")
-                        Text("批次金额：${Money.formatCents(summary.totalCents)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text("备货金额：${Money.formatCents(summary.totalCents)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         if (batch.note.isNotBlank()) Text("备注：${batch.note}", color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                         OutlinedButton(
@@ -253,26 +253,12 @@ fun DeliveryBatchDetailScreen(
                         ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.BATCH_PICKING_EXPORT)) "正在保存…" else "导出备货单") }
                         if (!canPick) Text("当前没有已接单或备货中的订单，暂不能生成备货单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-                        val canOutbound = batch.orders.any { it.status == "已发货" || it.status == "已完成" }
-                        Button(
-                            onClick = {
-                                requestWorkbookDocument(
-                                    ExternalActionType.BATCH_OUTBOUND_EXPORT,
-                                    batchId,
-                                    batchFileName("出库单", batch.batchNo)
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                            enabled = canOutbound && !viewModel.isDocumentExportBusy(ExternalActionType.BATCH_OUTBOUND_EXPORT)
-                        ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.BATCH_OUTBOUND_EXPORT)) "正在保存…" else "导出出库单") }
-                        if (!canOutbound) Text("订单确认发货后才能生成出库单。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
                         if (batch.status == "open") {
                             OutlinedButton(
                                 onClick = { showCloseConfirm = true },
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) { Text("结束本批次") }
+                            ) { Text("完成备货") }
                         }
                     }
                 }
@@ -285,15 +271,15 @@ fun DeliveryBatchDetailScreen(
                 }
 
                 if (selectedTab == 0) {
-                    if (summary.byUnit.isEmpty()) item { BatchEmpty("当前批次暂无可汇总订单") }
+                    if (summary.byUnit.isEmpty()) item { BatchEmpty("该备货单暂无可汇总订单") }
                     items(summary.byUnit, key = { it.unitId }) { unit -> BatchUnitCard(unit) }
                 } else {
-                    if (summary.byProduct.isEmpty()) item { BatchEmpty("当前批次暂无可汇总食材") }
+                    if (summary.byProduct.isEmpty()) item { BatchEmpty("该备货单暂无可汇总食材") }
                     items(summary.byProduct, key = { "${it.productId}:${it.unit}" }) { product -> BatchProductCard(product) }
                 }
 
                 item {
-                    Text("批次订单", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
+                    Text("备货单订单", fontSize = 17.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
                 }
                 items(batch.orders, key = { it.id }) { order ->
                     DeliveryBatchOrderRow(order) { viewModel.navigateTo(Screen.OrderDetails(order.id)) }
@@ -305,14 +291,14 @@ fun DeliveryBatchDetailScreen(
     if (showCloseConfirm) {
         AlertDialog(
             onDismissRequest = { showCloseConfirm = false },
-            title = { Text("确认结束这个配送批次？") },
-            text = { Text("结束后不能再调整批次订单，但已生成的汇总和单据仍可查看。") },
+            title = { Text("确认完成备货？") },
+            text = { Text("完成后不能再调整备货单中的订单，可在 Web 管理端按单位生成出库单；此操作不会自动发货。") },
             dismissButton = { TextButton(onClick = { showCloseConfirm = false }) { Text("取消") } },
             confirmButton = {
                 TextButton(onClick = {
                     showCloseConfirm = false
                     viewModel.closeDeliveryBatch(batchId)
-                }) { Text("结束批次") }
+                }) { Text("完成备货") }
             }
         )
     }
@@ -473,7 +459,7 @@ private fun BatchEmpty(message: String) {
 
 private fun batchStatusLabel(status: String): String = when (status) {
     "open" -> "进行中"
-    "closed" -> "已结束"
+    "closed" -> "已完成备货"
     "cancelled" -> "已取消"
     else -> "未知状态"
 }

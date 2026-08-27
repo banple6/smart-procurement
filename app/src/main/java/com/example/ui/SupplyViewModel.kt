@@ -1405,7 +1405,7 @@ class SupplyViewModel(
                 eligibleBatchOrders = orders
                 onSuccess(orders)
             }.onFailure {
-                snackbarMessage = it.toUserMessage("配送批次加载失败")
+                snackbarMessage = it.toUserMessage("备货单加载失败")
             }
             isDeliveryBatchLoading = false
         }
@@ -1428,14 +1428,14 @@ class SupplyViewModel(
                 createdBatchId = batch.id
                 deliveryBatches = listOf(batch) + deliveryBatches.filterNot { it.id == batch.id }
                 eligibleBatchOrders = eligibleBatchOrders.filterNot { it.id in orderIds }
-                snackbarMessage = "配送批次已创建"
+                snackbarMessage = "备货单已生成"
                 onSuccess()
                 if (navigationStack.lastOrNull() is Screen.DeliveryBatchCreate) {
                     navigationStack[navigationStack.lastIndex] = Screen.DeliveryBatches
                 }
                 navigateTo(Screen.DeliveryBatchDetail(batch.id))
             }.onFailure {
-                alertMessage = it.toUserMessage("配送批次创建失败")
+                alertMessage = it.toUserMessage("备货单生成失败")
             }
             isDeliveryBatchLoading = false
             if (createdBatchId.isNotBlank()) loadDeliveryBatch(createdBatchId, navigate = false)
@@ -1475,9 +1475,9 @@ class SupplyViewModel(
                 .onSuccess {
                     activeDeliveryBatch = it
                     deliveryBatches = deliveryBatches.map { existing -> if (existing.id == it.id) it else existing }
-                    snackbarMessage = "配送批次已结束"
+                    snackbarMessage = "备货已完成"
                 }
-                .onFailure { alertMessage = it.toUserMessage("结束配送批次失败") }
+                .onFailure { alertMessage = it.toUserMessage("完成备货失败") }
             isDeliveryBatchLoading = false
         }
     }
@@ -2188,7 +2188,7 @@ class SupplyViewModel(
                 if (event != null) {
                     adminUiEventQueue.emit(event)
                 } else if (isAcceptAction) {
-                    alertMessage = "订单已提交接单，但服务端返回的状态不允许加入配送批次，请刷新后检查订单状态。"
+                    alertMessage = "订单已提交接单，但服务端返回的状态不允许加入备货单，请刷新后检查订单状态。"
                 }
             }.onFailure {
                 alertMessage = it.toUserMessage("订单操作失败")

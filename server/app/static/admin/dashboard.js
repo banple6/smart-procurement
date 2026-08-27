@@ -26,7 +26,7 @@
     ["采购管理", [["订单管理", "/admin/orders", "□"], ["备货单", "/admin/batches", "▤"], ["出库单", "/admin/outbounds", "⇩"]]],
     ["食材管理", [["食材列表", "/admin/products", "◇"], ["Excel 智能导入", "/admin/price-imports", "¥"], ["库存记录", "/admin/inventory", "≡"]]],
     ["组织管理", [["子单位管理", "/admin/units", "⌂"], ["账号管理", "/admin/accounts", "☉"]]],
-    ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"], ["导出 Excel", "/api/v1/admin/ledger/export.xlsx", "⇩"]]],
+    ["统计报表", [["数据分析", "/admin/analytics", "▥"], ["采购台账", "/admin/ledger", "▥"]]],
     ["系统", [["下载 App", "/download", "⇩"], ["帮助中心", "/help/admin", "?"], ["网页登录记录", "/admin/web-sessions", "◉"], ["系统日志", "/admin/system-logs", "▤"], ["系统状态", "/admin/system", "●"], ["退出登录", "#logout", "↩"]]],
   ];
 
@@ -36,7 +36,7 @@
     ["食材价格维护", "/admin/products?mode=price", "快速改价和库存"],
     ["Excel 智能导入", "/admin/price-imports", "批量建立食材并同步供应商报价"],
     ["系统状态", "/admin/system", "查看服务和备份"],
-    ["导出今日台账", "/api/v1/admin/ledger/export.xlsx", "保存 Excel 台账"],
+    ["采购台账", "/admin/ledger", "按日期、单位、状态查询并导出"],
   ];
 
   const state = {
@@ -298,7 +298,7 @@
         <article class="panel table-panel"><div class="panel-header"><div><h2>库存预警</h2><p>优先显示库存不足和暂停供应</p></div><a href="/admin/products?status=tight">查看食材列表</a></div><div id="inventoryAlerts" class="inventory-list"></div></article>
       </section>
       <section class="dashboard-grid">
-        <article class="panel"><div class="panel-header"><div><h2>今日需求排行</h2><p>按实际供应数量统计</p></div><a href="/admin/preparation-summary">当前备货汇总</a></div><div id="demandRank" class="rank-list"></div></article>
+        <article class="panel"><div class="panel-header"><div><h2>今日需求排行</h2><p>按实际供应数量统计</p></div><a href="/admin/batches">查看备货单</a></div><div id="demandRank" class="rank-list"></div></article>
         <article class="panel"><div class="panel-header"><div><h2>今日单位采购情况</h2><p>按金额或订单量查看</p></div><select id="unitSort" aria-label="单位排行排序"><option value="amount">按金额</option><option value="orders">按订单量</option></select></div><div id="unitRank" class="rank-list"></div></article>
       </section>
       <section class="dashboard-grid bottom">

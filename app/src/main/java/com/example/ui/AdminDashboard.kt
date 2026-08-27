@@ -78,7 +78,7 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                         DashboardAction("Excel 智能导入", { Icon(Icons.Default.Description, contentDescription = null) }) {
                             viewModel.navigateTo(Screen.PriceImports)
                         }
-                        DashboardAction("配送批次与备货单", { Icon(Icons.Default.LocalShipping, contentDescription = null) }) {
+                        DashboardAction("备货单", { Icon(Icons.Default.LocalShipping, contentDescription = null) }) {
                             viewModel.navigateTo(Screen.DeliveryBatches)
                         }
                         DashboardAction("新增食材", { Icon(Icons.Default.Add, contentDescription = null) }) {
