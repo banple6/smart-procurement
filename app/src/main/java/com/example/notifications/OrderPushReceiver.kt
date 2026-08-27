@@ -31,6 +31,13 @@ class OrderPushReceiver : JPushMessageReceiver() {
         )
     }
 
+    override fun onNotifyMessageArrived(context: Context, message: NotificationMessage) {
+        if (parseEvent(message.notificationExtras) == null) return
+        // Notification contents only invalidate cached data.  The worker reads
+        // the committed server order before touching Room.
+        OrderSyncWorker.scheduleImmediate(context.applicationContext)
+    }
+
     private fun parseEvent(rawExtras: String?): PushEvent? {
         val json = runCatching { JSONObject(rawExtras.orEmpty()) }.getOrNull() ?: return null
         return PushDeepLinkPolicy.fromExtras(

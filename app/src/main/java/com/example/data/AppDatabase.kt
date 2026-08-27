@@ -48,7 +48,9 @@ data class ProductEntity(
     val isDeleted: Boolean = false,
     val createdBy: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    val remoteUpdatedAt: String = "",
+    val version: Int = 1
 )
 
 @Entity(tableName = "users")
@@ -149,11 +151,17 @@ interface SupplyDao {
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun getProductById(id: String): ProductEntity?
 
+    @Query("SELECT * FROM products")
+    suspend fun getAllProductsDirect(): List<ProductEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProducts(products: List<ProductEntity>)
 
     @Query("DELETE FROM products")
     suspend fun clearProducts()
+
+    @Query("DELETE FROM users")
+    suspend fun clearUsers()
 
     @Update
     suspend fun updateProduct(product: ProductEntity)
@@ -239,7 +247,7 @@ interface SupplyDao {
 
 @Database(
     entities = [ProductEntity::class, UserEntity::class, CartItemEntity::class, OrderEntity::class, OrderItemEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -256,7 +264,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "supply_procurement_database"
                 )
-                .addMigrations(MIGRATION_7_8)
+                .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
                 .build()
                 INSTANCE = instance
                 instance
@@ -268,6 +276,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE orders ADD COLUMN cancelledAt TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE orders ADD COLUMN remoteUpdatedAt TEXT NOT NULL DEFAULT ''")
                 db.execSQL("ALTER TABLE orders ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE products ADD COLUMN remoteUpdatedAt TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE products ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
             }
         }
     }

@@ -1,6 +1,9 @@
 package com.smartprocurement.internal.ui
 
 import android.app.Application
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.compose.runtime.mutableStateListOf
@@ -33,6 +36,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -145,6 +149,23 @@ class SupplyViewModel(
     private var authToken by mutableStateOf("")
     private var pendingPushEvent: PushEvent? = null
     private val adminUiEventQueue = AdminUiEventQueue()
+    private var foregroundSyncJob: Job? = null
+    private var isRefreshingOrders = false
+    private val connectivityManager = application.getSystemService(ConnectivityManager::class.java)
+    private var appInForeground = false
+    private var networkWasUnavailable = false
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onLost(network: Network) {
+            networkWasUnavailable = true
+        }
+
+        override fun onAvailable(network: Network) {
+            if (networkWasUnavailable && appInForeground && isNetworkAvailable()) {
+                networkWasUnavailable = false
+                refreshForegroundScreen()
+            }
+        }
+    }
     private data class PendingWorkbookSave(
         val uri: Uri,
         val type: ExternalActionType,
@@ -164,6 +185,7 @@ class SupplyViewModel(
     init {
         val database = AppDatabase.getDatabase(application)
         repository = SupplyRepository(database)
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
 
         viewModelScope.launch {
             sessionStore.sessionFlow.first()?.let { session ->
@@ -189,6 +211,7 @@ class SupplyViewModel(
                         failPendingWorkbookSave()
                         externalActivityState.clear()
                         sessionStore.clearSession()
+                        repository.clearSensitiveCache()
                     }
                 }
             }
@@ -578,12 +601,12 @@ class SupplyViewModel(
             result.onSuccess {
                 unbindPushDevice(authToken)
                 sessionStore.clearSession()
-                repository.clearCart()
-                repository.clearOrderCache()
+                repository.clearSensitiveCache()
                 pushPreferences.clearAccountState()
                 pushNotificationManager.stop()
                 OrderSyncWorker.cancel(getApplication())
                 PushRegistrationWorker.cancel(getApplication())
+                onAppPaused()
                 authToken = ""
                 currentUser = null
                 mustChangePassword = false
@@ -603,12 +626,12 @@ class SupplyViewModel(
                 runCatching { withContext(Dispatchers.IO) { apiClient.logout(tokenToRevoke) } }
             }
             sessionStore.clearSession()
-            repository.clearCart()
-            repository.clearOrderCache()
+            repository.clearSensitiveCache()
             pushPreferences.clearAccountState()
             pushNotificationManager.stop()
             OrderSyncWorker.cancel(getApplication())
             PushRegistrationWorker.cancel(getApplication())
+            onAppPaused()
             currentUser = null
             userName = "未登录"
             userId = ""
@@ -860,15 +883,20 @@ class SupplyViewModel(
     }
 
     fun refreshOrders() {
-        if (authToken.isBlank()) return
+        if (authToken.isBlank() || isRefreshingOrders) return
+        isRefreshingOrders = true
         viewModelScope.launch {
-            runCatching {
-                val orders = withContext(Dispatchers.IO) {
-                    apiClient.orders(authToken, currentUser?.role == "admin")
+            try {
+                runCatching {
+                    val orders = withContext(Dispatchers.IO) {
+                        apiClient.orders(authToken, currentUser?.role == "admin")
+                    }
+                    repository.replaceOrders(orders)
+                }.onFailure {
+                    snackbarMessage = it.toUserMessage("订单同步失败")
                 }
-                repository.replaceOrders(orders)
-            }.onFailure {
-                snackbarMessage = it.toUserMessage("订单同步失败")
+            } finally {
+                isRefreshingOrders = false
             }
         }
     }
@@ -1094,10 +1122,55 @@ class SupplyViewModel(
     }
 
     fun onAppResumed() {
+        appInForeground = true
+        if (!isNetworkAvailable()) networkWasUnavailable = true
         refreshActiveData()
+        startForegroundSync()
         retryPushRegistration()
         processPendingPushEvent()
         continuePendingUpdateInstall()
+    }
+
+    fun onAppPaused() {
+        appInForeground = false
+        foregroundSyncJob?.cancel()
+        foregroundSyncJob = null
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun requireNetworkForWrite(): Boolean {
+        if (isNetworkAvailable()) return true
+        networkWasUnavailable = true
+        alertMessage = "当前网络不可用，请联网后重试。"
+        return false
+    }
+
+    private fun startForegroundSync() {
+        if (foregroundSyncJob?.isActive == true || authToken.isBlank() || mustChangePassword) return
+        foregroundSyncJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15_000)
+                refreshForegroundScreen()
+            }
+        }
+    }
+
+    private fun refreshForegroundScreen() {
+        when (val screen = navigationStack.lastOrNull()) {
+            is Screen.OrderDetails -> refreshOrderDetail(screen.orderId)
+            is Screen.ShippingProof -> refreshOrderDetail(screen.orderId)
+            is Screen.DeliveryBatchDetail -> refreshDeliveryBatch(screen.batchId)
+            is Screen.DeliveryBatches, is Screen.DeliveryBatchCreate -> refreshDeliveryBatches()
+            is Screen.ProductDetail, is Screen.EditProduct, is Screen.InventoryRecords -> refreshProducts()
+            is Screen.PreparationSummary -> refreshPreparationSummary()
+            is Screen.DeliverySheets -> refreshDeliverySheets()
+            else -> refreshActiveData()
+        }
     }
 
     fun preparePushNotifications() {
@@ -1413,6 +1486,7 @@ class SupplyViewModel(
 
     fun createDeliveryBatch(name: String, note: String, orderIds: List<String>, onSuccess: () -> Unit = {}) {
         if (authToken.isBlank() || !canManageIngredients() || isDeliveryBatchLoading) return
+        if (!requireNetworkForWrite()) return
         if (orderIds.isEmpty()) {
             alertMessage = "请至少选择一笔已接单或备货中的订单"
             return
@@ -1862,6 +1936,7 @@ class SupplyViewModel(
 
     fun saveIngredient(form: IngredientFormState, onSuccess: () -> Unit) {
         if (isSavingIngredient) return
+        if (!requireNetworkForWrite()) return
         if (!canManageIngredients()) {
             alertMessage = "当前账号无权保存食材"
             return
@@ -1918,7 +1993,9 @@ class SupplyViewModel(
                 isDeleted = existing?.isDeleted ?: false,
                 createdBy = existing?.createdBy ?: (currentUser?.id ?: ""),
                 createdAt = existing?.createdAt ?: now,
-                updatedAt = now
+                updatedAt = now,
+                remoteUpdatedAt = existing?.remoteUpdatedAt ?: "",
+                version = existing?.version ?: 1,
             )
             val result = runCatching {
                 withContext(Dispatchers.IO) {
@@ -1940,14 +2017,17 @@ class SupplyViewModel(
     }
 
     fun setIngredientAvailable(productId: String, available: Boolean) {
+        if (!requireNetworkForWrite()) return
         if (!canManageIngredients()) {
             alertMessage = "当前账号无权调整供应状态"
             return
         }
         viewModelScope.launch {
             runCatching {
+                val product = repository.getProductById(productId)
+                    ?: throw IllegalStateException("食材已被删除，请刷新后重试")
                 withContext(Dispatchers.IO) {
-                    apiClient.setProductStatus(authToken, productId, "normal", available)
+                    apiClient.setProductStatus(authToken, product, "normal", available)
                 }
             }.onSuccess {
                 refreshProducts()
@@ -2091,6 +2171,7 @@ class SupplyViewModel(
         remarks: String
     ) {
         if (isSubmittingOrder) return
+        if (!requireNetworkForWrite()) return
         viewModelScope.launch {
             val cartList = repository.getCartItemsDirect()
             if (cartList.isEmpty()) return@launch
@@ -2150,6 +2231,7 @@ class SupplyViewModel(
 
     fun performOrderAction(order: OrderEntity, cancelReason: String = "数量填写错误") {
         if (activeOrderActionId == order.orderId) return
+        if (!requireNetworkForWrite()) return
         if (authToken.isBlank()) {
             alertMessage = "请重新登录后操作订单"
             return
@@ -2198,6 +2280,7 @@ class SupplyViewModel(
 
     fun submitShippingProof(orderId: String, photoFiles: List<File>, note: String, onSuccess: () -> Unit) {
         if (activeShippingUploadId == orderId) return
+        if (!requireNetworkForWrite()) return
         if (authToken.isBlank()) {
             alertMessage = "请重新登录后操作订单"
             return
@@ -2303,8 +2386,8 @@ class SupplyViewModel(
     private fun clearLocalSessionForAuthError() {
         viewModelScope.launch {
             sessionStore.clearSession()
-            repository.clearCart()
-            repository.clearOrderCache()
+            repository.clearSensitiveCache()
+            onAppPaused()
             authToken = ""
             currentUser = null
             userName = "未登录"
@@ -2319,5 +2402,10 @@ class SupplyViewModel(
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
         }
+    }
+
+    override fun onCleared() {
+        connectivityManager.unregisterNetworkCallback(networkCallback)
+        super.onCleared()
     }
 }

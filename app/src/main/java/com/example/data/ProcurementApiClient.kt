@@ -530,6 +530,7 @@ class ProcurementApiClient(
             .put("description", form.remark)
             .put("supply_status", form.status.toApiStatus())
             .put("active", form.isAvailable)
+            .apply { if (form.id.isNotBlank()) put("expected_version", form.version) }
         val path = if (form.id.isBlank()) "admin/products" else "admin/products/${form.id}"
         val method = if (form.id.isBlank()) "POST" else "PUT"
         return parseProduct(request(path, token = token, method = method, body = json.toString().toRequestBody(JSON)))
@@ -549,19 +550,21 @@ class ProcurementApiClient(
         return request("admin/products/$productId/image", token = token, method = "POST", body = body).getString("image_path")
     }
 
-    fun setProductStatus(token: String, productId: String, status: String, active: Boolean): ProductEntity {
+    fun setProductStatus(token: String, product: ProductEntity, status: String, active: Boolean): ProductEntity {
         val body = JSONObject()
             .put("supply_status", status)
             .put("active", active)
+            .put("expected_version", product.version)
             .toString()
             .toRequestBody(JSON)
-        return parseProduct(request("admin/products/$productId/status", token = token, method = "PATCH", body = body))
+        return parseProduct(request("admin/products/${product.id}/status", token = token, method = "PATCH", body = body))
     }
 
     fun updateProductPrice(token: String, product: ProductEntity, priceCents: Long, reason: String): ProductEntity {
         val body = JSONObject()
             .put("price_cents", priceCents)
             .put("reason", reason)
+            .put("expected_version", product.version)
             .toString()
             .toRequestBody(JSON)
         return parseProduct(request("admin/products/${product.id}/price", token = token, method = "PATCH", body = body))
@@ -578,6 +581,7 @@ class ProcurementApiClient(
         val body = JSONObject()
             .put("stock_quantity", nextStock)
             .put("detail", reason)
+            .put("expected_version", product.version)
             .toString()
             .toRequestBody(JSON)
         val parsed = parseProduct(request("admin/products/${product.id}/stock", token = token, method = "PATCH", body = body))
@@ -1603,6 +1607,8 @@ class ProcurementApiClient(
             remark = json.optString("description"),
             isDeleted = json.optBoolean("is_deleted", false),
             createdBy = json.optString("created_by"),
+            remoteUpdatedAt = json.optString("updated_at"),
+            version = json.optInt("version", 1),
         )
     }
 

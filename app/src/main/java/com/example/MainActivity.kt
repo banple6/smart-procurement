@@ -34,6 +34,13 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  override fun onPause() {
+    if (::viewModel.isInitialized) {
+      viewModel.onAppPaused()
+    }
+    super.onPause()
+  }
+
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
     setIntent(intent)

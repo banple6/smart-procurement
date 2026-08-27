@@ -2,10 +2,13 @@ package com.smartprocurement.internal.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.math.BigDecimal
 
 class SupplyRepository(private val database: AppDatabase) {
     private val supplyDao = database.supplyDao()
+    private val productCacheMutex = Mutex()
 
     val allProducts: Flow<List<ProductEntity>> = supplyDao.getAllProductsFlow()
     val deletedProducts: Flow<List<ProductEntity>> = supplyDao.getDeletedProductsFlow()
@@ -18,9 +21,20 @@ class SupplyRepository(private val database: AppDatabase) {
     suspend fun getProductById(id: String): ProductEntity? = supplyDao.getProductById(id)
     suspend fun updateProduct(product: ProductEntity) = supplyDao.updateProduct(product)
     suspend fun replaceProducts(products: List<ProductEntity>) {
-        database.withTransaction {
-            supplyDao.clearProducts()
-            if (products.isNotEmpty()) supplyDao.insertProducts(products)
+        productCacheMutex.withLock {
+            database.withTransaction {
+                val existingById = supplyDao.getAllProductsDirect().associateBy { it.id }
+                products.forEach { incoming ->
+                    val existing = existingById[incoming.id]
+                    if (existing == null || incoming.isSameOrNewerThan(existing)) {
+                        supplyDao.insertProduct(incoming)
+                    }
+                }
+                val remoteIds = products.mapTo(mutableSetOf()) { it.id }
+                existingById.values
+                    .filter { it.id !in remoteIds && !it.isDeleted }
+                    .forEach { supplyDao.softDeleteProduct(it.id, System.currentTimeMillis()) }
+            }
         }
     }
     suspend fun saveProduct(product: ProductEntity) = supplyDao.insertProduct(product.withComputedSupplyStatus())
@@ -87,6 +101,16 @@ class SupplyRepository(private val database: AppDatabase) {
         supplyDao.clearOrderItems()
         supplyDao.clearOrders()
     }
+
+    suspend fun clearSensitiveCache() {
+        database.withTransaction {
+            supplyDao.clearCart()
+            supplyDao.clearOrderItems()
+            supplyDao.clearOrders()
+            supplyDao.clearProducts()
+            supplyDao.clearUsers()
+        }
+    }
     suspend fun upsertOrder(orderBundle: RemoteOrderBundle) {
         database.withTransaction {
             val existing = supplyDao.getOrderById(orderBundle.order.orderId)
@@ -127,6 +151,14 @@ class SupplyRepository(private val database: AppDatabase) {
     }.getOrNull()
 
     private fun OrderEntity.isSameOrNewerThan(existing: OrderEntity): Boolean {
+        if (version != existing.version) return version > existing.version
+        if (remoteUpdatedAt.isNotBlank() && existing.remoteUpdatedAt.isNotBlank()) {
+            return remoteUpdatedAt >= existing.remoteUpdatedAt
+        }
+        return true
+    }
+
+    private fun ProductEntity.isSameOrNewerThan(existing: ProductEntity): Boolean {
         if (version != existing.version) return version > existing.version
         if (remoteUpdatedAt.isNotBlank() && existing.remoteUpdatedAt.isNotBlank()) {
             return remoteUpdatedAt >= existing.remoteUpdatedAt

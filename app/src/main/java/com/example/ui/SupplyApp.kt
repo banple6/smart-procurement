@@ -415,13 +415,6 @@ fun MainTabFrame(viewModel: SupplyViewModel) {
     LaunchedEffect(viewModel.userRole) {
         if (viewModel.userRole.isBlank()) return@LaunchedEffect
         viewModel.currentTab = normalizedMainTab(viewModel.userRole, viewModel.currentTab)
-        if (isAdmin) {
-            while (true) {
-                viewModel.refreshDashboard()
-                viewModel.refreshOrders()
-                delay(15_000)
-            }
-        }
     }
 
     Scaffold(
