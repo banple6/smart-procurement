@@ -8,6 +8,7 @@ from PIL import Image
 
 from test_phase3_batches import _create_preparing_order, _create_product, _create_unit_user
 from test_workflows import login, make_client
+from app.services.batch_exports import outbound_order_workbook
 
 
 def _png_bytes() -> bytes:
@@ -50,6 +51,90 @@ def _generate(client, admin_headers, batch_id):
     return response.json()
 
 
+def _worksheet_values(sheet):
+    return [str(cell.value or "") for row in sheet.iter_rows() for cell in row]
+
+
+def _assert_final_outbound_layout(sheet):
+    values = _worksheet_values(sheet)
+    joined = "\n".join(values)
+    assert "三公鲜配出库单" in values
+    assert any(value.startswith("单位：") for value in values)
+    assert any(value.startswith("出库单号：") for value in values)
+    assert any(value.startswith("日期：") for value in values)
+    assert values.count("总金额：") == 1
+    assert any(value.startswith("配送人：") for value in values)
+    assert any(value.startswith("收货人：") for value in values)
+    for removed in ("来源备货单", "出库人", "分类金额汇总", "日期：________________"):
+        assert removed not in joined
+    assert sheet.page_setup.fitToWidth == 1
+
+
+def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_readable():
+    workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {
+                    "unit_name_snapshot": "测试单位01",
+                    "outbound_no": "CK20260827-0001",
+                    "created_at": "2026-08-27 16:56:00",
+                    "batch_no": "PS20260827-0001",
+                },
+                [
+                    {"category": "水果", "product_name": "苹果", "spec": "散装", "unit": "公斤", "quantity": "5", "subtotal_cents": 10000},
+                    {"category": "蔬菜", "product_name": "西红柿", "spec": "散装", "unit": "公斤", "quantity": "4", "subtotal_cents": 6000},
+                ],
+            )
+        ),
+        data_only=True,
+    )
+    sheet = workbook["出库单"]
+
+    assert sheet["A2"].value == "单位：测试单位01"
+    assert sheet["C2"].value == "出库单号：CK20260827-0001"
+    assert sheet["E2"].value == "日期：2026-08-27 16:56:00"
+    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} >= {"A2:B2", "C2:D2", "E2:F2"}
+    assert sheet.column_dimensions["E"].width + sheet.column_dimensions["F"].width >= 30
+    assert [sheet.cell(3, column).value for column in range(1, 7)] == ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
+    assert [sheet.cell(4, column).value for column in range(1, 7)] == [1, "水果", "苹果", "散装", "公斤", "5"]
+    assert [sheet.cell(5, column).value for column in range(1, 7)] == [2, "蔬菜", "西红柿", "散装", "公斤", "4"]
+    assert sheet["E6"].value == "总金额："
+    assert sheet["F6"].value == 160
+    assert sheet["F6"].number_format == '¥0.00'
+    assert sheet["A8"].value == "配送人：________________"
+    assert sheet["D8"].value == "收货人：________________"
+    _assert_final_outbound_layout(sheet)
+
+    precision_workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {"unit_name_snapshot": "测试单位02", "outbound_no": "CK20260827-0002", "created_at": "2026-08-27 16:56:00"},
+                [
+                    {"category": "蔬菜", "product_name": "A", "spec": "", "unit": "公斤", "quantity": "1.5", "subtotal_cents": 321},
+                    {"category": "蔬菜", "product_name": "B", "spec": "", "unit": "公斤", "quantity": "1", "subtotal_cents": 107},
+                    {"category": "其他", "product_name": "C", "spec": "", "unit": "公斤", "quantity": "1", "subtotal_cents": 999},
+                ],
+            )
+        ),
+        data_only=True,
+    )
+    precision_sheet = precision_workbook["出库单"]
+    assert precision_sheet["F7"].value == 14.27
+    assert precision_sheet["F7"].number_format == '¥0.00'
+
+    zero_workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {"unit_name_snapshot": "测试单位03", "outbound_no": "CK20260827-0003", "created_at": "2026-08-27 16:56:00"},
+                [],
+            )
+        ),
+        data_only=True,
+    )
+    assert zero_workbook["出库单"]["F4"].value == 0
+    assert zero_workbook["出库单"]["F4"].number_format == '¥0.00'
+
+
 def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     client = make_client(tmp_path)
     admin_headers = login(client, "root_admin", "StrongPassword123")
@@ -80,10 +165,9 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     sheet = workbook["出库单"]
     assert sheet.cell(1, 1).value == "三公鲜配出库单"
     assert unit_a["outbound_no"] in " ".join(str(cell.value or "") for cell in sheet[2])
-    values = [str(cell.value or "") for row in sheet.iter_rows(values_only=False) for cell in row]
-    assert "分类金额汇总" not in values
-    assert any(value.startswith("出库人：") for value in values)
-    assert any(value.startswith("收货人：") for value in values)
+    assert sheet["F5"].value == 5
+    assert sheet["F5"].number_format == '¥0.00'
+    _assert_final_outbound_layout(sheet)
 
     bulk = client.get("/api/v1/admin/outbounds/bulk.zip?" + "&".join(f"outbound_ids={item['id']}" for item in generated["items"]), headers=admin_headers)
     assert bulk.status_code == 200, bulk.text
@@ -91,7 +175,9 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
         assert len(archive.namelist()) == 3
         for filename in archive.namelist():
             assert filename.endswith(".xlsx")
-            assert load_workbook(BytesIO(archive.read(filename)), read_only=True).sheetnames == ["出库单"]
+            workbook = load_workbook(BytesIO(archive.read(filename)), data_only=True)
+            assert workbook.sheetnames == ["出库单"]
+            _assert_final_outbound_layout(workbook["出库单"])
 
     repeated = _generate(client, admin_headers, batch["id"])
     assert repeated["created_count"] == 0
