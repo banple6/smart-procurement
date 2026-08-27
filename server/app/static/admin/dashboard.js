@@ -62,6 +62,10 @@
 
   const state = {
     loading: false,
+    queuedRefresh: false,
+    refreshSequence: 0,
+    lastSuccessfulSyncAt: 0,
+    formDirty: false,
     lastData: null,
     timer: null,
     reminderTimer: null,
@@ -223,6 +227,30 @@
     }, 2200);
   }
 
+  function setSyncStatus(message) {
+    const target = $("refreshTime");
+    if (target) target.textContent = message;
+  }
+
+  function formatSyncTime() {
+    return new Date().toLocaleTimeString("zh-CN", { hour12: false });
+  }
+
+  function automaticRefreshShouldWait() {
+    if (!state.formDirty) return false;
+    const active = document.activeElement;
+    return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+  }
+
+  function refreshIntervalForRoute(route) {
+    if (["/admin/orders", "/admin/batches", "/admin/outbounds", "/admin/products", "/admin/inventory"].some((path) => route === path || route.startsWith(path + "/"))) {
+      return 15_000;
+    }
+    if (route === "/admin/dashboard") return 15_000;
+    if (["/admin/units", "/admin/accounts", "/admin/analytics"].includes(route)) return 60_000;
+    return 60_000;
+  }
+
   function renderAdminOrderReminder(orders, total) {
     const count = Math.max(0, Number(total || 0));
     const badge = $("orderReminderBadge");
@@ -289,27 +317,43 @@
     }
     if (!response.ok) {
       let detail = "";
+      let payload = {};
       try {
-        detail = (await response.json()).detail || "";
+        payload = await response.json();
+        detail = typeof payload.detail === "string" ? payload.detail : "";
       } catch (_) {
         detail = "";
       }
       reportClientError(detail || "接口请求失败", path, { method, status: response.status });
-      throw new Error(detail || "数据加载失败");
+      const error = new Error(detail || "数据加载失败");
+      error.status = response.status;
+      error.code = payload.code || "";
+      error.latest = payload.latest || null;
+      throw error;
     }
     if (response.status === 204) return {};
     return response.json();
   }
 
   async function mutate(path, body, method = "PATCH") {
-    const result = await api(path, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body || {}),
-    });
-    toast("操作已完成");
-    await loadCurrent(true);
-    return result;
+    try {
+      const result = await api(path, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+      });
+      state.formDirty = false;
+      toast("操作已完成");
+      await loadCurrent(true, "write");
+      return result;
+    } catch (error) {
+      if (error.status === 409) {
+        state.formDirty = false;
+        await loadCurrent(true, "conflict");
+        toast("该数据已被其他管理员更新，已为您刷新最新状态。");
+      }
+      throw error;
+    }
   }
 
   function reportClientError(message, path = window.location.pathname, context = {}) {
@@ -2329,9 +2373,18 @@
     content().innerHTML += empty(message);
   }
 
-  async function loadCurrent(silent) {
-    if (state.loading) return;
+  async function loadCurrent(silent, source = "manual") {
+    const automatic = source === "timer" || source === "focus" || source === "online" || source === "visibility";
+    if (automatic && automaticRefreshShouldWait()) {
+      setSyncStatus("有新数据，保存前请刷新确认");
+      return;
+    }
+    if (state.loading) {
+      state.queuedRefresh = true;
+      return;
+    }
     state.loading = true;
+    const sequence = ++state.refreshSequence;
     try {
       const route = currentRoute();
       if (route !== "/admin/analytics") window.AdminAnalytics?.dispose();
@@ -2357,6 +2410,9 @@
       else if (route === "/admin/system-logs") await loadSystemLogs();
       else if (route === "/admin/web-sessions") await loadWebSessions();
       else await loadPlaceholder("管理后台", "该页面暂未接入，请从左侧菜单选择可用功能。");
+      if (sequence !== state.refreshSequence) return;
+      state.lastSuccessfulSyncAt = Date.now();
+      setSyncStatus(`已同步 · ${formatSyncTime()}`);
       if (!silent && route !== "/admin/dashboard") toast("数据已刷新");
     } catch (error) {
       reportClientError(error.message || "页面加载失败", window.location.pathname, { route: currentRoute() });
@@ -2364,6 +2420,10 @@
       $("retryButton").addEventListener("click", () => loadCurrent(false));
     } finally {
       state.loading = false;
+      if (state.queuedRefresh) {
+        state.queuedRefresh = false;
+        window.setTimeout(() => loadCurrent(true, "queued"), 0);
+      }
     }
   }
 
@@ -2379,8 +2439,8 @@
   function schedule() {
     window.clearInterval(state.timer);
     state.timer = window.setInterval(() => {
-      if (!document.hidden) loadCurrent(true);
-    }, 60000);
+      if (!document.hidden) loadCurrent(true, "timer");
+    }, refreshIntervalForRoute(currentRoute()));
     window.clearInterval(state.reminderTimer);
     state.reminderTimer = window.setInterval(() => {
       if (!document.hidden) checkAdminOrderReminders();
@@ -2389,12 +2449,39 @@
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      loadCurrent(true);
+      loadCurrent(true, "visibility");
       checkAdminOrderReminders();
     }
   });
 
-  $("refreshButton").addEventListener("click", () => loadCurrent(false));
+  window.addEventListener("focus", () => {
+    if (!document.hidden && Date.now() - state.lastSuccessfulSyncAt > 5_000) {
+      loadCurrent(true, "focus");
+    }
+  });
+
+  window.addEventListener("online", () => {
+    setSyncStatus("网络已恢复，正在同步");
+    loadCurrent(true, "online");
+  });
+
+  window.addEventListener("offline", () => setSyncStatus("网络已断开，当前数据可能不是最新"));
+
+  document.addEventListener("input", (event) => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) {
+      state.formDirty = true;
+    }
+  }, true);
+  document.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) {
+      state.formDirty = true;
+    }
+  }, true);
+
+  $("refreshButton").addEventListener("click", () => {
+    state.formDirty = false;
+    loadCurrent(false);
+  });
   $("logoutButton").addEventListener("click", logout);
   setupSidebar();
   renderNav();
