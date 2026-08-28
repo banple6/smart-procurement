@@ -206,6 +206,7 @@ class SupplyViewModel(
                             preparePushNotifications()
                             OrderSyncWorker.schedule(getApplication())
                             processPendingPushEvent()
+                            startForegroundSyncIfAppIsActive()
                         }
                     }.onFailure {
                         failPendingWorkbookSave()
@@ -572,6 +573,7 @@ class SupplyViewModel(
                     preparePushNotifications()
                     OrderSyncWorker.schedule(getApplication())
                     processPendingPushEvent()
+                    startForegroundSyncIfAppIsActive()
                     popToRootAndNavigate(Screen.Home)
                 }
             }.onFailure {
@@ -1158,6 +1160,12 @@ class SupplyViewModel(
                 refreshForegroundScreen()
             }
         }
+    }
+
+    // Authentication can complete after Activity.onResume(), so start the existing
+    // foreground loop once a usable session becomes available.
+    private fun startForegroundSyncIfAppIsActive() {
+        if (appInForeground) startForegroundSync()
     }
 
     private fun refreshForegroundScreen() {

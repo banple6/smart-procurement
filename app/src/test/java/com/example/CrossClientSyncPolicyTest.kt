@@ -29,6 +29,16 @@ class CrossClientSyncPolicyTest {
     }
 
     @Test
+    fun foreground_sync_starts_when_authentication_finishes_after_resume() {
+        val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
+
+        assertTrue(viewModel.contains("private fun startForegroundSyncIfAppIsActive()"))
+        assertTrue(viewModel.contains("if (appInForeground) startForegroundSync()"))
+        // Both saved-session recovery and an interactive login must arm the same loop.
+        assertTrue(viewModel.split("startForegroundSyncIfAppIsActive()").size - 1 >= 3)
+    }
+
+    @Test
     fun critical_writes_are_not_queued_while_offline() {
         val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
 
