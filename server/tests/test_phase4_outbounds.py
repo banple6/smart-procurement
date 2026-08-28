@@ -148,9 +148,15 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     detail = client.get(f"/api/v1/admin/outbounds/{unit_a['id']}", headers=admin_headers)
     assert detail.status_code == 200, detail.text
     body = detail.json()
+    assert body["total_cents"] == sum(line["subtotal_cents"] for line in body["lines"])
     assert len(body["orders"]) == 2
     assert {order["id"] for order in body["orders"]} == {orders[0]["id"], orders[1]["id"]}
     assert [(line["quantity"], line["unit"]) for line in body["lines"]] == [("5", "斤")]
+
+    listed = client.get("/api/v1/admin/outbounds", headers=admin_headers)
+    assert listed.status_code == 200, listed.text
+    listed_item = next(item for item in listed.json()["items"] if item["id"] == unit_a["id"])
+    assert listed_item["total_cents"] == body["total_cents"]
 
     summary = client.get(f"/api/v1/admin/batches/{batch['id']}/summary", headers=admin_headers).json()
     assert sum(float(line["quantity"]) for item in generated["items"] for line in client.get(f"/api/v1/admin/outbounds/{item['id']}", headers=admin_headers).json()["lines"] if line["unit"] == "斤") == sum(float(item["total_quantity"]) for item in summary["by_product"] if item["unit"] == "斤")

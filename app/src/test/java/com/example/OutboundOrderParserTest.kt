@@ -21,7 +21,7 @@ class OutboundOrderParserTest {
                   "unit_id":"unit-a", "unit_name_snapshot":"第一食堂",
                   "delivery_point_snapshot":"东门收货点", "status":"pending",
                   "created_at":"2026-08-28 01:35:08", "version":3,
-                  "order_count":1, "product_count":1,
+                  "order_count":1, "product_count":1, "total_cents":1200,
                   "orders":[{"id":"order-a","order_no":"SP001","status":"preparing","total_cents":1200,"delivery_point_snapshot":"东门收货点"}],
                   "lines":[{"product_id":"potato","category":"蔬菜","product_name":"土豆","spec":"散装","unit":"斤","quantity":"10","price_cents_snapshot":120,"subtotal_cents":1200}]
                 }
@@ -32,6 +32,7 @@ class OutboundOrderParserTest {
         assertEquals("outbound-a", outbound.id)
         assertEquals("待发货", outboundStatus(outbound.status))
         assertEquals("第一食堂", outbound.unitName)
+        assertEquals(1200L, outbound.totalCents)
         assertEquals("10", outbound.lines.single().quantity)
         assertEquals(120L, outbound.lines.single().priceCentsSnapshot)
         assertEquals("备货中", outbound.orders.single().status)

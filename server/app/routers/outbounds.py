@@ -116,11 +116,14 @@ def _outbound_out(conn, row: dict, include_details: bool = False) -> dict:
         result[field] = display_local_time(result.get(field))
     order_count = one(conn, "SELECT COUNT(*) AS count FROM outbound_order_orders WHERE outbound_order_id = ?", (row["id"],))["count"]
     result["order_count"] = int(order_count)
-    line_count = len(_outbound_lines(conn, row["id"]))
-    result["product_count"] = line_count
+    lines = _outbound_lines(conn, row["id"])
+    result["product_count"] = len(lines)
+    # Every outbound response needs the same historical amount as its export.
+    # The amount is derived from order-item snapshots, never the current catalog price.
+    result["total_cents"] = sum(int(line["subtotal_cents"] or 0) for line in lines)
     if include_details:
         result["orders"] = _outbound_orders(conn, row["id"])
-        result["lines"] = _outbound_lines(conn, row["id"])
+        result["lines"] = lines
     return result
 
 

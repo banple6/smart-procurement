@@ -249,6 +249,7 @@ data class OutboundOrder(
     val version: Int,
     val orderCount: Int,
     val productCount: Int,
+    val totalCents: Long,
     val orders: List<OutboundOrderRef> = emptyList(),
     val lines: List<OutboundOrderLine> = emptyList()
 )
@@ -1633,6 +1634,7 @@ class ProcurementApiClient(
             version = json.optInt("version", 1),
             orderCount = json.optInt("order_count", orders.length()),
             productCount = json.optInt("product_count", lines.length()),
+            totalCents = json.optLong("total_cents", 0),
             orders = List(orders.length()) { index ->
                 val item = orders.getJSONObject(index)
                 OutboundOrderRef(

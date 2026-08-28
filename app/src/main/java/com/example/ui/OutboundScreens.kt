@@ -125,6 +125,7 @@ private fun OutboundRow(outbound: OutboundOrder, onClick: () -> Unit) {
             }
             Text(outbound.unitName, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text("${outbound.orderCount} 笔订单 · ${outbound.productCount} 种食材 · ${outbound.batchNo}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("整单金额：${Money.formatCents(outbound.totalCents)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
             Text("生成时间：${outbound.createdAt}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -170,6 +171,7 @@ fun OutboundDetailScreen(
                             DetailLine("收货单位", outbound.unitName)
                             DetailLine("配送点", outbound.deliveryPoint.ifBlank { "未设置" })
                             DetailLine("来源备货单", outbound.batchNo)
+                            DetailLine("整单金额", Money.formatCents(outbound.totalCents))
                             DetailLine("生成时间", outbound.createdAt)
                             if (outbound.shippedAt.isNotBlank()) DetailLine("发货时间", outbound.shippedAt)
                             OutlinedButton(
@@ -202,7 +204,17 @@ fun OutboundDetailScreen(
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("${line.quantity} ${line.unit}", fontWeight = FontWeight.Bold)
-                                Text(Money.formatCents(line.subtotalCents), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "单价 ${Money.formatCents(line.priceCentsSnapshot)} / ${line.unit}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "小计 ${Money.formatCents(line.subtotalCents)}",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
                         }
                     }
