@@ -23,5 +23,25 @@
     return next;
   }
 
-  return { selectedOrders, canBulkAccept, canBulkDelete, nextSelection };
+  function reconcileSelection(pageOrders, selectedIds, selectedVersions) {
+    const ids = selectedIds instanceof Set ? selectedIds : new Set(selectedIds || []);
+    const versions = selectedVersions instanceof Map ? selectedVersions : new Map(selectedVersions || []);
+    const currentById = new Map((pageOrders || []).map((order) => [order.id, order]));
+    const retainedIds = new Set();
+    const retainedVersions = new Map();
+    let removed = 0;
+    ids.forEach((id) => {
+      const current = currentById.get(id);
+      const selectedVersion = versions.get(id);
+      if (!current || (selectedVersion !== undefined && Number(current.version || 1) !== Number(selectedVersion))) {
+        removed += 1;
+        return;
+      }
+      retainedIds.add(id);
+      retainedVersions.set(id, Number(current.version || 1));
+    });
+    return { selectedIds: retainedIds, selectedVersions: retainedVersions, removed };
+  }
+
+  return { selectedOrders, canBulkAccept, canBulkDelete, nextSelection, reconcileSelection };
 });

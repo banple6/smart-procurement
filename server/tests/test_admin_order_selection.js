@@ -31,3 +31,11 @@ test("selection policy does not mutate the original selection set", () => {
   assert.deepEqual([...original], ["old"]);
   assert.deepEqual([...next], ["old", "a"]);
 });
+
+test("refresh keeps unchanged selections and removes orders whose server version changed", () => {
+  const current = [{ ...pending, version: 3 }, { ...preparing, version: 2 }];
+  const result = policy.reconcileSelection(current, new Set(["a", "c"]), new Map([["a", 3], ["c", 1]]));
+  assert.deepEqual([...result.selectedIds], ["a"]);
+  assert.deepEqual([...result.selectedVersions], [["a", 3]]);
+  assert.equal(result.removed, 1);
+});

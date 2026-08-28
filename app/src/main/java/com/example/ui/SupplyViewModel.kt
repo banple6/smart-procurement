@@ -62,6 +62,8 @@ private const val SAVED_ANALYTICS_SCROLL_OFFSET_KEY = "analytics_scroll_offset"
 private const val SAVED_EXTERNAL_ACTION_TYPE_KEY = "external_action_type"
 private const val SAVED_EXTERNAL_ACTION_OWNER_KEY = "external_action_owner"
 private const val SAVED_EXTERNAL_ACTION_PAYLOAD_KEY = "external_action_payload"
+private const val CRITICAL_FOREGROUND_REFRESH_MILLIS = 10_000L
+private const val BACKGROUND_FOREGROUND_REFRESH_MILLIS = 60_000L
 
 private fun restoredExternalAction(savedStateHandle: SavedStateHandle): PendingExternalAction? {
     val typeName = savedStateHandle.get<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY) ?: return null
@@ -1156,7 +1158,7 @@ class SupplyViewModel(
         if (foregroundSyncJob?.isActive == true || authToken.isBlank() || mustChangePassword) return
         foregroundSyncJob = viewModelScope.launch {
             while (isActive) {
-                delay(15_000)
+                delay(foregroundRefreshIntervalMillis())
                 refreshForegroundScreen()
             }
         }
@@ -1177,7 +1179,33 @@ class SupplyViewModel(
             is Screen.ProductDetail, is Screen.EditProduct, is Screen.InventoryRecords -> refreshProducts()
             is Screen.PreparationSummary -> refreshPreparationSummary()
             is Screen.DeliverySheets -> refreshDeliverySheets()
-            else -> refreshActiveData()
+            else -> refreshCurrentMainTab()
+        }
+    }
+
+    private fun refreshCurrentMainTab() {
+        when (currentTab) {
+            "dashboard" -> refreshDashboard()
+            "orders" -> refreshOrders()
+            "ingredients", "home" -> refreshProducts()
+            else -> Unit
+        }
+    }
+
+    private fun foregroundRefreshIntervalMillis(): Long {
+        val screen = navigationStack.lastOrNull()
+        return when {
+            screen is Screen.OrderList ||
+                screen is Screen.OrderDetails ||
+                screen is Screen.ShippingProof ||
+                screen is Screen.DeliveryBatchDetail ||
+                screen is Screen.DeliveryBatches ||
+                screen is Screen.DeliveryBatchCreate ||
+                screen is Screen.ProductDetail ||
+                screen is Screen.EditProduct ||
+                screen is Screen.InventoryRecords -> CRITICAL_FOREGROUND_REFRESH_MILLIS
+            currentTab in setOf("dashboard", "orders", "ingredients", "home") -> CRITICAL_FOREGROUND_REFRESH_MILLIS
+            else -> BACKGROUND_FOREGROUND_REFRESH_MILLIS
         }
     }
 

@@ -21,11 +21,16 @@ class CrossClientSyncPolicyTest {
     fun foreground_and_network_recovery_refresh_server_backed_data() {
         val viewModel = File("src/main/java/com/example/ui/SupplyViewModel.kt").readText()
 
-        assertTrue(viewModel.contains("delay(15_000)"))
+        assertTrue(viewModel.contains("CRITICAL_FOREGROUND_REFRESH_MILLIS = 10_000L"))
+        assertTrue(viewModel.contains("BACKGROUND_FOREGROUND_REFRESH_MILLIS = 60_000L"))
+        assertTrue(viewModel.contains("delay(foregroundRefreshIntervalMillis())"))
         assertTrue(viewModel.contains("onAppResumed()"))
         assertTrue(viewModel.contains("onAppPaused()"))
         assertTrue(viewModel.contains("registerDefaultNetworkCallback(networkCallback)"))
         assertTrue(viewModel.contains("refreshForegroundScreen()"))
+        assertTrue(viewModel.contains("private fun refreshCurrentMainTab()"))
+        assertTrue(viewModel.contains("\"dashboard\" -> refreshDashboard()"))
+        assertTrue(viewModel.contains("\"orders\" -> refreshOrders()"))
     }
 
     @Test

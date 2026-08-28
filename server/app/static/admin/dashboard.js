@@ -77,6 +77,7 @@
     productSelectionMode: false,
     selectedProductIds: new Set(),
     selectedOrderIds: new Set(),
+    selectedOrderVersions: new Map(),
     selectedBatchIds: new Set(),
     selectedOutboundIds: new Set(),
     orderItems: [],
@@ -240,6 +241,11 @@
     if (!state.formDirty) return false;
     const active = document.activeElement;
     return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement;
+  }
+
+  function shouldMarkFormDirty(target) {
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return false;
+    return Boolean(target.closest("form"));
   }
 
   function refreshIntervalForRoute(route) {
@@ -915,6 +921,7 @@
 
   function clearOrderSelection() {
     state.selectedOrderIds.clear();
+    state.selectedOrderVersions.clear();
     renderOrderSelection();
     document.querySelectorAll("[data-order-select]").forEach((checkbox) => { checkbox.checked = false; });
   }
@@ -944,6 +951,7 @@
     }
     state.orderBulkBusy = false;
     state.selectedOrderIds.clear();
+    state.selectedOrderVersions.clear();
     toast(failures.length ? `成功接单 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已成功接单 ${successCount} 笔订单`);
     await loadCurrent(true);
   }
@@ -994,6 +1002,7 @@
     }
     state.orderBulkBusy = false;
     state.selectedOrderIds.clear();
+    state.selectedOrderVersions.clear();
     toast(failures.length ? `成功删除 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已删除 ${successCount} 笔订单`);
     await loadCurrent(true);
   }
@@ -1008,7 +1017,6 @@
     if (params.get("query")) query.set("query", params.get("query"));
     if (params.get("archived") === "true") query.set("archived", "true");
     if (params.get("cursor")) query.set("cursor", params.get("cursor"));
-    state.selectedOrderIds.clear();
     state.orderItems = [];
     state.orderBulkBusy = false;
     pageShell("订单管理", "接单、备货和完成订单");
@@ -1028,6 +1036,10 @@
     const data = await api(`/api/v1/admin/orders?limit=30&${query.toString()}`);
     const items = data.items || data || [];
     state.orderItems = items;
+    const reconciliation = window.AdminOrderSelectionPolicy.reconcileSelection(items, state.selectedOrderIds, state.selectedOrderVersions);
+    state.selectedOrderIds = reconciliation.selectedIds;
+    state.selectedOrderVersions = reconciliation.selectedVersions;
+    if (reconciliation.removed) toast(`${reconciliation.removed} 条需求单状态已变化，已从选择中移除。`);
     const orderRows = items.map((order) => {
       const action = primaryAction(order);
       const button = action[1] === "ship"
@@ -1040,7 +1052,7 @@
       const deleteButton = order.can_delete
         ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
         : `<button class="table-action danger" type="button" disabled title="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
-      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
+      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
     });
     const groups = new Map();
     orderRows.forEach((entry) => {
@@ -1063,12 +1075,21 @@
         `).join("")}
       </div>` : empty("没有符合条件的订单");
     document.querySelectorAll("[data-order-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      if (checkbox.checked) state.selectedOrderIds.add(checkbox.dataset.orderSelect);
-      else state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
+      if (checkbox.checked) {
+        state.selectedOrderIds.add(checkbox.dataset.orderSelect);
+        const order = state.orderItems.find((item) => item.id === checkbox.dataset.orderSelect);
+        state.selectedOrderVersions.set(checkbox.dataset.orderSelect, Number(order?.version || 1));
+      } else {
+        state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
+        state.selectedOrderVersions.delete(checkbox.dataset.orderSelect);
+      }
       renderOrderSelection();
     }));
     document.querySelectorAll(".select-all-orders").forEach((checkbox) => checkbox.addEventListener("change", () => {
       state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, checkbox.checked);
+      state.selectedOrderVersions = new Map(checkbox.checked
+        ? state.orderItems.map((order) => [order.id, Number(order.version || 1)])
+        : []);
       document.querySelectorAll("[data-order-select]").forEach((rowCheckbox) => { rowCheckbox.checked = checkbox.checked; });
       renderOrderSelection();
     }));
@@ -2468,12 +2489,12 @@
   window.addEventListener("offline", () => setSyncStatus("网络已断开，当前数据可能不是最新"));
 
   document.addEventListener("input", (event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) {
+    if (shouldMarkFormDirty(event.target)) {
       state.formDirty = true;
     }
   }, true);
   document.addEventListener("change", (event) => {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement) {
+    if (shouldMarkFormDirty(event.target)) {
       state.formDirty = true;
     }
   }, true);
