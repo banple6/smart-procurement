@@ -265,6 +265,22 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 is Screen.ShippingProof -> {
                     ShippingProofScreen(orderId = (screen as Screen.ShippingProof).orderId, viewModel = viewModel)
                 }
+                is Screen.Outbounds -> {
+                    OutboundsScreen(viewModel, requestWorkbookDocument)
+                }
+                is Screen.OutboundDetail -> {
+                    OutboundDetailScreen(
+                        outboundId = (screen as Screen.OutboundDetail).outboundId,
+                        viewModel = viewModel,
+                        requestWorkbookDocument = requestWorkbookDocument
+                    )
+                }
+                is Screen.OutboundShippingProof -> {
+                    OutboundShippingProofScreen(
+                        outboundId = (screen as Screen.OutboundShippingProof).outboundId,
+                        viewModel = viewModel
+                    )
+                }
                 is Screen.UnitManagement -> {
                     UnitManagementScreen(viewModel)
                 }

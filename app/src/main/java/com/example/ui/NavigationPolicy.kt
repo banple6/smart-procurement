@@ -18,7 +18,10 @@ fun isAdminOnlyScreen(screen: Screen): Boolean = when (screen) {
     Screen.AddProduct,
     is Screen.EditProduct,
     Screen.DeletedProducts,
-    is Screen.ShippingProof -> true
+    is Screen.ShippingProof,
+    Screen.Outbounds,
+    is Screen.OutboundDetail,
+    is Screen.OutboundShippingProof -> true
     else -> false
 }
 

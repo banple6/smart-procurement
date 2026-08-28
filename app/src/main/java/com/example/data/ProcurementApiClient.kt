@@ -216,6 +216,43 @@ data class DeliveryBatchSummary(
     val byProduct: List<BatchProductSummary>
 )
 
+data class OutboundOrderLine(
+    val productId: String,
+    val category: String,
+    val productName: String,
+    val spec: String,
+    val unit: String,
+    val quantity: String,
+    val priceCentsSnapshot: Long,
+    val subtotalCents: Long
+)
+
+data class OutboundOrderRef(
+    val id: String,
+    val orderNo: String,
+    val status: String,
+    val totalCents: Long,
+    val deliveryPoint: String
+)
+
+data class OutboundOrder(
+    val id: String,
+    val outboundNo: String,
+    val preparationBatchId: String,
+    val batchNo: String,
+    val unitId: String,
+    val unitName: String,
+    val deliveryPoint: String,
+    val status: String,
+    val createdAt: String,
+    val shippedAt: String,
+    val version: Int,
+    val orderCount: Int,
+    val productCount: Int,
+    val orders: List<OutboundOrderRef> = emptyList(),
+    val lines: List<OutboundOrderLine> = emptyList()
+)
+
 data class SystemResources(
     val scope: String = "container",
     val cpuPercent: Double = 0.0,
@@ -1092,6 +1129,46 @@ class ProcurementApiClient(
     fun exportDeliveryBatchOutbound(token: String, batchId: String): ByteArray =
         executeBytes("admin/batches/$batchId/outbound.xlsx", token)
 
+    fun generateOutboundOrders(token: String, batchId: String): List<OutboundOrder> {
+        val items = request("admin/outbounds/from-batch/$batchId", token = token, method = "POST")
+            .optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index -> parseOutboundOrder(items.getJSONObject(index)) }
+    }
+
+    fun outboundOrders(token: String): List<OutboundOrder> {
+        val items = request("admin/outbounds", token = token).optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index -> parseOutboundOrder(items.getJSONObject(index)) }
+    }
+
+    fun outboundOrderDetail(token: String, outboundId: String): OutboundOrder =
+        parseOutboundOrder(request("admin/outbounds/$outboundId", token = token))
+
+    fun exportOutboundOrder(token: String, outboundId: String): ByteArray =
+        executeBytes("admin/outbounds/$outboundId/export.xlsx", token)
+
+    fun shipOutboundOrder(
+        token: String,
+        outboundId: String,
+        photoFiles: List<File>,
+        note: String,
+        clientRequestId: String
+    ): OutboundOrder {
+        val imageType = "image/jpeg".toMediaType()
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("note", note)
+            .addFormDataPart("client_request_id", clientRequestId)
+            .apply {
+                photoFiles.forEachIndexed { index, file ->
+                    addFormDataPart("photos", "shipping_${index + 1}.jpg", file.asRequestBody(imageType))
+                }
+            }
+            .build()
+        return parseOutboundOrder(
+            request("admin/outbounds/$outboundId/ship", token = token, method = "POST", body = body)
+        )
+    }
+
     fun systemOverview(token: String): SystemOverview {
         val json = request("admin/system/overview?detail=true", token = token)
         val resources = json.optJSONObject("resources") ?: JSONObject()
@@ -1534,6 +1611,49 @@ class ProcurementApiClient(
                             actualQuantity = QuantityFormatter.format(value.optString("actual_quantity", value.optString("quantity")))
                         )
                     }
+                )
+            }
+        )
+    }
+
+    internal fun parseOutboundOrder(json: JSONObject): OutboundOrder {
+        val orders = json.optJSONArray("orders") ?: JSONArray()
+        val lines = json.optJSONArray("lines") ?: JSONArray()
+        return OutboundOrder(
+            id = json.optString("id"),
+            outboundNo = json.optString("outbound_no"),
+            preparationBatchId = json.optString("preparation_batch_id"),
+            batchNo = json.optString("batch_no"),
+            unitId = json.optString("unit_id"),
+            unitName = json.optString("unit_name_snapshot"),
+            deliveryPoint = json.optString("delivery_point_snapshot"),
+            status = json.optString("status", "pending"),
+            createdAt = json.optString("created_at").replace('T', ' ').take(16),
+            shippedAt = json.optString("shipped_at").replace('T', ' ').take(16),
+            version = json.optInt("version", 1),
+            orderCount = json.optInt("order_count", orders.length()),
+            productCount = json.optInt("product_count", lines.length()),
+            orders = List(orders.length()) { index ->
+                val item = orders.getJSONObject(index)
+                OutboundOrderRef(
+                    id = item.optString("id"),
+                    orderNo = item.optString("order_no"),
+                    status = item.optString("status").toUiOrderStatus(),
+                    totalCents = item.optLong("total_cents", 0),
+                    deliveryPoint = item.optString("delivery_point_snapshot")
+                )
+            },
+            lines = List(lines.length()) { index ->
+                val item = lines.getJSONObject(index)
+                OutboundOrderLine(
+                    productId = item.optString("product_id"),
+                    category = item.optString("category"),
+                    productName = item.optString("product_name"),
+                    spec = item.optString("spec"),
+                    unit = item.optString("unit"),
+                    quantity = QuantityFormatter.format(item.optString("quantity")),
+                    priceCentsSnapshot = item.optLong("price_cents_snapshot", 0),
+                    subtotalCents = item.optLong("subtotal_cents", 0)
                 )
             }
         )

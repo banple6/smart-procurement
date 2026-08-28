@@ -50,4 +50,18 @@ class ExternalActivityStateTest {
         assertNull(state.consume(ExternalActionType.BATCH_PICKING_EXPORT, "batch-a"))
         assertEquals(ExternalActionType.LEDGER_EXPORT, state.pendingAction?.type)
     }
+
+    @Test
+    fun `outbound camera recreation restores outbound shipping and consumes callback once`() {
+        val action = PendingExternalAction(
+            ExternalActionType.OUTBOUND_SHIPPING_CAMERA,
+            ownerId = "outbound-a",
+            payload = "/tmp/outbound-photo.jpg"
+        )
+        val restored = ExternalActivityState(initialAction = action)
+
+        assertEquals(Screen.OutboundShippingProof("outbound-a"), restored.pendingAction?.restoredScreen())
+        assertEquals(action, restored.consume(ExternalActionType.OUTBOUND_SHIPPING_CAMERA, "outbound-a"))
+        assertNull(restored.consume(ExternalActionType.OUTBOUND_SHIPPING_CAMERA, "outbound-a"))
+    }
 }

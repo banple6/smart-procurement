@@ -6,9 +6,11 @@ import androidx.compose.runtime.setValue
 
 enum class ExternalActionType {
     SHIPPING_CAMERA,
+    OUTBOUND_SHIPPING_CAMERA,
     BATCH_SUMMARY_EXPORT,
     BATCH_PICKING_EXPORT,
     BATCH_OUTBOUND_EXPORT,
+    OUTBOUND_EXPORT,
     LEDGER_EXPORT,
     PREPARATION_EXPORT,
     DELIVERY_SHEETS_EXPORT,
@@ -20,6 +22,7 @@ val WorkbookExportTypes = setOf(
     ExternalActionType.BATCH_SUMMARY_EXPORT,
     ExternalActionType.BATCH_PICKING_EXPORT,
     ExternalActionType.BATCH_OUTBOUND_EXPORT,
+    ExternalActionType.OUTBOUND_EXPORT,
     ExternalActionType.LEDGER_EXPORT,
     ExternalActionType.PREPARATION_EXPORT,
     ExternalActionType.DELIVERY_SHEETS_EXPORT
@@ -34,9 +37,11 @@ data class PendingExternalAction(
 ) {
     fun restoredScreen(): Screen = when (type) {
         ExternalActionType.SHIPPING_CAMERA -> Screen.ShippingProof(ownerId)
+        ExternalActionType.OUTBOUND_SHIPPING_CAMERA -> Screen.OutboundShippingProof(ownerId)
         ExternalActionType.BATCH_SUMMARY_EXPORT,
         ExternalActionType.BATCH_PICKING_EXPORT,
         ExternalActionType.BATCH_OUTBOUND_EXPORT -> Screen.DeliveryBatchDetail(ownerId)
+        ExternalActionType.OUTBOUND_EXPORT -> Screen.OutboundDetail(ownerId)
         ExternalActionType.LEDGER_EXPORT -> Screen.Ledger
         ExternalActionType.PREPARATION_EXPORT -> Screen.PreparationSummary
         ExternalActionType.DELIVERY_SHEETS_EXPORT -> Screen.DeliverySheets

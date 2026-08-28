@@ -81,6 +81,9 @@ fun AdminDashboardScreen(viewModel: SupplyViewModel) {
                         DashboardAction("备货单", { Icon(Icons.Default.LocalShipping, contentDescription = null) }) {
                             viewModel.navigateTo(Screen.DeliveryBatches)
                         }
+                        DashboardAction("出库单", { Icon(Icons.Default.LocalShipping, contentDescription = null) }) {
+                            viewModel.navigateTo(Screen.Outbounds)
+                        }
                         DashboardAction("新增食材", { Icon(Icons.Default.Add, contentDescription = null) }) {
                             viewModel.navigateTo(Screen.AddProduct)
                         }

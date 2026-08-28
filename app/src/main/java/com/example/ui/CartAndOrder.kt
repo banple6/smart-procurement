@@ -733,7 +733,12 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
         text = if (loading) "正在提交" else label,
         onClick = {
             if (label == "确认发货") {
-                viewModel.navigateTo(Screen.ShippingProof(order.orderId))
+                if (viewModel.canManageIngredients()) {
+                    viewModel.alertMessage = "请通过出库单确认发货。完成备货后先按单位生成出库单，再在出库单详情上传发货照片。"
+                    viewModel.navigateTo(Screen.Outbounds)
+                } else {
+                    viewModel.navigateTo(Screen.ShippingProof(order.orderId))
+                }
             } else {
                 showConfirm = true
             }

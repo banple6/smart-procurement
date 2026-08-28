@@ -259,6 +259,12 @@ fun DeliveryBatchDetailScreen(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                             ) { Text("完成备货") }
+                        } else if (batch.status == "closed") {
+                            Button(
+                                onClick = { viewModel.generateOutboundOrders(batchId) },
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                                enabled = !viewModel.isOutboundLoading
+                            ) { Text(if (viewModel.isOutboundLoading) "正在生成出库单" else "按单位生成出库单") }
                         }
                     }
                 }

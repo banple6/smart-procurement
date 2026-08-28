@@ -89,6 +89,9 @@ sealed interface Screen {
     object OrderList : Screen
     data class OrderDetails(val orderId: String) : Screen
     data class ShippingProof(val orderId: String) : Screen
+    object Outbounds : Screen
+    data class OutboundDetail(val outboundId: String) : Screen
+    data class OutboundShippingProof(val outboundId: String) : Screen
     object UnitManagement : Screen
     object AccountManagement : Screen
     object Ledger : Screen
@@ -392,6 +395,14 @@ class SupplyViewModel(
         private set
     var isDeliveryBatchLoading by mutableStateOf(false)
         private set
+    var outboundOrders by mutableStateOf<List<OutboundOrder>>(emptyList())
+        private set
+    var activeOutboundOrder by mutableStateOf<OutboundOrder?>(null)
+        private set
+    var isOutboundLoading by mutableStateOf(false)
+        private set
+    var activeOutboundShippingId by mutableStateOf("")
+        private set
     var activeExportType by mutableStateOf<ExternalActionType?>(null)
         private set
     var priceImportBatches by mutableStateOf<List<PriceImportBatch>>(emptyList())
@@ -466,8 +477,17 @@ class SupplyViewModel(
     fun consumeShippingCamera(orderId: String): String? =
         externalActivityState.consume(ExternalActionType.SHIPPING_CAMERA, orderId)?.payload
 
+    fun beginOutboundShippingCamera(outboundId: String, photoPath: String) {
+        externalActivityState.begin(
+            PendingExternalAction(ExternalActionType.OUTBOUND_SHIPPING_CAMERA, ownerId = outboundId, payload = photoPath)
+        )
+    }
+
+    fun consumeOutboundShippingCamera(outboundId: String): String? =
+        externalActivityState.consume(ExternalActionType.OUTBOUND_SHIPPING_CAMERA, outboundId)?.payload
+
     fun beginDocumentExport(type: ExternalActionType, ownerId: String = "") {
-        require(type != ExternalActionType.SHIPPING_CAMERA)
+        require(type != ExternalActionType.SHIPPING_CAMERA && type != ExternalActionType.OUTBOUND_SHIPPING_CAMERA)
         externalActivityState.begin(PendingExternalAction(type, ownerId = ownerId))
     }
 
@@ -486,6 +506,7 @@ class SupplyViewModel(
             ExternalActionType.BATCH_SUMMARY_EXPORT -> exportDeliveryBatchSummary(action.ownerId, uri)
             ExternalActionType.BATCH_PICKING_EXPORT -> exportDeliveryBatchPickingList(action.ownerId, uri)
             ExternalActionType.BATCH_OUTBOUND_EXPORT -> exportDeliveryBatchOutbound(action.ownerId, uri)
+            ExternalActionType.OUTBOUND_EXPORT -> exportOutboundOrder(action.ownerId, uri)
             ExternalActionType.LEDGER_EXPORT -> exportLedger(uri)
             ExternalActionType.PREPARATION_EXPORT -> exportPreparationSummary(uri)
             ExternalActionType.DELIVERY_SHEETS_EXPORT -> exportDeliverySheets(uri)
@@ -510,9 +531,11 @@ class SupplyViewModel(
             null -> Unit
             else -> when (action.type) {
                 ExternalActionType.SHIPPING_CAMERA -> refreshOrderDetail(action.ownerId)
+                ExternalActionType.OUTBOUND_SHIPPING_CAMERA -> refreshOutboundOrder(action.ownerId)
                 ExternalActionType.BATCH_SUMMARY_EXPORT,
                 ExternalActionType.BATCH_PICKING_EXPORT,
                 ExternalActionType.BATCH_OUTBOUND_EXPORT -> refreshDeliveryBatch(action.ownerId)
+                ExternalActionType.OUTBOUND_EXPORT -> refreshOutboundOrder(action.ownerId)
                 ExternalActionType.LEDGER_EXPORT -> refreshLedger()
                 ExternalActionType.PREPARATION_EXPORT -> refreshPreparationSummary()
                 ExternalActionType.DELIVERY_SHEETS_EXPORT -> refreshDeliverySheets()
@@ -1174,6 +1197,9 @@ class SupplyViewModel(
         when (val screen = navigationStack.lastOrNull()) {
             is Screen.OrderDetails -> refreshOrderDetail(screen.orderId)
             is Screen.ShippingProof -> refreshOrderDetail(screen.orderId)
+            is Screen.OutboundDetail -> refreshOutboundOrder(screen.outboundId)
+            is Screen.OutboundShippingProof -> refreshOutboundOrder(screen.outboundId)
+            is Screen.Outbounds -> refreshOutboundOrders()
             is Screen.DeliveryBatchDetail -> refreshDeliveryBatch(screen.batchId)
             is Screen.DeliveryBatches, is Screen.DeliveryBatchCreate -> refreshDeliveryBatches()
             is Screen.ProductDetail, is Screen.EditProduct, is Screen.InventoryRecords -> refreshProducts()
@@ -1198,6 +1224,9 @@ class SupplyViewModel(
             screen is Screen.OrderList ||
                 screen is Screen.OrderDetails ||
                 screen is Screen.ShippingProof ||
+                screen is Screen.OutboundDetail ||
+                screen is Screen.OutboundShippingProof ||
+                screen is Screen.Outbounds ||
                 screen is Screen.DeliveryBatchDetail ||
                 screen is Screen.DeliveryBatches ||
                 screen is Screen.DeliveryBatchCreate ||
@@ -1589,6 +1618,87 @@ class SupplyViewModel(
                 }
                 .onFailure { alertMessage = it.toUserMessage("完成备货失败") }
             isDeliveryBatchLoading = false
+        }
+    }
+
+    fun generateOutboundOrders(batchId: String) {
+        if (authToken.isBlank() || !canManageIngredients() || isOutboundLoading) return
+        if (!requireNetworkForWrite()) return
+        isOutboundLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.generateOutboundOrders(authToken, batchId) } }
+                .onSuccess { generated ->
+                    outboundOrders = generated + outboundOrders.filterNot { current -> generated.any { it.id == current.id } }
+                    snackbarMessage = "已生成 ${generated.size} 张出库单"
+                    navigateTo(Screen.Outbounds)
+                }
+                .onFailure { alertMessage = it.toUserMessage("生成出库单失败") }
+            isOutboundLoading = false
+        }
+    }
+
+    fun refreshOutboundOrders() {
+        if (authToken.isBlank() || !canManageIngredients() || isOutboundLoading) return
+        isOutboundLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.outboundOrders(authToken) } }
+                .onSuccess { outboundOrders = it }
+                .onFailure { snackbarMessage = it.toUserMessage("出库单加载失败") }
+            isOutboundLoading = false
+        }
+    }
+
+    fun openOutboundOrder(outboundId: String) = loadOutboundOrder(outboundId, navigate = true)
+
+    fun refreshOutboundOrder(outboundId: String) = loadOutboundOrder(outboundId, navigate = false)
+
+    private fun loadOutboundOrder(outboundId: String, navigate: Boolean) {
+        if (authToken.isBlank() || !canManageIngredients() || isOutboundLoading) return
+        isOutboundLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.outboundOrderDetail(authToken, outboundId) } }
+                .onSuccess { outbound ->
+                    activeOutboundOrder = outbound
+                    outboundOrders = listOf(outbound) + outboundOrders.filterNot { it.id == outbound.id }
+                    if (navigate) navigateTo(Screen.OutboundDetail(outbound.id))
+                }
+                .onFailure { snackbarMessage = it.toUserMessage("出库单详情加载失败") }
+            isOutboundLoading = false
+        }
+    }
+
+    fun exportOutboundOrder(outboundId: String, uri: Uri) = saveWorkbook(
+        uri, ExternalActionType.OUTBOUND_EXPORT, "出库单已保存", "出库单保存失败，请重试"
+    ) { token -> apiClient.exportOutboundOrder(token, outboundId) }
+
+    fun submitOutboundShippingProof(outboundId: String, photoFiles: List<File>, note: String, onSuccess: () -> Unit) {
+        if (activeOutboundShippingId == outboundId) return
+        if (!requireNetworkForWrite()) return
+        if (authToken.isBlank()) {
+            alertMessage = "请重新登录后操作出库单"
+            return
+        }
+        if (photoFiles.isEmpty()) {
+            alertMessage = "请至少拍摄一张发货照片"
+            return
+        }
+        activeOutboundShippingId = outboundId
+        val requestId = UUID.randomUUID().toString()
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.shipOutboundOrder(authToken, outboundId, photoFiles, note, requestId)
+                }
+            }
+            activeOutboundShippingId = ""
+            result.onSuccess { outbound ->
+                activeOutboundOrder = outbound
+                outboundOrders = listOf(outbound) + outboundOrders.filterNot { it.id == outbound.id }
+                refreshOrders()
+                refreshProducts()
+                snackbarMessage = "出库单已发货，关联订单已更新"
+                onSuccess()
+            }.onFailure { alertMessage = it.toUserMessage("确认发货失败") }
         }
     }
 
