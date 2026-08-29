@@ -207,6 +207,7 @@ class SupplyViewModel(
                             refreshProducts()
                             refreshOrders()
                             refreshDashboard()
+                            refreshUnitQuota()
                             restorePendingExternalContext()
                             preparePushNotifications()
                             OrderSyncWorker.schedule(getApplication())
@@ -284,6 +285,8 @@ class SupplyViewModel(
     var unitId by mutableStateOf("")
     var mustChangePassword by mutableStateOf(false)
     var lastSyncText by mutableStateOf("")
+    var unitQuota by mutableStateOf(UnitQuota())
+        private set
 
     val loginErrors = mutableStateMapOf<String, String>()
     val passwordErrors = mutableStateMapOf<String, String>()
@@ -595,6 +598,7 @@ class SupplyViewModel(
                     refreshProducts()
                     refreshOrders()
                     refreshDashboard()
+                    refreshUnitQuota()
                     preparePushNotifications()
                     OrderSyncWorker.schedule(getApplication())
                     processPendingPushEvent()
@@ -724,6 +728,15 @@ class SupplyViewModel(
             } finally {
                 isRefreshingProducts = false
             }
+        }
+    }
+
+    fun refreshUnitQuota() {
+        if (authToken.isBlank() || currentUser?.role != "unit_user") return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.currentUnitQuota(authToken) } }
+                .onSuccess { unitQuota = it }
+                .onFailure { snackbarMessage = it.toUserMessage("采购额度同步失败") }
         }
     }
 
@@ -1146,6 +1159,7 @@ class SupplyViewModel(
         refreshProducts()
         refreshOrders()
         refreshDashboard()
+        refreshUnitQuota()
     }
 
     fun onAppResumed() {
@@ -2350,6 +2364,7 @@ class SupplyViewModel(
             repository.upsertOrder(remoteOrder)
             repository.clearCart()
             refreshProducts()
+            refreshUnitQuota()
             popToRootAndNavigate(Screen.SubmitSuccess(remoteOrder.order.orderId))
         }
     }

@@ -37,6 +37,14 @@ data class RemoteLogin(
     val message: String = ""
 )
 
+data class UnitQuota(
+    val enabled: Boolean = false,
+    val quotaMonth: String = "",
+    val baseQuotaCents: Long = 0,
+    val availableCents: Long = 0,
+    val usedThisMonthCents: Long = 0
+)
+
 data class RemoteOrderPage(
     val items: List<RemoteOrderBundle>,
     val total: Int,
@@ -794,6 +802,17 @@ class ProcurementApiClient(
             .toString()
             .toRequestBody(JSON)
         return request("orders", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId))
+    }
+
+    fun currentUnitQuota(token: String): UnitQuota {
+        val json = request("quota/current", token = token)
+        return UnitQuota(
+            enabled = json.optBoolean("enabled", false),
+            quotaMonth = json.optString("quota_month"),
+            baseQuotaCents = json.optLong("base_quota_cents", 0),
+            availableCents = json.optLong("available_cents", 0),
+            usedThisMonthCents = json.optLong("used_this_month_cents", 0)
+        )
     }
 
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> =

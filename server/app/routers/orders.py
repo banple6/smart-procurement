@@ -17,8 +17,17 @@ from ..services.outbound_reconciliation import reconcile_outbound_status_for_ord
 from ..services.push_outbox import enqueue_order_created, enqueue_order_status_changed
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 from ..services.local_time import display_local_time, local_now
+from ..services.unit_quota import adjust_order_quota, finalize_order_quota, release_order_quota, reserve_order_quota
 
 router = APIRouter(tags=["orders"])
+
+
+@router.get("/quota/current")
+def current_unit_quota(user=Depends(require_unit_user)):
+    from ..services.unit_quota import quota_payload
+
+    with transaction() as conn:
+        return quota_payload(conn, user["unit_id"])
 
 
 def order_no(conn) -> str:
@@ -319,6 +328,17 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
             (order_id, order_no(conn), unit["id"], unit["unit_name"], unit["default_delivery_point"], body.note, total, user["id"], body.client_request_id),
         )
         conn.execute("UPDATE orders SET idempotency_key = ? WHERE id = ?", (effective_idempotency_key, order_id))
+    if existing_order_id:
+        adjust_order_quota(conn, unit_id=unit["id"], order_id=order_id, new_amount_cents=total, actor_id=user["id"])
+    else:
+        reserve_order_quota(
+            conn,
+            unit_id=unit["id"],
+            order_id=order_id,
+            amount_cents=total,
+            actor_id=user["id"],
+            request_id=effective_idempotency_key,
+        )
     for product, quantity, subtotal in items_payload:
         conn.execute(
             """
@@ -497,6 +517,7 @@ def _cancel_order(conn, order: dict, actor: dict, reason: str, source: str) -> d
             return refreshed
         raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
     _release_order_reservations(conn, order, actor, "ORDER_CANCEL_RELEASE", reason)
+    release_order_quota(conn, order_id=order["id"], actor_id=actor["id"], note=reason)
     conn.execute(
         "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'cancel', 'pending', 'cancelled', ?)",
         (str(uuid4()), order["id"], actor["id"], reason),
@@ -525,6 +546,7 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
+        finalize_order_quota(conn, order_id=order_id, actor_id=user["id"])
         conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'confirm_receipt', 'shipped', 'completed')",
@@ -614,6 +636,7 @@ def void_order(order_id: str, body: OrderLifecycleReason, admin=Depends(require_
                 return order_out(conn, refreshed, viewer=admin)
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         _release_order_reservations(conn, order, admin, "ORDER_VOID_RELEASE", reason)
+        release_order_quota(conn, order_id=order_id, actor_id=admin["id"], note=reason)
         conn.execute(
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'void', ?, 'voided', ?)",
             (str(uuid4()), order_id, admin["id"], order["status"], reason),
@@ -703,6 +726,7 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
         if body.status == "completed":
             for item in order_items(conn, order_id):
                 complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, admin["id"])
+            finalize_order_quota(conn, order_id=order_id, actor_id=admin["id"])
         time_field = {
             "accepted": "accepted_at",
             "preparing": "preparing_at",

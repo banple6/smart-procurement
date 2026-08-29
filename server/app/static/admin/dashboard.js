@@ -1718,6 +1718,42 @@
     return `/admin/accounts?unit_id=${encodeURIComponent(unit.id)}&create=unit`;
   }
 
+  function openUnitQuotaDialog(unit) {
+    const quota = unit.quota || {};
+    const dialog = openOrgDialog(`${unit.unit_name} · 采购额度`, `
+      <form id="quotaSettingsForm">
+        <div class="form-grid compact">
+          <label class="switch-field span-2"><input name="enabled" type="checkbox" ${quota.enabled ? "checked" : ""} />启用采购额度控制</label>
+          <label class="form-field span-2"><span>未来月度基础额度（元）</span><input name="monthly_amount" type="number" min="0" step="0.01" value="${((quota.default_monthly_quota_cents || 0) / 100).toFixed(2)}" required /></label>
+        </div>
+        <p class="row-sub">当前可用：${money(quota.available_cents)} · 本月基础额度：${money(quota.base_quota_cents)}</p>
+        <p id="quotaSettingsError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button id="cancelQuotaSettings" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存设置</button></div>
+      </form>
+      <form id="quotaAdjustmentForm">
+        <h3>调整当前可用额度</h3>
+        <div class="form-grid compact"><label class="form-field"><span>调整金额（元，可为负）</span><input name="delta" type="number" step="0.01" required /></label><label class="form-field"><span>调整原因 *</span><input name="reason" maxlength="300" required /></label></div>
+        <p id="quotaAdjustmentError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button class="secondary-button" type="submit">提交调整</button></div>
+      </form>
+      <section id="quotaLedger" class="simple-list"><div class="row-sub">正在加载额度流水…</div></section>
+    `);
+    const cents = (value) => {
+      const text = String(value || "").trim();
+      if (!/^-?\d+(\.\d{1,2})?$/.test(text)) throw new Error("金额最多保留两位小数");
+      const [whole, fraction = ""] = text.replace("+", "").split(".");
+      return Number(whole) * 100 + Number((fraction + "00").slice(0, 2)) * (text.startsWith("-") ? -1 : 1);
+    };
+    const renderLedger = async () => {
+      const data = await api(`/api/v1/admin/units/${unit.id}/quota/ledger`);
+      $("quotaLedger").innerHTML = (data.items || []).map((item) => `<div class="row-item"><div class="row-head"><strong>${html(item.event_type)}</strong><span>${item.delta_cents >= 0 ? "+" : ""}${money(item.delta_cents)}</span></div><div class="row-sub">余额 ${money(item.balance_after_cents)} · ${html(item.order_no || item.note || "--")} · ${html(dateTime(item.created_at))}</div></div>`).join("") || '<div class="row-sub">暂无额度流水</div>';
+    };
+    $("cancelQuotaSettings").addEventListener("click", dialog.close);
+    $("quotaSettingsForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaSettingsError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存设置"); try { await api(`/api/v1/admin/units/${unit.id}/quota`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: form.enabled.checked, default_monthly_quota_cents: cents(new FormData(form).get("monthly_amount")) }) }); dialog.close(); toast("采购额度设置已保存"); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "保存失败"; error.hidden = false; formButtonBusy(submit, false, "保存设置"); } });
+    $("quotaAdjustmentForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaAdjustmentError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "提交调整"); try { await api(`/api/v1/admin/units/${unit.id}/quota/adjustments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delta_cents: cents(new FormData(form).get("delta")), reason: new FormData(form).get("reason") }) }); toast("额度已调整"); await renderLedger(); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "调整失败"; error.hidden = false; formButtonBusy(submit, false, "提交调整"); } });
+    renderLedger().catch((error) => { $("quotaLedger").innerHTML = `<div class="row-sub">${html(error.message || "额度流水加载失败")}</div>`; });
+  }
+
   async function loadUnits() {
     const params = new URLSearchParams(window.location.search);
     const query = (params.get("query") || "").trim().toLowerCase();
@@ -1736,12 +1772,13 @@
       ${canManage ? `<div class="page-toolbar"><button id="createUnitButton" class="primary-link" type="button">+ 新增子单位</button></div>` : `<div class="notice-banner">当前账号仅可查看子单位，组织和账号变更需要“账号管理”权限。</div>`}
       <form id="unitFilters" class="compact-form page-toolbar"><label class="form-field"><span>单位名称 / 编码</span><input name="query" value="${html(params.get("query") || "")}" placeholder="搜索单位" /></label><label class="form-field"><span>状态</span><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部</option><option value="true" ${status === "true" ? "selected" : ""}>启用</option><option value="false" ${status === "false" ? "selected" : ""}>停用</option></select></label><button class="secondary-button" type="submit">筛选</button></form>
     `;
-    content().innerHTML += table(["单位名称", "单位编码", "默认配送点", "关联账号", "订单数", "状态", "更新时间", "操作"], rows.map((unit) => `
-      <tr><td>${html(unit.unit_name)}</td><td>${html(unit.unit_code)}</td><td>${html(unit.default_delivery_point || "--")}</td><td><a class="text-link" href="${unitAccountLink(unit)}">${num(unit.account_count)} 个</a></td><td>${num(unit.order_count)}</td><td>${activeLabel(unit.active)}</td><td>${dateTime(unit.updated_at)}</td><td>${canManage ? `<button class="table-action" data-edit-unit="${unit.id}">编辑</button><details class="action-menu"><summary>更多</summary><button type="button" data-unit-status="${unit.id}" data-next-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></details>` : "--"}</td></tr>
+    content().innerHTML += table(["单位名称", "单位编码", "采购额度", "当前可用", "关联账号", "订单数", "状态", "更新时间", "操作"], rows.map((unit) => `
+      <tr><td>${html(unit.unit_name)}</td><td>${html(unit.unit_code)}</td><td>${unit.quota?.enabled ? money(unit.quota.base_quota_cents) : "未启用"}</td><td>${unit.quota?.enabled ? money(unit.quota.available_cents) : "--"}</td><td><a class="text-link" href="${unitAccountLink(unit)}">${num(unit.account_count)} 个</a></td><td>${num(unit.order_count)}</td><td>${activeLabel(unit.active)}</td><td>${dateTime(unit.updated_at)}</td><td>${canManage ? `<button class="table-action" data-edit-unit="${unit.id}">编辑</button><button class="table-action" data-unit-quota="${unit.id}">额度</button><details class="action-menu"><summary>更多</summary><button type="button" data-unit-status="${unit.id}" data-next-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></details>` : "--"}</td></tr>
     `), "暂无符合条件的子单位");
     $("createUnitButton")?.addEventListener("click", () => openUnitDialog());
     $("unitFilters").addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); applyOrgFilters("/admin/units", { query: data.get("query"), status: data.get("status") === "all" ? "" : data.get("status") }); loadUnits(); });
     document.querySelectorAll("[data-edit-unit]").forEach((button) => button.addEventListener("click", () => openUnitDialog(units.find((unit) => unit.id === button.dataset.editUnit))));
+    document.querySelectorAll("[data-unit-quota]").forEach((button) => button.addEventListener("click", () => openUnitQuotaDialog(units.find((unit) => unit.id === button.dataset.unitQuota))));
     document.querySelectorAll("[data-unit-status]").forEach((button) => button.addEventListener("click", async () => {
       const active = button.dataset.nextActive === "1";
       if (!confirm(`确认${active ? "启用" : "停用"}该子单位吗？${active ? "" : "停用后关联账号不能继续登录，历史记录不会删除。"}`)) return;

@@ -280,6 +280,20 @@ class OrderLifecycleReason(BaseModel):
     reason: str = Field(min_length=1, max_length=300)
 
 
+class UnitQuotaSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    default_monthly_quota_cents: int = Field(ge=0, le=10_000_000_000)
+
+
+class UnitQuotaAdjustment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    delta_cents: int = Field(ge=-10_000_000_000, le=10_000_000_000)
+    reason: str = Field(min_length=1, max_length=300)
+
+
 class DeliveryBatchCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

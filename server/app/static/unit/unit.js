@@ -134,6 +134,12 @@
     $("cutoffTime").textContent = data.cutoff?.enabled ? data.cutoff.cutoff_time : "未限制";
     $("cartCount").textContent = data.cart_count || 0;
     $("waitingReceipt").textContent = data.waiting_receipt || 0;
+    const quota = data.quota || {};
+    $("quotaMetric").hidden = !quota.enabled;
+    if (quota.enabled) {
+      $("quotaAvailable").textContent = money(quota.available_cents);
+      $("quotaBase").textContent = `本月基础 ${money(quota.base_quota_cents)}`;
+    }
     $("recentOrders").innerHTML = (data.recent_orders || []).map((order) => `<a class="row-item" href="/unit/orders/${order.id}"><div class="row-head"><strong>${html(order.order_no)}</strong><span>${html(statusLabel(order))}</span></div><div class="row-sub">${money(order.total_cents)} · ${html(dateTime(order.created_at))}</div></a>`).join("") || '<div class="row-sub">暂无订单</div>';
     $("purchaseTips").innerHTML = (data.tips || []).map((tip) => `<div class="row-item">${html(tip)}</div>`).join("");
   }
@@ -164,6 +170,24 @@
     const data = await api("/unit/cart/data");
     $("cartDeliveryPoint").textContent = "配送点：" + display(data.delivery_point);
     $("cartTotal").textContent = money(data.total_cents);
+    const quota = data.quota || {};
+    const quotaSummary = $("cartQuotaSummary");
+    const quotaWarning = $("cartQuotaWarning");
+    const submit = $("submitOrderButton");
+    if (quota.enabled) {
+      const available = Number(quota.available_cents || 0);
+      const required = Number(data.total_cents || 0);
+      const after = available - required;
+      quotaSummary.hidden = false;
+      quotaSummary.textContent = `当前可用额度 ${money(available)} · 提交后预计余额 ${money(Math.max(after, 0))}`;
+      quotaWarning.hidden = after >= 0;
+      quotaWarning.textContent = after >= 0 ? "" : `本单超出可用额度 ${money(-after)}`;
+      submit.disabled = after < 0;
+    } else {
+      quotaSummary.hidden = true;
+      quotaWarning.hidden = true;
+      submit.disabled = false;
+    }
     $("cartList").innerHTML = (data.items || []).map((item) => `
       <div class="row-item">
         <div class="row-head"><strong>${html(item.name)}</strong><span>${money(item.subtotal_cents)}</span></div>
@@ -188,6 +212,7 @@
     }));
   }
   async function submitOrder() {
+    if ($("submitOrderButton").disabled) return;
     const note = $("orderNote").value || "";
     const order = await api("/unit/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
     window.location.replace(`/unit/orders/${order.id}`);

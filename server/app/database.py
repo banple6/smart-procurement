@@ -1272,6 +1272,66 @@ def apply_outbound_orders_migration(conn: sqlite3.Connection):
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_orders_ship_request_id ON outbound_orders(ship_request_id) WHERE ship_request_id IS NOT NULL")
 
 
+def apply_unit_monthly_quota_migration(conn: sqlite3.Connection):
+    """Add opt-in unit quota accounts without changing current ordering behavior."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS unit_quota_accounts (
+          unit_id TEXT PRIMARY KEY REFERENCES units(id),
+          quota_enabled INTEGER NOT NULL DEFAULT 0,
+          default_monthly_quota_cents INTEGER NOT NULL DEFAULT 0,
+          balance_cents INTEGER NOT NULL DEFAULT 0,
+          last_granted_month TEXT,
+          version INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS unit_quota_months (
+          id TEXT PRIMARY KEY,
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          quota_month TEXT NOT NULL,
+          base_quota_cents INTEGER NOT NULL,
+          opening_balance_cents INTEGER NOT NULL,
+          grant_cents INTEGER NOT NULL,
+          manual_adjustment_cents INTEGER NOT NULL DEFAULT 0,
+          granted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(unit_id, quota_month)
+        );
+
+        CREATE TABLE IF NOT EXISTS unit_quota_ledger (
+          id TEXT PRIMARY KEY,
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          quota_month TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          delta_cents INTEGER NOT NULL,
+          balance_after_cents INTEGER NOT NULL,
+          order_id TEXT REFERENCES orders(id),
+          actor_id TEXT REFERENCES users(id),
+          note TEXT NOT NULL DEFAULT '',
+          request_id TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS order_quota_allocations (
+          id TEXT PRIMARY KEY,
+          order_id TEXT NOT NULL UNIQUE REFERENCES orders(id),
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          quota_month TEXT NOT NULL,
+          amount_cents INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('reserved', 'released', 'finalized')),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_unit_quota_ledger_unit_created ON unit_quota_ledger(unit_id, created_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_unit_quota_ledger_month ON unit_quota_ledger(unit_id, quota_month)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_order_quota_allocations_unit ON order_quota_allocations(unit_id, status)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1305,6 +1365,7 @@ def migrate() -> list[str]:
             ("0021_order_soft_delete", apply_order_soft_delete_migration),
             ("0022_accept_immediately_preparing", apply_accept_immediately_preparing_migration),
             ("0023_outbound_orders", apply_outbound_orders_migration),
+            ("0024_unit_monthly_quota", apply_unit_monthly_quota_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1344,6 +1405,7 @@ def migration_status() -> dict:
         "0021_order_soft_delete",
         "0022_accept_immediately_preparing",
         "0023_outbound_orders",
+        "0024_unit_monthly_quota",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

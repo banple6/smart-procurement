@@ -149,6 +149,31 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             item {
                 ThinkingOrbPreviewShortcut(onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) })
             }
+            if (!viewModel.canManageIngredients() && viewModel.unitQuota.enabled) {
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("本月可用额度", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Text(
+                                Money.formatCents(viewModel.unitQuota.availableCents),
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Text(
+                                "${viewModel.unitQuota.quotaMonth} · 月度额度 ${Money.formatCents(viewModel.unitQuota.baseQuotaCents)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                    }
+                }
+            }
             if (viewModel.canManageIngredients()) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -500,6 +525,7 @@ private fun IngredientCard(
                         QuantityStepper(
                             value = cartQuantity,
                             unit = product.unit,
+                            minValue = product.minQty,
                             step = product.stepQty,
                             maxValue = availableNumber,
                             onValueChange = onQtyChange
@@ -554,7 +580,10 @@ fun ProductDetailScreen(productId: String, viewModel: SupplyViewModel) {
             )
         },
         bottomBar = {
-            DetailActions(product, selectedQty, viewModel, onQtyChange = { selectedQty = it }, onDelete = { showDeleteDialog = true })
+            DetailActions(product, selectedQty, viewModel, onQtyChange = { next ->
+                selectedQty = next
+                if (next == 0.0) viewModel.deleteCartItem(product.id)
+            }, onDelete = { showDeleteDialog = true })
         }
     ) { padding ->
         PullToRefreshBox(
@@ -671,6 +700,7 @@ private fun DetailActions(
                 QuantityStepper(
                     value = selectedQty,
                     unit = product.unit,
+                    minValue = product.minQty,
                     step = product.stepQty,
                     maxValue = availableNumber,
                     onValueChange = onQtyChange,

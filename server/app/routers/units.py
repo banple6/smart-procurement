@@ -18,12 +18,15 @@ from ..schemas import (
     StatusPatch,
     UnitCreate,
     UnitUpdate,
+    UnitQuotaAdjustment,
+    UnitQuotaSettings,
     UnitUserCreate,
     UserCreate,
     UserPermissionsUpdate,
     UserUpdate,
 )
 from ..security import hash_password
+from ..services.unit_quota import adjust_quota, quota_ledger, quota_payload, update_quota_settings
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -140,8 +143,8 @@ def _raise_unique_error(error: sqlite3.IntegrityError, kind: str):
 
 @router.get("/units")
 def list_units(admin=Depends(require_admin_user)):
-    with connect() as conn:
-        return all_rows(
+    with transaction() as conn:
+        rows = all_rows(
             conn,
             """
             SELECT u.*,
@@ -152,6 +155,48 @@ def list_units(admin=Depends(require_admin_user)):
             ORDER BY u.created_at DESC
             """,
         )
+        for row in rows:
+            row["quota"] = quota_payload(conn, row["id"])
+        return rows
+
+
+@router.get("/units/{unit_id}/quota")
+def get_unit_quota(unit_id: str, admin=Depends(require_admin_user)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return quota_payload(conn, unit_id)
+
+
+@router.put("/units/{unit_id}/quota")
+def set_unit_quota(unit_id: str, body: UnitQuotaSettings, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return update_quota_settings(
+            conn,
+            unit_id=unit_id,
+            enabled=body.enabled,
+            default_monthly_quota_cents=body.default_monthly_quota_cents,
+            actor=admin,
+        )
+
+
+@router.post("/units/{unit_id}/quota/adjustments")
+def create_unit_quota_adjustment(unit_id: str, body: UnitQuotaAdjustment, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return adjust_quota(conn, unit_id=unit_id, delta_cents=body.delta_cents, reason=body.reason, actor=admin)
+
+
+@router.get("/units/{unit_id}/quota/ledger")
+def list_unit_quota_ledger(unit_id: str, month: str | None = None, admin=Depends(require_admin_user)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        quota = quota_payload(conn, unit_id, month)
+        return {"quota": quota, "items": quota_ledger(conn, unit_id, month)}
 
 
 @router.post("/units")

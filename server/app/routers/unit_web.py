@@ -13,6 +13,7 @@ from ..schemas import OrderCreate, OrderItemRequest, OrderLifecycleReason
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text
 from ..services.procurement import cutoff_payload
+from ..services.unit_quota import finalize_order_quota, quota_payload
 from ..web_session import CSRF_COOKIE, secure_cookie_enabled, web_absolute_seconds
 
 router = APIRouter(tags=["unit-web"])
@@ -193,7 +194,7 @@ def unit_profile_page(request: Request, user=Depends(require_unit_web_session)):
 
 @router.get("/unit/home/data")
 def unit_home_data(user=Depends(require_unit_web_session)):
-    with connect() as conn:
+    with transaction() as conn:
         unit = one(conn, "SELECT * FROM units WHERE id = ?", (user["unit_id"],))
         cutoff = cutoff_payload(conn)
         cart_count = one(conn, "SELECT COUNT(*) AS c FROM web_cart_items WHERE user_id = ? AND unit_id = ?", (user["id"], user["unit_id"]))["c"]
@@ -201,6 +202,7 @@ def unit_home_data(user=Depends(require_unit_web_session)):
         recent_orders = all_rows(conn, "SELECT * FROM orders WHERE unit_id = ? AND is_deleted = 0 ORDER BY created_at DESC LIMIT 5", (user["unit_id"],))
         return {
             "unit": unit,
+            "quota": quota_payload(conn, user["unit_id"]),
             "cutoff": cutoff,
             "cart_count": cart_count,
             "waiting_receipt": waiting_receipt,
@@ -229,8 +231,16 @@ def unit_products_data(q: str | None = None, category: str | None = None, status
 
 @router.get("/unit/cart/data")
 def unit_cart_data(user=Depends(require_unit_web_session)):
-    with connect() as conn:
-        return cart_payload(conn, user)
+    with transaction() as conn:
+        payload = cart_payload(conn, user)
+        payload["quota"] = quota_payload(conn, user["unit_id"])
+        return payload
+
+
+@router.get("/unit/quota/current")
+def unit_current_quota(user=Depends(require_unit_web_session)):
+    with transaction() as conn:
+        return quota_payload(conn, user["unit_id"])
 
 
 @router.post("/unit/cart/items")
@@ -392,6 +402,7 @@ def unit_confirm_receipt(order_id: str, request: Request, user=Depends(require_u
             raise HTTPException(status_code=409, detail="订单状态已变化，请刷新后重试")
         for item in order_items(conn, order_id):
             complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, user["id"])
+        finalize_order_quota(conn, order_id=order_id, actor_id=user["id"])
         conn.execute("UPDATE orders SET status = 'completed', completed_at = CURRENT_TIMESTAMP, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (order_id,))
         invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)), viewer=user)

@@ -67,6 +67,8 @@ fun CartScreen(viewModel: SupplyViewModel) {
         products.find { it.id == item.productId }?.let { product -> item to product }
     }
     val totalCents = rows.sumOf { (item, product) -> lineSubtotalCents(product.price, item.quantity) }
+    val quota = viewModel.unitQuota
+    val quotaExceeded = quota.enabled && totalCents > quota.availableCents
 
     Scaffold(
         topBar = {
@@ -120,6 +122,11 @@ fun CartScreen(viewModel: SupplyViewModel) {
                         DocumentSection(title = "结算摘要") {
                             DetailRow("食材种类", "${rows.size} 种")
                             DetailRow("订单金额", Money.formatCents(totalCents))
+                            if (quota.enabled) {
+                                DetailRow("当前可用额度", Money.formatCents(quota.availableCents))
+                                DetailRow("提交后预计余额", Money.formatCents((quota.availableCents - totalCents).coerceAtLeast(0)))
+                                if (quotaExceeded) Text("本单超出可用额度 ${Money.formatCents(totalCents - quota.availableCents)}", color = JrxpTheme.colors.criticalRed, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                     items(rows, key = { it.first.productId }) { (item, p) ->
@@ -163,6 +170,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                     QuantityStepper(
                                         value = item.quantity,
                                         unit = p.unit,
+                                        minValue = p.minQty,
                                         step = p.stepQty,
                                         onValueChange = { newVal ->
                                             if (newVal == 0.0) viewModel.deleteCartItem(p.id)
@@ -194,7 +202,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     JrxpPrimaryButton(
                         text = "提交订单",
                         onClick = { showConfirm = true },
-                        enabled = !viewModel.isSubmittingOrder,
+                        enabled = !viewModel.isSubmittingOrder && !quotaExceeded,
                         isLoading = viewModel.isSubmittingOrder
                     )
                 }
@@ -210,6 +218,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("共 ${rows.size} 种食材")
                     Text("合计 ${Money.formatCents(totalCents)}")
+                    if (quota.enabled) Text("当前可用额度 ${Money.formatCents(quota.availableCents)}")
                     Text("配送点：${viewModel.defaultDeliveryPoint.ifBlank { "未设置" }}")
                 }
             },

@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -30,6 +31,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.ui.theme.*
@@ -129,6 +132,7 @@ fun QuantityStepper(
     value: Double,
     unit: String,
     step: Double = 1.0,
+    minValue: Double = step,
     maxValue: Double = Double.MAX_VALUE,
     onValueChange: (Double) -> Unit,
     modifier: Modifier = Modifier
@@ -147,17 +151,38 @@ fun QuantityStepper(
         label = "stepperScale"
     )
 
-    val qtyText = if (value % 1.0 == 0.0) value.toInt().toString() else String.format("%.1f", value)
+    var draft by remember { mutableStateOf(formatQuantity(value)) }
+    var inputError by remember { mutableStateOf<String?>(null) }
+    val qtyText = formatQuantity(value)
     val atMax = value >= maxValue
-    val atMin = value <= step
+    val atMin = value <= minValue
+    LaunchedEffect(value) {
+        draft = qtyText
+        inputError = null
+    }
+    fun commitDraft() {
+        val parsed = draft.toDoubleOrNull()
+        if (parsed == null || parsed <= 0.0) {
+            inputError = "请输入大于 0 的数量"
+            return
+        }
+        inputError = when {
+            parsed < minValue -> "最小申领量为 ${formatQuantity(minValue)} $unit"
+            parsed > maxValue -> "不能超过当前可用数量"
+            !isQuantityOnStep(parsed, minValue, step) -> "数量应按 ${formatQuantity(step)} $unit 递增"
+            else -> null
+        }
+        if (inputError == null) onValueChange(parsed)
+    }
 
-    Row(
-        modifier = modifier
-            .height(JrxpDimensions.stepperButtonSize)
-            .background(ext.mutedSurface, JrxpDimensions.shapeMd)
-            .border(JrxpDimensions.ruleLineWidth, ext.ruleLine, JrxpDimensions.shapeMd),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(JrxpDimensions.spacingXs)) {
+        Row(
+            modifier = Modifier
+                .height(JrxpDimensions.stepperButtonSize)
+                .background(ext.mutedSurface, JrxpDimensions.shapeMd)
+                .border(JrxpDimensions.ruleLineWidth, ext.ruleLine, JrxpDimensions.shapeMd),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         // 减少按钮
         Box(
             modifier = Modifier
@@ -166,32 +191,31 @@ fun QuantityStepper(
                 .clickable(
                     interactionSource = minusInteraction,
                     indication = ripple(bounded = true),
-                    enabled = !atMin
+                    enabled = true
                 ) {
-                    val newVal = (value - step).coerceAtLeast(0.0)
-                    onValueChange(newVal)
+                    onValueChange(if (atMin) 0.0 else normalizeQuantity(value - step, minValue, step).coerceAtLeast(minValue))
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                 },
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                imageVector = Icons.Default.Remove,
-                contentDescription = "减少",
-                tint = if (atMin) ext.inkTertiary else ext.dutyBlue,
+                imageVector = if (atMin) Icons.Default.Delete else Icons.Default.Remove,
+                contentDescription = if (atMin) "移除" else "减少",
+                tint = if (atMin) ext.criticalRed else ext.dutyBlue,
                 modifier = Modifier.size(JrxpDimensions.iconSm)
             )
         }
 
-        // 数量显示
-        Text(
-            text = "$qtyText $unit",
-            style = JrxpNumericStyles.quantity,
-            color = ext.inkPrimary,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .weight(1f)
-                .scale(valueScale)
-                .padding(horizontal = JrxpDimensions.spacingSm)
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { input -> if (input.length <= 14 && input.matches(Regex("^\\d*(\\.\\d*)?$"))) { draft = input; inputError = null } },
+            modifier = Modifier.weight(1f).scale(valueScale),
+            singleLine = true,
+            isError = inputError != null,
+            textStyle = JrxpNumericStyles.quantity.copy(textAlign = TextAlign.Center, color = ext.inkPrimary),
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+            keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = { commitDraft() }),
+            suffix = { Text(unit, style = MaterialTheme.typography.labelSmall) },
         )
 
         // 增加按钮
@@ -217,18 +241,29 @@ fun QuantityStepper(
                 modifier = Modifier.size(JrxpDimensions.iconSm)
             )
         }
-    }
-
-    // 达到上限提示
-    if (atMax) {
-        Text(
-            text = "已达库存上限",
-            style = MaterialTheme.typography.labelSmall,
-            color = ext.warningAmber,
-            modifier = Modifier.padding(top = JrxpDimensions.spacingXs)
-        )
+        }
+        inputError?.let { message ->
+            Text(message, style = MaterialTheme.typography.labelSmall, color = ext.criticalRed)
+        }
+        if (atMax) {
+            Text("已达库存上限", style = MaterialTheme.typography.labelSmall, color = ext.warningAmber)
+        }
     }
 }
+
+internal fun normalizeQuantity(value: Double, minValue: Double, step: Double): Double {
+    if (step <= 0.0 || minValue <= 0.0) return value
+    val steps = kotlin.math.round((value - minValue) / step)
+    return minValue + steps.coerceAtLeast(0.0) * step
+}
+
+internal fun isQuantityOnStep(value: Double, minValue: Double, step: Double): Boolean {
+    if (step <= 0.0 || value < minValue) return false
+    val difference = java.math.BigDecimal.valueOf(value).subtract(java.math.BigDecimal.valueOf(minValue))
+    return difference.remainder(java.math.BigDecimal.valueOf(step)).compareTo(java.math.BigDecimal.ZERO) == 0
+}
+
+internal fun formatQuantity(value: Double): String = java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
 
 // ── OrderStatusRail ─────────────────────────────────────────
 // 订单状态纵向轨道：当前节点明确，已完成简洁，未开始弱化
