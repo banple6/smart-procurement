@@ -1,5 +1,6 @@
 import os
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -85,6 +86,12 @@ def test_quota_insufficient_never_overdraws_and_adjustment_is_audited(tmp_path):
     assert quota["available_cents"] == 858
     ledger = client.get(f"/api/v1/admin/units/{unit['id']}/quota/ledger", headers=admin).json()["items"]
     assert any(row["event_type"] == "MANUAL_INCREASE" and row["delta_cents"] == 500 for row in ledger)
+
+
+def test_unit_web_maps_structured_quota_conflict_to_actionable_message():
+    source = (Path(__file__).parents[1] / "app" / "static" / "unit" / "unit.js").read_text(encoding="utf-8")
+    assert 'detail.code === "QUOTA_INSUFFICIENT"' in source
+    assert "本月可用采购额度不足，请调整申领数量后重试。" in source
 
 
 def test_simultaneous_order_reservations_allow_only_one_when_quota_is_exhausted(tmp_path):

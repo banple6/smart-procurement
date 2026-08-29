@@ -32,6 +32,14 @@
   function statusLabel(order) {
     return order.status_label || statusText[order.status] || "未知状态";
   }
+  function errorMessage(detail, fallback = "操作失败，请稍后重试") {
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (detail && typeof detail === "object") {
+      if (detail.code === "QUOTA_INSUFFICIENT") return "本月可用采购额度不足，请调整申领数量后重试。";
+      if (typeof detail.message === "string" && detail.message.trim()) return detail.message;
+    }
+    return fallback;
+  }
   function dateTime(value) {
     const text = display(value, "");
     return text ? text.replace("T", " ").slice(0, 16) : "时间未记录";
@@ -94,7 +102,7 @@
     }
     if (!response.ok) {
       let detail = "操作失败，请稍后重试";
-      try { detail = (await response.json()).detail || detail; } catch (_) {}
+      try { detail = errorMessage((await response.json()).detail, detail); } catch (_) {}
       throw new Error(detail);
     }
     return response.json();
