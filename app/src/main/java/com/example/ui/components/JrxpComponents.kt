@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -209,7 +210,10 @@ fun QuantityStepper(
         OutlinedTextField(
             value = draft,
             onValueChange = { input -> if (input.length <= 14 && input.matches(Regex("^\\d*(\\.\\d*)?$"))) { draft = input; inputError = null } },
-            modifier = Modifier.weight(1f).scale(valueScale),
+            modifier = Modifier
+                .weight(1f)
+                .scale(valueScale)
+                .onFocusChanged { focusState -> if (!focusState.isFocused) commitDraft() },
             singleLine = true,
             isError = inputError != null,
             textStyle = JrxpNumericStyles.quantity.copy(textAlign = TextAlign.Center, color = ext.inkPrimary),

@@ -2302,6 +2302,7 @@ class SupplyViewModel(
     fun deleteCartItem(productId: String) {
         viewModelScope.launch {
             repository.deleteCartItem(productId)
+            snackbarMessage = "已从申领清单移除"
         }
     }
 
@@ -2360,7 +2361,12 @@ class SupplyViewModel(
             }
             isSubmittingOrder = false
             if (remoteResult.isFailure) {
-                alertMessage = remoteResult.exceptionOrNull().toUserMessage("订单提交失败")
+                val errMsg = remoteResult.exceptionOrNull().toUserMessage("订单提交失败")
+                alertMessage = errMsg
+                // 额度不足时服务端已重新计算；刷新本地额度卡片以确保显示最新余额
+                if (errMsg.contains("采购额度") || errMsg.contains("QUOTA_INSUFFICIENT", ignoreCase = true)) {
+                    refreshUnitQuota()
+                }
                 return@launch
             }
             val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())

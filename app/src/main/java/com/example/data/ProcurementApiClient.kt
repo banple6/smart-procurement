@@ -1886,6 +1886,7 @@ class ProcurementApiClient(
         contains("Image too large", ignoreCase = true) -> "图片过大，请重新选择"
         contains("Unsupported image type", ignoreCase = true) -> "图片格式不支持"
         contains("Invalid image file", ignoreCase = true) -> "图片文件无效"
+        contains("QUOTA_INSUFFICIENT", ignoreCase = true) -> "本月可用采购额度不足，请调整申领数量后重试。"
         else -> this
     }
 
