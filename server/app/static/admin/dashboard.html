@@ -11,10 +11,10 @@
   <body class="admin-page">
     <aside id="adminSidebar" class="sidebar" aria-label="后台导航">
       <div class="brand">
-        <img class="brand-icon emblem-badge" src="/admin-assets/police-badge.svg" alt="警徽" />
+        <img class="brand-icon emblem-badge" src="/admin-assets/police-badge.svg" alt="徽章" />
         <div class="brand-copy">
           <strong>三公鲜配</strong>
-          <span>单位食材申领与配送协同平台</span>
+          <span>内部生鲜采购与配送管理系统</span>
         </div>
       </div>
       <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="折叠侧边栏" aria-expanded="true" title="折叠侧边栏">
@@ -35,14 +35,14 @@
         <div class="top-actions">
           <span id="refreshTime">尚未更新</span>
           <a id="orderReminderButton" class="secondary-button as-link order-reminder-button" href="/admin/orders?status=pending">
-            订单提醒 <span id="orderReminderBadge" class="order-reminder-badge" hidden>0</span>
+            需求单提醒 <span id="orderReminderBadge" class="order-reminder-badge" hidden>0</span>
           </a>
           <a id="orderReminderNotice" class="order-reminder-notice" href="/admin/orders?status=pending" hidden></a>
           <button id="refreshButton" class="secondary-button" type="button">刷新</button>
-          <a class="secondary-button as-link" href="/download">下载 App</a>
-          <a class="ghost-button as-link" href="/help/admin">帮助</a>
+          <a class="secondary-button as-link" href="/download">下载终端</a>
+          <a class="ghost-button as-link" href="/help/admin">使用指引</a>
           <span id="currentUser" class="account-name">管理员</span>
-          <button id="logoutButton" class="ghost-button" type="button">退出登录</button>
+          <button id="logoutButton" class="ghost-button" type="button">安全退出</button>
         </div>
       </header>
       <main class="content">
@@ -67,7 +67,7 @@
           <article class="panel trend-panel">
             <div class="panel-header">
               <div>
-                <h2>近 7 日采购趋势</h2>
+                <h2>近 7 日申领趋势</h2>
                 <p id="trendSummary">--</p>
               </div>
               <select id="rangeSelect" aria-label="趋势范围">
@@ -84,20 +84,20 @@
           <article class="panel table-panel">
             <div class="panel-header">
               <div>
-                <h2>最近订单</h2>
+                <h2>最新需求单</h2>
                 <p>最多显示最近 10 笔</p>
               </div>
-              <a href="/admin/orders">查看全部订单</a>
+              <a href="/admin/orders">查看全部需求单</a>
             </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>订单编号</th>
+                    <th>需求单号</th>
                     <th>子单位</th>
-                    <th>下单时间</th>
+                    <th>提报时间</th>
                     <th>食材种类</th>
-                    <th>订单金额</th>
+                    <th>需求金额</th>
                     <th>当前状态</th>
                     <th>异常标记</th>
                     <th>操作</th>
@@ -135,12 +135,12 @@
           <article class="panel">
             <div class="panel-header">
               <div>
-                <h2>今日单位采购情况</h2>
-                <p>按金额或订单量查看</p>
+                <h2>今日单位申领情况</h2>
+                <p>按金额或需求量查看</p>
               </div>
               <select id="unitSort" aria-label="单位排行排序">
                 <option value="amount">按金额</option>
-                <option value="orders">按订单量</option>
+                <option value="orders">按需求量</option>
               </select>
             </div>
             <div id="unitRank" class="rank-list"></div>
