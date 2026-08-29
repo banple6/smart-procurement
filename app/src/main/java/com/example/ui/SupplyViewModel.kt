@@ -1208,6 +1208,9 @@ class SupplyViewModel(
     }
 
     private fun refreshForegroundScreen() {
+        // Unit quota is server-backed and can be changed by an administrator on another client.
+        // Keep the visible balance on unit screens convergent with the same foreground loop.
+        if (currentUser?.role == "unit_user") refreshUnitQuota()
         when (val screen = navigationStack.lastOrNull()) {
             is Screen.OrderDetails -> refreshOrderDetail(screen.orderId)
             is Screen.ShippingProof -> refreshOrderDetail(screen.orderId)
