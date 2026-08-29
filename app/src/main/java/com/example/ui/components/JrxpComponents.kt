@@ -161,19 +161,28 @@ fun QuantityStepper(
         draft = qtyText
         inputError = null
     }
-    fun commitDraft() {
+    fun commitDraft(showValidation: Boolean = true) {
         val parsed = draft.toDoubleOrNull()
         if (parsed == null || parsed <= 0.0) {
-            inputError = "请输入大于 0 的数量"
+            if (showValidation) inputError = "请输入大于 0 的数量"
             return
         }
-        inputError = when {
+        val validationError = when {
             parsed < minValue -> "最小申领量为 ${formatQuantity(minValue)} $unit"
             parsed > maxValue -> "不能超过当前可用数量"
             !isQuantityOnStep(parsed, minValue, step) -> "数量应按 ${formatQuantity(step)} $unit 递增"
             else -> null
         }
-        if (inputError == null) onValueChange(parsed)
+        if (validationError != null) {
+            if (showValidation) inputError = validationError
+            return
+        }
+        inputError = null
+        if (parsed != value) onValueChange(parsed)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { commitDraft(showValidation = false) }
     }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(JrxpDimensions.spacingXs)) {
