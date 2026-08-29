@@ -440,6 +440,7 @@ fun ProcurementDeadlineStrip(
 @Composable
 fun PrimaryActionDock(
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val ext = JrxpTheme.colors
@@ -455,7 +456,10 @@ fun PrimaryActionDock(
                     strokeWidth = 1f
                 )
             }
-            .padding(JrxpDimensions.spacingLg),
+            .padding(
+                horizontal = JrxpDimensions.spacingLg,
+                vertical = if (compact) JrxpDimensions.spacingSm else JrxpDimensions.spacingLg,
+            ),
         content = content
     )
 }

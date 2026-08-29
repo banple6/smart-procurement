@@ -201,8 +201,8 @@ interface SupplyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCartItem(cartItem: CartItemEntity)
 
-    @Delete
-    suspend fun deleteCartItem(cartItem: CartItemEntity)
+    @Query("DELETE FROM cart_items WHERE productId = :productId")
+    suspend fun deleteCartItemByProductId(productId: String)
 
     @Query("DELETE FROM cart_items")
     suspend fun clearCart()

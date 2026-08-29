@@ -64,7 +64,7 @@ class SupplyRepository(private val database: AppDatabase) {
     }
     suspend fun updateCartItemQuantity(productId: String, quantity: Double) {
         if (quantity <= 0) {
-            supplyDao.deleteCartItem(CartItemEntity(productId, 0.0))
+            supplyDao.deleteCartItemByProductId(productId)
         } else {
             val existing = supplyDao.getCartItemsDirect().find { it.productId == productId }
             val remarks = existing?.remarks ?: ""
@@ -77,7 +77,7 @@ class SupplyRepository(private val database: AppDatabase) {
         supplyDao.insertCartItem(CartItemEntity(productId, qty, remarks))
     }
     suspend fun deleteCartItem(productId: String) {
-        supplyDao.deleteCartItem(CartItemEntity(productId, 0.0))
+        supplyDao.deleteCartItemByProductId(productId)
     }
     suspend fun clearCart() = supplyDao.clearCart()
 

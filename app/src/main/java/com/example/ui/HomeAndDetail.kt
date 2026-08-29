@@ -52,6 +52,7 @@ import com.smartprocurement.internal.ui.components.PrimaryActionDock
 import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbPreviewShortcut
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalConfiguration
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -62,6 +63,8 @@ private val SupplyStatuses = listOf("全部", "正常供应", "库存紧张", "�
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(viewModel: SupplyViewModel) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
     val products by viewModel.allProducts.collectAsState()
     val cartList by viewModel.cartItems.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
@@ -135,7 +138,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             } else {
                 "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}"
             }
-            PoliceBrandHeader(title = title, subtitle = subtitle)
+            PoliceBrandHeader(title = title, subtitle = subtitle, compact = isLandscape)
         }
     ) { padding ->
         LazyColumn(
@@ -146,8 +149,10 @@ fun HomeScreen(viewModel: SupplyViewModel) {
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item {
-                ThinkingOrbPreviewShortcut(onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) })
+            if (!isLandscape) {
+                item {
+                    ThinkingOrbPreviewShortcut(onClick = { viewModel.navigateTo(Screen.ThinkingOrbsShowcase) })
+                }
             }
             if (!viewModel.canManageIngredients() && viewModel.unitQuota.enabled) {
                 item {

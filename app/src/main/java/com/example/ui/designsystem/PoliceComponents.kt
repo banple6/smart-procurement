@@ -95,14 +95,18 @@ fun PoliceBrandHeader(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     PoliceStatusBar(PoliceColors.Navy, darkIcons = false)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(PoliceColors.Navy)
-            .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 18.dp),
+            .then(if (compact) Modifier else Modifier.statusBarsPadding())
+            .padding(
+                horizontal = if (compact) 16.dp else 20.dp,
+                vertical = if (compact) 8.dp else 18.dp,
+            ),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -110,11 +114,26 @@ fun PoliceBrandHeader(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.76f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                title,
+                fontSize = if (compact) 18.sp else 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                fontSize = if (compact) 12.sp else 13.sp,
+                color = Color.White.copy(alpha = 0.76f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
-        Spacer(Modifier.width(12.dp))
-        PoliceHeaderBrandMark()
+        if (!compact) {
+            Spacer(Modifier.width(12.dp))
+            PoliceHeaderBrandMark()
+        }
     }
 }
 

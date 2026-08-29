@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,8 @@ import java.util.*
 // --- CART SCREEN ---
 @Composable
 fun CartScreen(viewModel: SupplyViewModel) {
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
     val dividerColor = MaterialTheme.colorScheme.outlineVariant
     val cartList by viewModel.cartItems.collectAsState()
     val products by viewModel.allProducts.collectAsState()
@@ -75,6 +78,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
             PoliceBrandHeader(
                 title = "采购清单",
                 subtitle = "${viewModel.currentUnitName} · ${viewModel.defaultDeliveryPoint}",
+                compact = isLandscape,
             )
         }
     ) { innerPadding ->
@@ -118,17 +122,6 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    item {
-                        DocumentSection(title = "结算摘要") {
-                            DetailRow("食材种类", "${rows.size} 种")
-                            DetailRow("订单金额", Money.formatCents(totalCents))
-                            if (quota.enabled) {
-                                DetailRow("当前可用额度", Money.formatCents(quota.availableCents))
-                                DetailRow("提交后预计余额", Money.formatCents((quota.availableCents - totalCents).coerceAtLeast(0)))
-                                if (quotaExceeded) Text("本单超出可用额度 ${Money.formatCents(totalCents - quota.availableCents)}", color = JrxpTheme.colors.criticalRed, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
                     items(rows, key = { it.first.productId }) { (item, p) ->
                         Box(
                             modifier = Modifier
@@ -150,6 +143,18 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                         Text(p.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(p.spec, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
+                                    if (isLandscape) {
+                                        QuantityStepper(
+                                            value = item.quantity,
+                                            unit = p.unit,
+                                            minValue = p.minQty,
+                                            step = p.stepQty,
+                                            onValueChange = { newVal ->
+                                                if (newVal == 0.0) viewModel.deleteCartItem(p.id)
+                                                else viewModel.updateCartQty(p.id, newVal)
+                                            }
+                                        )
+                                    }
                                     IconButton(onClick = { viewModel.deleteCartItem(p.id) }, modifier = Modifier.size(48.dp)) {
                                         Icon(imageVector = Icons.Default.Delete, contentDescription = "删除", tint = JrxpTheme.colors.criticalRed)
                                     }
@@ -162,22 +167,35 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                     Text("小计", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                                     Text(Money.formatCents(lineSubtotalCents(p.price, item.quantity)), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    QuantityStepper(
-                                        value = item.quantity,
-                                        unit = p.unit,
-                                        minValue = p.minQty,
-                                        step = p.stepQty,
-                                        onValueChange = { newVal ->
-                                            if (newVal == 0.0) viewModel.deleteCartItem(p.id)
-                                            else viewModel.updateCartQty(p.id, newVal)
-                                        }
-                                    )
+                                if (!isLandscape) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        QuantityStepper(
+                                            value = item.quantity,
+                                            unit = p.unit,
+                                            minValue = p.minQty,
+                                            step = p.stepQty,
+                                            onValueChange = { newVal ->
+                                                if (newVal == 0.0) viewModel.deleteCartItem(p.id)
+                                                else viewModel.updateCartQty(p.id, newVal)
+                                            }
+                                        )
+                                    }
                                 }
+                            }
+                        }
+                    }
+                    item {
+                        DocumentSection(title = "结算摘要") {
+                            DetailRow("食材种类", "${rows.size} 种")
+                            DetailRow("订单金额", Money.formatCents(totalCents))
+                            if (quota.enabled) {
+                                DetailRow("当前可用额度", Money.formatCents(quota.availableCents))
+                                DetailRow("提交后预计余额", Money.formatCents((quota.availableCents - totalCents).coerceAtLeast(0)))
+                                if (quotaExceeded) Text("本单超出可用额度 ${Money.formatCents(totalCents - quota.availableCents)}", color = JrxpTheme.colors.criticalRed, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -194,8 +212,13 @@ fun CartScreen(viewModel: SupplyViewModel) {
                         }
                     }
                 }
-                PrimaryActionDock {
-                    Row(modifier = Modifier.fillMaxWidth().padding(bottom = JrxpDimensions.spacingMd), horizontalArrangement = Arrangement.SpaceBetween) {
+                PrimaryActionDock(compact = isLandscape) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = if (isLandscape) 0.dp else JrxpDimensions.spacingMd),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
                         Text("订单合计", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(Money.formatCents(totalCents), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
