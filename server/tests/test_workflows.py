@@ -1490,13 +1490,13 @@ def test_public_beta_download_and_help_pages_are_available_without_login(tmp_pat
 
     login = client.get("/login")
     assert login.status_code == 200
-    assert "下载 Android App" in login.text
+    assert "下载 App" in login.text
     assert "三公鲜配" in login.text
     assert "undefined" not in login.text
 
     download = client.get("/download")
     assert download.status_code == 200
-    assert "下载 Android App" in download.text
+    assert "下载 App" in download.text
     assert "/api/v1/app-update/latest/download" in download.text
     assert "127.0.0.1" not in download.text
 
