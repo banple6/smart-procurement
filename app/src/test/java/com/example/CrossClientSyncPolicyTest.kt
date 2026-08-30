@@ -29,6 +29,8 @@ class CrossClientSyncPolicyTest {
         assertTrue(viewModel.contains("registerDefaultNetworkCallback(networkCallback)"))
         assertTrue(viewModel.contains("refreshForegroundScreen()"))
         assertTrue(viewModel.contains("if (currentUser?.role == \"unit_user\") refreshUnitQuota()"))
+        assertTrue(viewModel.contains("is Screen.UnitQuotaManagement -> refreshAdminQuotaUnits()"))
+        assertTrue(viewModel.contains("is Screen.UnitQuotaDetail -> refreshAdminQuotaDetail(screen.unitId)"))
         assertTrue(viewModel.contains("private fun refreshCurrentMainTab()"))
         assertTrue(viewModel.contains("\"dashboard\" -> refreshDashboard()"))
         assertTrue(viewModel.contains("\"orders\" -> refreshOrders()"))

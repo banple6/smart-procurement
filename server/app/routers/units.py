@@ -179,6 +179,7 @@ def set_unit_quota(unit_id: str, body: UnitQuotaSettings, admin=Depends(require_
             enabled=body.enabled,
             default_monthly_quota_cents=body.default_monthly_quota_cents,
             actor=admin,
+            expected_version=body.expected_version,
         )
 
 
@@ -187,7 +188,14 @@ def create_unit_quota_adjustment(unit_id: str, body: UnitQuotaAdjustment, admin=
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return adjust_quota(conn, unit_id=unit_id, delta_cents=body.delta_cents, reason=body.reason, actor=admin)
+        return adjust_quota(
+            conn,
+            unit_id=unit_id,
+            delta_cents=body.delta_cents,
+            reason=body.reason,
+            actor=admin,
+            expected_version=body.expected_version,
+        )
 
 
 @router.get("/units/{unit_id}/quota/ledger")

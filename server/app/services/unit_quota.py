@@ -13,7 +13,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from ..database import all_rows, one, write_audit
-from .local_time import local_now
+from .local_time import display_local_time, local_now
 
 
 def quota_month_now() -> str:
@@ -267,17 +267,45 @@ def quota_payload(conn, unit_id: str, current_month: str | None = None) -> dict:
         "available_cents": int(account["balance_cents"]),
         "last_granted_month": account.get("last_granted_month") or "",
         "version": int(account["version"]),
+        "updated_at": account.get("updated_at") or "",
+        # Keep the UTC database value intact while giving clients an explicit
+        # user-facing Shanghai-time field.
+        "display_updated_at": display_local_time(account.get("updated_at")),
     }
 
 
-def update_quota_settings(conn, *, unit_id: str, enabled: bool, default_monthly_quota_cents: int, actor: dict):
+def _stale_write(account: dict):
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "STALE_WRITE",
+            "message": "数据已被其他管理员更新，请刷新后重试",
+            "entity_type": "unit_quota_account",
+            "entity_id": account["unit_id"],
+            "current_version": int(account["version"]),
+        },
+    )
+
+
+def update_quota_settings(
+    conn,
+    *,
+    unit_id: str,
+    enabled: bool,
+    default_monthly_quota_cents: int,
+    actor: dict,
+    expected_version: int | None = None,
+):
     if enabled and default_monthly_quota_cents <= 0:
         raise HTTPException(status_code=400, detail="启用额度控制时必须设置大于 0 的月度基础额度")
     before = _account(conn, unit_id)
-    conn.execute(
-        "UPDATE unit_quota_accounts SET quota_enabled = ?, default_monthly_quota_cents = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ?",
-        (int(enabled), int(default_monthly_quota_cents), unit_id),
-    )
+    sql = "UPDATE unit_quota_accounts SET quota_enabled = ?, default_monthly_quota_cents = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ?"
+    params: tuple = (int(enabled), int(default_monthly_quota_cents), unit_id)
+    if expected_version is not None:
+        sql += " AND version = ?"
+        params += (expected_version,)
+    if conn.execute(sql, params).rowcount != 1:
+        _stale_write(_account(conn, unit_id))
     if enabled:
         ensure_quota_month(conn, unit_id)
     after = _account(conn, unit_id)
@@ -289,7 +317,15 @@ def update_quota_settings(conn, *, unit_id: str, enabled: bool, default_monthly_
     return quota_payload(conn, unit_id)
 
 
-def adjust_quota(conn, *, unit_id: str, delta_cents: int, reason: str, actor: dict):
+def adjust_quota(
+    conn,
+    *,
+    unit_id: str,
+    delta_cents: int,
+    reason: str,
+    actor: dict,
+    expected_version: int | None = None,
+):
     if not reason.strip():
         raise HTTPException(status_code=400, detail="请填写额度调整原因")
     account = ensure_quota_month(conn, unit_id)
@@ -299,11 +335,25 @@ def adjust_quota(conn, *, unit_id: str, delta_cents: int, reason: str, actor: di
     if not delta:
         raise HTTPException(status_code=400, detail="调整金额不能为 0")
     if delta < 0:
-        cursor = conn.execute("UPDATE unit_quota_accounts SET balance_cents = balance_cents + ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ? AND balance_cents >= ?", (delta, unit_id, -delta))
+        sql = "UPDATE unit_quota_accounts SET balance_cents = balance_cents + ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ? AND balance_cents >= ?"
+        params: tuple = (delta, unit_id, -delta)
+        if expected_version is not None:
+            sql += " AND version = ?"
+            params += (expected_version,)
+        cursor = conn.execute(sql, params)
         if cursor.rowcount != 1:
+            current = _account(conn, unit_id)
+            if expected_version is not None and int(current["version"]) != expected_version:
+                _stale_write(current)
             raise HTTPException(status_code=409, detail="减少额度不能使当前可用余额小于 0")
     else:
-        conn.execute("UPDATE unit_quota_accounts SET balance_cents = balance_cents + ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ?", (delta, unit_id))
+        sql = "UPDATE unit_quota_accounts SET balance_cents = balance_cents + ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE unit_id = ?"
+        params = (delta, unit_id)
+        if expected_version is not None:
+            sql += " AND version = ?"
+            params += (expected_version,)
+        if conn.execute(sql, params).rowcount != 1:
+            _stale_write(_account(conn, unit_id))
     account = _account(conn, unit_id)
     month = quota_month_now()
     conn.execute(
@@ -330,4 +380,7 @@ def quota_ledger(conn, unit_id: str, month: str | None = None) -> list[dict]:
     if month:
         sql += " AND ledger.quota_month = ?"
         params.append(_valid_month(month))
-    return all_rows(conn, sql + " ORDER BY ledger.created_at DESC, ledger.rowid DESC", params)
+    rows = all_rows(conn, sql + " ORDER BY ledger.created_at DESC, ledger.rowid DESC", params)
+    for row in rows:
+        row["display_created_at"] = display_local_time(row.get("created_at"))
+    return rows

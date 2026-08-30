@@ -40,9 +40,39 @@ data class RemoteLogin(
 data class UnitQuota(
     val enabled: Boolean = false,
     val quotaMonth: String = "",
+    val defaultMonthlyQuotaCents: Long = 0,
     val baseQuotaCents: Long = 0,
+    val openingBalanceCents: Long = 0,
+    val adjustmentCents: Long = 0,
     val availableCents: Long = 0,
-    val usedThisMonthCents: Long = 0
+    val usedThisMonthCents: Long = 0,
+    val version: Int = 0,
+    val updatedAt: String = ""
+) {
+    companion object {
+        fun fromJson(json: JSONObject): UnitQuota = UnitQuota(
+            enabled = json.optBoolean("enabled", false),
+            quotaMonth = json.optString("quota_month"),
+            defaultMonthlyQuotaCents = json.optLong("default_monthly_quota_cents", 0),
+            baseQuotaCents = json.optLong("base_quota_cents", 0),
+            openingBalanceCents = json.optLong("opening_balance_cents", 0),
+            adjustmentCents = json.optLong("adjustment_cents", 0),
+            availableCents = json.optLong("available_cents", 0),
+            usedThisMonthCents = json.optLong("used_this_month_cents", 0),
+            version = json.optInt("version", 0),
+            updatedAt = json.optString("display_updated_at").ifBlank { json.optString("updated_at") }
+        )
+    }
+}
+
+data class UnitQuotaLedgerRow(
+    val id: String,
+    val eventType: String,
+    val deltaCents: Long,
+    val balanceAfterCents: Long,
+    val orderNo: String,
+    val note: String,
+    val createdAt: String
 )
 
 data class RemoteOrderPage(
@@ -87,8 +117,15 @@ data class RemoteUnit(
     val active: Boolean,
     val accountCount: Int = 0,
     val orderCount: Int = 0,
-    val lastOrderAt: String = ""
+    val lastOrderAt: String = "",
+    val quota: UnitQuota = UnitQuota()
 )
+
+class ApiRequestException(
+    val statusCode: Int,
+    val errorCode: String? = null,
+    message: String
+) : IllegalStateException(message)
 
 data class RemoteAdminUser(
     val id: String,
@@ -805,14 +842,7 @@ class ProcurementApiClient(
     }
 
     fun currentUnitQuota(token: String): UnitQuota {
-        val json = request("quota/current", token = token)
-        return UnitQuota(
-            enabled = json.optBoolean("enabled", false),
-            quotaMonth = json.optString("quota_month"),
-            baseQuotaCents = json.optLong("base_quota_cents", 0),
-            availableCents = json.optLong("available_cents", 0),
-            usedThisMonthCents = json.optLong("used_this_month_cents", 0)
-        )
+        return UnitQuota.fromJson(request("quota/current", token = token))
     }
 
     fun orders(token: String, isAdmin: Boolean): List<RemoteOrderBundle> =
@@ -953,7 +983,64 @@ class ProcurementApiClient(
                 active = item.optBooleanCompat("active"),
                 accountCount = item.optInt("account_count", 0),
                 orderCount = item.optInt("order_count", 0),
-                lastOrderAt = item.optString("last_order_at").replace('T', ' ').take(16)
+                lastOrderAt = item.optString("last_order_at").replace('T', ' ').take(16),
+                quota = UnitQuota.fromJson(item.optJSONObject("quota") ?: JSONObject())
+            )
+        }
+    }
+
+    fun unitQuota(token: String, unitId: String): UnitQuota =
+        UnitQuota.fromJson(request("admin/units/$unitId/quota", token = token))
+
+    fun updateUnitQuota(
+        token: String,
+        unitId: String,
+        enabled: Boolean,
+        defaultMonthlyQuotaCents: Long,
+        expectedVersion: Int
+    ): UnitQuota {
+        val body = JSONObject()
+            .put("enabled", enabled)
+            .put("default_monthly_quota_cents", defaultMonthlyQuotaCents)
+            .put("expected_version", expectedVersion)
+            .toString()
+            .toRequestBody(JSON)
+        return UnitQuota.fromJson(
+            request("admin/units/$unitId/quota", token = token, method = "PUT", body = body)
+        )
+    }
+
+    fun adjustUnitQuota(
+        token: String,
+        unitId: String,
+        deltaCents: Long,
+        reason: String,
+        expectedVersion: Int
+    ): UnitQuota {
+        val body = JSONObject()
+            .put("delta_cents", deltaCents)
+            .put("reason", reason.trim())
+            .put("expected_version", expectedVersion)
+            .toString()
+            .toRequestBody(JSON)
+        return UnitQuota.fromJson(
+            request("admin/units/$unitId/quota/adjustments", token = token, method = "POST", body = body)
+        )
+    }
+
+    fun unitQuotaLedger(token: String, unitId: String): List<UnitQuotaLedgerRow> {
+        val array = request("admin/units/$unitId/quota/ledger", token = token).optJSONArray("items") ?: JSONArray()
+        return List(array.length()) { index ->
+            val item = array.getJSONObject(index)
+            UnitQuotaLedgerRow(
+                id = item.optString("id"),
+                eventType = item.optString("event_type"),
+                deltaCents = item.optLong("delta_cents", 0),
+                balanceAfterCents = item.optLong("balance_after_cents", 0),
+                orderNo = item.optString("order_no"),
+                note = item.optString("note"),
+                createdAt = item.optString("display_created_at")
+                    .ifBlank { item.optString("created_at").replace('T', ' ').take(16) }
             )
         }
     }
@@ -1511,8 +1598,18 @@ class ProcurementApiClient(
         callClient.newCall(request).execute().use { response ->
             val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrDefault("")
-                throw IllegalStateException(detail.ifBlank { response.code.toChineseError() }.toChineseDetail(response.code))
+                val payload = runCatching { JSONObject(responseBody) }.getOrNull()
+                val detail = payload?.opt("detail")
+                val detailObject = detail as? JSONObject
+                val message = when (detail) {
+                    is JSONObject -> detail.optString("message")
+                    else -> detail?.toString().orEmpty()
+                }
+                throw ApiRequestException(
+                    statusCode = response.code,
+                    errorCode = detailObject?.optString("code")?.ifBlank { null },
+                    message = message.ifBlank { response.code.toChineseError() }.toChineseDetail(response.code)
+                )
             }
             return responseBody
         }

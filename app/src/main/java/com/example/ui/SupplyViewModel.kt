@@ -93,6 +93,8 @@ sealed interface Screen {
     data class OutboundDetail(val outboundId: String) : Screen
     data class OutboundShippingProof(val outboundId: String) : Screen
     object UnitManagement : Screen
+    object UnitQuotaManagement : Screen
+    data class UnitQuotaDetail(val unitId: String) : Screen
     object AccountManagement : Screen
     object Ledger : Screen
     object InventoryRecords : Screen
@@ -385,6 +387,16 @@ class SupplyViewModel(
     private val analyticsRequestTracker = AnalyticsRequestTracker()
     var adminUnits by mutableStateOf<List<RemoteUnit>>(emptyList())
     var adminUsers by mutableStateOf<List<RemoteAdminUser>>(emptyList())
+    var activeUnitQuota by mutableStateOf<UnitQuota?>(null)
+        private set
+    var activeUnitQuotaUnitId by mutableStateOf("")
+        private set
+    var unitQuotaLedgerRows by mutableStateOf<List<UnitQuotaLedgerRow>>(emptyList())
+        private set
+    var isAdminQuotaLoading by mutableStateOf(false)
+        private set
+    var isAdminQuotaWriting by mutableStateOf(false)
+        private set
     var ledgerRows by mutableStateOf<List<LedgerRow>>(emptyList())
     var preparationSummaryItems by mutableStateOf<List<PreparationSummaryItem>>(emptyList())
     var deliverySheetUnits by mutableStateOf<List<DeliverySheetUnit>>(emptyList())
@@ -1218,6 +1230,8 @@ class SupplyViewModel(
             is Screen.OutboundShippingProof -> refreshOutboundOrder(screen.outboundId)
             is Screen.Outbounds -> refreshOutboundOrders()
             is Screen.DeliveryBatchDetail -> refreshDeliveryBatch(screen.batchId)
+            is Screen.UnitQuotaManagement -> refreshAdminQuotaUnits()
+            is Screen.UnitQuotaDetail -> refreshAdminQuotaDetail(screen.unitId)
             is Screen.DeliveryBatches, is Screen.DeliveryBatchCreate -> refreshDeliveryBatches()
             is Screen.ProductDetail, is Screen.EditProduct, is Screen.InventoryRecords -> refreshProducts()
             is Screen.PreparationSummary -> refreshPreparationSummary()
@@ -1247,6 +1261,8 @@ class SupplyViewModel(
                 screen is Screen.DeliveryBatchDetail ||
                 screen is Screen.DeliveryBatches ||
                 screen is Screen.DeliveryBatchCreate ||
+                screen is Screen.UnitQuotaManagement ||
+                screen is Screen.UnitQuotaDetail ||
                 screen is Screen.ProductDetail ||
                 screen is Screen.EditProduct ||
                 screen is Screen.InventoryRecords -> CRITICAL_FOREGROUND_REFRESH_MILLIS
@@ -1427,6 +1443,109 @@ class SupplyViewModel(
                 .onSuccess { adminUnits = it }
                 .onFailure { alertMessage = it.toUserMessage("单位同步失败") }
         }
+    }
+
+    fun openAdminQuota(unitId: String) {
+        if (!canManageIngredients()) return
+        navigateTo(Screen.UnitQuotaDetail(unitId))
+        refreshAdminQuotaDetail(unitId)
+    }
+
+    fun refreshAdminQuotaUnits() {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaLoading) return
+        isAdminQuotaLoading = true
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.units(authToken) } }
+                .onSuccess { adminUnits = it }
+                .onFailure { snackbarMessage = it.toUserMessage("额度列表同步失败") }
+            isAdminQuotaLoading = false
+        }
+    }
+
+    fun refreshAdminQuotaDetail(unitId: String) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaLoading) return
+        isAdminQuotaLoading = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+            }.onFailure { snackbarMessage = it.toUserMessage("额度详情同步失败") }
+            isAdminQuotaLoading = false
+        }
+    }
+
+    fun saveAdminQuotaSettings(unitId: String, enabled: Boolean, defaultMonthlyQuotaCents: Long, expectedVersion: Int) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaWriting) return
+        if (!requireNetworkForWrite()) return
+        if (enabled && defaultMonthlyQuotaCents <= 0) {
+            alertMessage = "启用额度控制时必须设置大于 0 的月度基础额度"
+            return
+        }
+        isAdminQuotaWriting = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.updateUnitQuota(authToken, unitId, enabled, defaultMonthlyQuotaCents, expectedVersion)
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+                snackbarMessage = if (enabled) "单位采购额度已启用" else "单位采购额度已关闭"
+            }.onFailure { error ->
+                if (error is ApiRequestException && error.statusCode == 409 && error.errorCode == "STALE_WRITE") {
+                    snackbarMessage = "数据已被其他管理员更新，已刷新最新状态。"
+                    refreshAdminQuotaDetail(unitId)
+                } else {
+                    alertMessage = error.toUserMessage("额度设置保存失败")
+                }
+            }
+            isAdminQuotaWriting = false
+        }
+    }
+
+    fun adjustAdminQuota(unitId: String, deltaCents: Long, reason: String, expectedVersion: Int) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaWriting) return
+        if (!requireNetworkForWrite()) return
+        if (deltaCents == 0L || reason.isBlank()) {
+            alertMessage = if (deltaCents == 0L) "调整金额不能为 0" else "请填写调整备注"
+            return
+        }
+        isAdminQuotaWriting = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.adjustUnitQuota(authToken, unitId, deltaCents, reason, expectedVersion)
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+                snackbarMessage = if (deltaCents > 0) "额度已增加" else "额度已扣减"
+            }.onFailure { error ->
+                if (error is ApiRequestException && error.statusCode == 409 && error.errorCode == "STALE_WRITE") {
+                    snackbarMessage = "数据已被其他管理员更新，已刷新最新状态。"
+                    refreshAdminQuotaDetail(unitId)
+                } else {
+                    alertMessage = error.toUserMessage("额度调整失败")
+                }
+            }
+            isAdminQuotaWriting = false
+        }
+    }
+
+    private fun replaceUnitQuota(unitId: String, quota: UnitQuota) {
+        adminUnits = adminUnits.map { unit -> if (unit.id == unitId) unit.copy(quota = quota) else unit }
     }
 
     fun saveUnit(id: String, code: String, name: String, deliveryPoint: String) {

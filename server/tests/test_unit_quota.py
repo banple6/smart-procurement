@@ -88,6 +88,45 @@ def test_quota_insufficient_never_overdraws_and_adjustment_is_audited(tmp_path):
     assert any(row["event_type"] == "MANUAL_INCREASE" and row["delta_cents"] == 500 for row in ledger)
 
 
+def test_quota_management_rejects_stale_settings_and_adjustments(tmp_path):
+    client = make_client(tmp_path)
+    admin, _, unit, _ = setup_quota(client, cents=1000)
+    initial = client.get(f"/api/v1/admin/units/{unit['id']}/quota", headers=admin).json()
+    assert initial["updated_at"]
+    assert initial["display_updated_at"]
+
+    changed = client.put(
+        f"/api/v1/admin/units/{unit['id']}/quota",
+        headers=admin,
+        json={"enabled": True, "default_monthly_quota_cents": 1200, "expected_version": initial["version"]},
+    )
+    assert changed.status_code == 200, changed.text
+    stale_settings = client.put(
+        f"/api/v1/admin/units/{unit['id']}/quota",
+        headers=admin,
+        json={"enabled": True, "default_monthly_quota_cents": 1500, "expected_version": initial["version"]},
+    )
+    assert stale_settings.status_code == 409
+    assert stale_settings.json()["detail"]["code"] == "STALE_WRITE"
+
+    current = changed.json()
+    adjustment = client.post(
+        f"/api/v1/admin/units/{unit['id']}/quota/adjustments",
+        headers=admin,
+        json={"delta_cents": 100, "reason": "测试补充", "expected_version": current["version"]},
+    )
+    assert adjustment.status_code == 200, adjustment.text
+    stale_adjustment = client.post(
+        f"/api/v1/admin/units/{unit['id']}/quota/adjustments",
+        headers=admin,
+        json={"delta_cents": 100, "reason": "旧页面重复提交", "expected_version": current["version"]},
+    )
+    assert stale_adjustment.status_code == 409
+    assert stale_adjustment.json()["detail"]["code"] == "STALE_WRITE"
+    ledger = client.get(f"/api/v1/admin/units/{unit['id']}/quota/ledger", headers=admin).json()["items"]
+    assert ledger[0]["display_created_at"]
+
+
 def test_unit_web_maps_structured_quota_conflict_to_actionable_message():
     source = (Path(__file__).parents[1] / "app" / "static" / "unit" / "unit.js").read_text(encoding="utf-8")
     assert 'detail.code === "QUOTA_INSUFFICIENT"' in source

@@ -285,6 +285,9 @@ class UnitQuotaSettings(BaseModel):
 
     enabled: bool
     default_monthly_quota_cents: int = Field(ge=0, le=10_000_000_000)
+    # Optional so existing Web and Android clients remain compatible. New clients
+    # use the server-issued version to avoid overwriting another admin's change.
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 class UnitQuotaAdjustment(BaseModel):
@@ -292,6 +295,7 @@ class UnitQuotaAdjustment(BaseModel):
 
     delta_cents: int = Field(ge=-10_000_000_000, le=10_000_000_000)
     reason: str = Field(min_length=1, max_length=300)
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 class DeliveryBatchCreate(BaseModel):

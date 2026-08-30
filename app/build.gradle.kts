@@ -14,6 +14,9 @@ val configuredStagingApiUrl = providers.gradleProperty("STAGING_API_BASE_URL")
 val configuredLocalApiUrl = providers.gradleProperty("LOCAL_API_BASE_URL")
   .orElse(providers.environmentVariable("LOCAL_API_BASE_URL"))
   .getOrElse("")
+val configuredCustomerUpdateApiUrl = providers.gradleProperty("CUSTOMER_UPDATE_API_BASE_URL")
+  .orElse(providers.environmentVariable("CUSTOMER_UPDATE_API_BASE_URL"))
+  .getOrElse("")
 val configuredReleaseJpushAppKey = providers.gradleProperty("JPUSH_APP_KEY")
   .orElse(providers.environmentVariable("JPUSH_APP_KEY"))
   .getOrElse("")
@@ -42,8 +45,8 @@ android {
     applicationId = "com.smartprocurement.internal"
     minSdk = 24
     targetSdk = 36
-    versionCode = 25
-    versionName = "1.1.18"
+    versionCode = 27
+    versionName = "1.1.20"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     manifestPlaceholders["usesCleartextTraffic"] = "false"
@@ -106,6 +109,18 @@ android {
       resValue("string", "app_name", "三公鲜配（本地测试）")
       buildConfigField("String", "API_BASE_URL", "\"$configuredLocalApiUrl\"")
       buildConfigField("String", "APP_VARIANT_LABEL", "\"本地验收版\"")
+      buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
+    }
+    create("customerUpdate") {
+      isDebuggable = true
+      isMinifyEnabled = false
+      matchingFallbacks += listOf("debug")
+      signingConfig = signingConfigs.getByName("debugConfig")
+      manifestPlaceholders["usesCleartextTraffic"] = "true"
+      manifestPlaceholders["JPUSH_PKGNAME"] = "com.smartprocurement.internal"
+      manifestPlaceholders["JPUSH_APPKEY"] = ""
+      buildConfigField("String", "API_BASE_URL", "\"$configuredCustomerUpdateApiUrl\"")
+      buildConfigField("String", "APP_VARIANT_LABEL", "\"\"")
       buildConfigField("String", "JPUSH_APP_KEY", "\"\"")
     }
     create("orbpreview") {
@@ -220,5 +235,11 @@ gradle.taskGraph.whenReady {
   }
   if (buildsLocalVariant && !configuredLocalApiUrl.matches(Regex("http://(127\\.0\\.0\\.1|localhost|10\\.0\\.2\\.2):[0-9]+/api/v1/"))) {
     throw GradleException("LOCAL_API_BASE_URL is required and must use a loopback host such as http://127.0.0.1:18001/api/v1/")
+  }
+  val buildsCustomerUpdateVariant = allTasks.any { it.name.contains("CustomerUpdate", ignoreCase = true) }
+  val validCustomerUpdateApiUrl = configuredCustomerUpdateApiUrl.matches(Regex("https://[^/]+/api/v1/")) ||
+    configuredCustomerUpdateApiUrl == approvedInsecureProductionApiUrl
+  if (buildsCustomerUpdateVariant && !validCustomerUpdateApiUrl) {
+    throw GradleException("CUSTOMER_UPDATE_API_BASE_URL is required and must use HTTPS or the approved temporary production endpoint")
   }
 }

@@ -284,6 +284,12 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
                 is Screen.UnitManagement -> {
                     UnitManagementScreen(viewModel)
                 }
+                is Screen.UnitQuotaManagement -> {
+                    UnitQuotaManagementScreen(viewModel)
+                }
+                is Screen.UnitQuotaDetail -> {
+                    UnitQuotaDetailScreen((screen as Screen.UnitQuotaDetail).unitId, viewModel)
+                }
                 is Screen.AccountManagement -> {
                     AccountManagementScreen(viewModel)
                 }

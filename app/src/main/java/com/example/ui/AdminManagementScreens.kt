@@ -364,7 +364,7 @@ fun DeliverySheetsScreen(viewModel: SupplyViewModel, requestWorkbookDocument: Wo
 }
 
 @Composable
-private fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
+internal fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> Unit, content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit) {
     Scaffold(
         topBar = {
             Row(
@@ -398,7 +398,7 @@ private fun AdminListScreen(title: String, onBack: () -> Unit, onRefresh: () -> 
 }
 
 @Composable
-private fun AdminFormCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun AdminFormCard(content: @Composable ColumnScope.() -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),

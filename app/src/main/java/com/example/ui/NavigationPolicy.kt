@@ -2,6 +2,8 @@ package com.smartprocurement.internal.ui
 
 fun isAdminOnlyScreen(screen: Screen): Boolean = when (screen) {
     Screen.UnitManagement,
+    Screen.UnitQuotaManagement,
+    is Screen.UnitQuotaDetail,
     Screen.AccountManagement,
     Screen.Ledger,
     Screen.InventoryRecords,

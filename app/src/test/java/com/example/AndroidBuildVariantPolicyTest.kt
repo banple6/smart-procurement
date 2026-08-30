@@ -53,4 +53,12 @@ class AndroidBuildVariantPolicyTest {
         assertTrue(localConfig.contains("cleartextTrafficPermitted=\"true\""))
         assertTrue(localConfig.contains("127.0.0.1"))
     }
+
+    @Test
+    fun customer_update_keeps_the_installed_package_and_uses_the_existing_debug_signer() {
+        assertTrue(buildScript.contains("create(\"customerUpdate\")"))
+        assertTrue(buildScript.contains("signingConfig = signingConfigs.getByName(\"debugConfig\")"))
+        assertTrue(buildScript.contains("CUSTOMER_UPDATE_API_BASE_URL"))
+        assertTrue(buildScript.contains("CUSTOMER_UPDATE_API_BASE_URL is required"))
+    }
 }
