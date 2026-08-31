@@ -2,6 +2,7 @@ from collections import OrderedDict
 from decimal import Decimal, ROUND_HALF_UP
 
 from ..database import all_rows, decimal_text, one
+from .local_time import display_local_time
 
 
 SCOPE_STATUSES = {
@@ -33,6 +34,7 @@ def _flat_rows(conn, batch_id: str, scope: str) -> list[dict]:
           orders.order_no,
           orders.status AS order_status,
           orders.unit_id,
+          COALESCE(units.unit_code, '') AS unit_code,
           orders.unit_name_snapshot AS unit_name,
           orders.delivery_point_snapshot AS delivery_point,
           order_items.product_id,
@@ -47,6 +49,7 @@ def _flat_rows(conn, batch_id: str, scope: str) -> list[dict]:
           order_items.subtotal_cents
         FROM delivery_batch_orders
         JOIN orders ON orders.id = delivery_batch_orders.order_id
+        LEFT JOIN units ON units.id = orders.unit_id
         JOIN order_items ON order_items.order_id = orders.id
         WHERE delivery_batch_orders.batch_id = ?
           AND orders.is_deleted = 0
@@ -62,6 +65,8 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
     batch = one(conn, "SELECT * FROM delivery_batches WHERE id = ?", (batch_id,))
     if not batch:
         raise LookupError("批次不存在")
+    localized_created_at = display_local_time(batch.get("created_at"))
+    batch["business_date"] = localized_created_at[:10] if len(localized_created_at) >= 10 else ""
     rows = _flat_rows(conn, batch_id, scope)
     units: OrderedDict[str, dict] = OrderedDict()
     products: OrderedDict[tuple, dict] = OrderedDict()
@@ -79,6 +84,7 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
             row["unit_id"],
             {
                 "unit_id": row["unit_id"],
+                "unit_code": row["unit_code"],
                 "unit_name": row["unit_name"],
                 "delivery_point": row["delivery_point"],
                 "order_ids": set(),
@@ -134,6 +140,7 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
             row["unit_id"],
             {
                 "unit_id": row["unit_id"],
+                "unit_code": row["unit_code"],
                 "unit_name": row["unit_name"],
                 "requested_quantity": Decimal("0"),
                 "actual_quantity": Decimal("0"),
@@ -162,7 +169,11 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
         document["subtotal_cents"] += line_amount
 
     by_unit = []
-    for entry in units.values():
+    sorted_units = sorted(
+        units.values(),
+        key=lambda entry: (not bool(entry["unit_code"]), entry["unit_code"] or "", entry["unit_name"]),
+    )
+    for entry in sorted_units:
         items = []
         for item in entry["items"].values():
             items.append(
@@ -176,6 +187,7 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
         by_unit.append(
             {
                 "unit_id": entry["unit_id"],
+                "unit_code": entry["unit_code"],
                 "unit_name": entry["unit_name"],
                 "delivery_point": entry["delivery_point"],
                 "order_count": len(entry["order_ids"]),
@@ -193,7 +205,10 @@ def aggregate_batch(conn, batch_id: str, scope: str = "all") -> dict:
                 "actual_quantity": decimal_text(value["actual_quantity"]),
                 "quantity": decimal_text(value["actual_quantity"]),
             }
-            for value in entry["unit_breakdown"].values()
+            for value in sorted(
+                entry["unit_breakdown"].values(),
+                key=lambda value: (not bool(value["unit_code"]), value["unit_code"] or "", value["unit_name"]),
+            )
         ]
         by_product.append(
             {

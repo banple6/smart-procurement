@@ -152,7 +152,10 @@ def list_units(admin=Depends(require_admin_user)):
               (SELECT COUNT(*) FROM orders WHERE unit_id = u.id AND is_deleted = 0) AS order_count,
               (SELECT MAX(created_at) FROM orders WHERE unit_id = u.id AND is_deleted = 0) AS last_order_at
             FROM units u
-            ORDER BY u.created_at DESC
+            ORDER BY
+              CASE WHEN length(u.unit_code) = 3 AND u.unit_code GLOB '[0-9][0-9][0-9]' THEN 0 ELSE 1 END,
+              u.unit_code ASC,
+              u.unit_name ASC
             """,
         )
         for row in rows:

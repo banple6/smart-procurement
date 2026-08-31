@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 
 from ..database import all_rows, connect, one, transaction, write_audit
 from ..dependencies import require_admin_user
-from ..services.batch_exports import outbound_order_workbook
+from ..services.batch_exports import outbound_order_filename, outbound_order_workbook
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.local_time import display_local_time, local_now
 from ..services.outbound_reconciliation import FULFILLED_ORDER_STATUSES, reconcile_outbound_status_for_orders
@@ -32,10 +32,12 @@ def _outbound(conn, outbound_id: str) -> dict:
     row = one(
         conn,
         """
-        SELECT outbound_orders.*, delivery_batches.batch_no, delivery_batches.name AS batch_name,
+        SELECT outbound_orders.*, COALESCE(units.unit_code, '') AS unit_code,
+               delivery_batches.batch_no, delivery_batches.name AS batch_name,
                delivery_batches.status AS batch_status
         FROM outbound_orders
         JOIN delivery_batches ON delivery_batches.id = outbound_orders.preparation_batch_id
+        LEFT JOIN units ON units.id = outbound_orders.unit_id
         WHERE outbound_orders.id = ?
         """,
         (outbound_id,),
@@ -114,6 +116,7 @@ def _outbound_out(conn, row: dict, include_details: bool = False) -> dict:
     result = dict(row)
     for field in ("created_at", "updated_at", "shipped_at", "archived_at"):
         result[field] = display_local_time(result.get(field))
+    result["business_date"] = result["created_at"][:10] if len(result.get("created_at") or "") >= 10 else ""
     order_count = one(conn, "SELECT COUNT(*) AS count FROM outbound_order_orders WHERE outbound_order_id = ?", (row["id"],))["count"]
     result["order_count"] = int(order_count)
     lines = _outbound_lines(conn, row["id"])
@@ -239,9 +242,11 @@ def list_outbound_orders(
         rows = all_rows(
             conn,
             """
-            SELECT outbound_orders.*, delivery_batches.batch_no, delivery_batches.name AS batch_name
+            SELECT outbound_orders.*, COALESCE(units.unit_code, '') AS unit_code,
+                   delivery_batches.batch_no, delivery_batches.name AS batch_name
             FROM outbound_orders
             JOIN delivery_batches ON delivery_batches.id = outbound_orders.preparation_batch_id
+            LEFT JOIN units ON units.id = outbound_orders.unit_id
             """ + where + " ORDER BY outbound_orders.created_at DESC, outbound_orders.id DESC",
             params,
         )
@@ -263,7 +268,7 @@ def export_outbound_orders_bulk(outbound_ids: list[str] = Query(default=[]), adm
             outbound = _outbound(conn, row["id"])
             document = _outbound_out(conn, outbound, include_details=True)
             workbook = outbound_order_workbook(document, document["lines"])
-            entries.append((f"出库单_{document['unit_name_snapshot']}_{document['outbound_no']}.xlsx", workbook, row["id"]))
+            entries.append((outbound_order_filename(document), workbook, row["id"]))
             write_audit(conn, admin["id"], admin["role"], "OUTBOUND_ORDER_EXPORTED", "outbound_order", row["id"])
     stream = BytesIO()
     with ZipFile(stream, "w", ZIP_DEFLATED) as archive:
@@ -284,7 +289,7 @@ def export_outbound_order(outbound_id: str, admin=Depends(require_admin_user)):
         outbound = _outbound(conn, outbound_id)
         document = _outbound_out(conn, outbound, include_details=True)
         write_audit(conn, admin["id"], admin["role"], "OUTBOUND_ORDER_EXPORTED", "outbound_order", outbound_id)
-    filename = f"出库单_{document['unit_name_snapshot']}_{document['outbound_no']}.xlsx"
+    filename = outbound_order_filename(document)
     return Response(
         outbound_order_workbook(document, document["lines"]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

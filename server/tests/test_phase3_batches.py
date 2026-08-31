@@ -97,6 +97,11 @@ def test_phase3_aggregates_by_product_and_unit_and_exports(tmp_path):
     listed = client.get("/api/v1/admin/batches", headers=admin_headers)
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"][0]["order_count"] == 4
+    assert set(listed.json()["items"][0]["unit_codes"].split(",")) == {"PH3-A", "PH3-B", "PH3-C"}
+
+    order_list = client.get("/api/v1/admin/orders?page=1&page_size=100", headers=admin_headers)
+    assert order_list.status_code == 200, order_list.text
+    assert {item["unit_code"] for item in order_list.json()["items"]} >= {"PH3-A", "PH3-B", "PH3-C"}
 
     summary = client.get(f"/api/v1/admin/batches/{batch_body['id']}/summary", headers=admin_headers)
     assert summary.status_code == 200, summary.text
@@ -109,11 +114,13 @@ def test_phase3_aggregates_by_product_and_unit_and_exports(tmp_path):
     assert box["unit"] == "箱"
     assert body["unit_count"] == 3
     assert body["product_count"] == 2
+    assert [unit["unit_code"] for unit in body["by_unit"]] == ["PH3-A", "PH3-B", "PH3-C"]
 
     export = client.get(f"/api/v1/admin/batches/{batch_body['id']}/picking-list.xlsx", headers=admin_headers)
     assert export.status_code == 200, export.text
     workbook = load_workbook(BytesIO(export.content), read_only=True)
-    assert workbook.sheetnames == ["总计", "米面粮油"]
+    assert {"总计", "米面粮油"}.issubset(workbook.sheetnames)
+    assert {"PH3-A-米面粮油", "PH3-B-米面粮油", "PH3-C-米面粮油"}.issubset(workbook.sheetnames)
     report_rows = [row for row in workbook["总计"].iter_rows(min_row=4, values_only=True) if isinstance(row[0], int)]
     assert {row[3] for row in report_rows} == {"斤", "箱"}
 

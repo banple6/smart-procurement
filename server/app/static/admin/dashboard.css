@@ -1201,6 +1201,25 @@ button.primary-link {
   background: #fff4f4;
 }
 
+.new-data-banner {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #c9d8e6;
+  background: #eef6fc;
+  color: #18364f;
+  box-shadow: 0 4px 10px rgb(24 54 79 / 8%);
+}
+
+.new-data-banner[hidden] {
+  display: none;
+}
+
 .notice-banner {
   margin: 16px 0;
   padding: 12px 14px;

@@ -8,7 +8,13 @@ from ..database import all_rows, connect, one, transaction, write_audit
 from ..dependencies import require_admin_user
 from ..schemas import DeliveryBatchCreate, DeliveryBatchOrdersPatch, DeliveryBatchStatusPatch
 from ..services.batch_aggregation import aggregate_batch
-from ..services.batch_exports import batch_outbound_workbook, batch_picking_workbook, batch_picking_workbook_multi, batch_summary_workbook
+from ..services.batch_exports import (
+    batch_outbound_workbook,
+    batch_picking_filename,
+    batch_picking_workbook,
+    batch_picking_workbook_multi,
+    batch_summary_workbook,
+)
 from ..services.local_time import display_local_time, local_now
 
 
@@ -40,11 +46,12 @@ def _batch_out(conn, batch: dict, include_orders: bool = True) -> dict:
         result["orders"] = all_rows(
             conn,
             """
-            SELECT orders.id, orders.order_no, orders.unit_id, orders.unit_name_snapshot,
+            SELECT orders.id, orders.order_no, orders.unit_id, COALESCE(units.unit_code, '') AS unit_code, orders.unit_name_snapshot,
                    orders.delivery_point_snapshot, orders.status, orders.total_cents, orders.created_at,
                    orders.version
             FROM delivery_batch_orders
             JOIN orders ON orders.id = delivery_batch_orders.order_id
+            LEFT JOIN units ON units.id = orders.unit_id
             WHERE delivery_batch_orders.batch_id = ? AND orders.is_deleted = 0
             ORDER BY orders.unit_name_snapshot, orders.created_at, orders.id
             """,
@@ -165,10 +172,12 @@ def list_delivery_batches(
             SELECT delivery_batches.*,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.id END) AS order_count,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.unit_id END) AS unit_count,
-                   COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN order_items.product_id END) AS product_count
+                   COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN order_items.product_id END) AS product_count,
+                   GROUP_CONCAT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN units.unit_code END) AS unit_codes
             FROM delivery_batches
             LEFT JOIN delivery_batch_orders ON delivery_batch_orders.batch_id = delivery_batches.id
             LEFT JOIN orders ON orders.id = delivery_batch_orders.order_id
+            LEFT JOIN units ON units.id = orders.unit_id
             LEFT JOIN order_items ON order_items.order_id = orders.id
             {where}
             GROUP BY delivery_batches.id
@@ -193,10 +202,11 @@ def eligible_delivery_batch_orders(
         rows = all_rows(
             conn,
             f"""
-            SELECT orders.id, orders.order_no, orders.unit_id, orders.unit_name_snapshot,
+            SELECT orders.id, orders.order_no, orders.unit_id, COALESCE(units.unit_code, '') AS unit_code, orders.unit_name_snapshot,
                    orders.delivery_point_snapshot, orders.status, orders.total_cents,
                    orders.created_at, orders.version
             FROM orders
+            LEFT JOIN units ON units.id = orders.unit_id
             WHERE orders.is_deleted = 0
               AND orders.status IN ({placeholders})
             AND NOT EXISTS (
@@ -379,7 +389,7 @@ def export_delivery_batch_picking_list(batch_id: str, admin=Depends(require_admi
         if not result["document_lines"]:
             raise HTTPException(status_code=409, detail="该批次暂无已接单或备货中的订单")
         _audit_download(conn, admin, batch_id, "DELIVERY_BATCH_PICKING_LIST_EXPORTED")
-    return _document_response(batch_picking_workbook(result), f"三公鲜配_备货单_{result['batch']['batch_no']}.xlsx")
+    return _document_response(batch_picking_workbook(result), batch_picking_filename(result))
 
 
 @router.get("/{batch_id}/outbound.xlsx")

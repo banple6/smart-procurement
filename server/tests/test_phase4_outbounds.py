@@ -58,9 +58,9 @@ def _worksheet_values(sheet):
 def _assert_final_outbound_layout(sheet):
     values = _worksheet_values(sheet)
     joined = "\n".join(values)
-    assert "三公鲜配出库单" in values
+    assert any(value.startswith("三公鲜配出库单（") for value in values)
     assert any(value.startswith("单位：") for value in values)
-    assert any(value.startswith("出库单号：") for value in values)
+    assert any(value.startswith("系统出库单号：") for value in values)
     assert any(value.startswith("日期：") for value in values)
     assert values.count("总金额：") == 1
     assert any(value.startswith("配送人：") for value in values)
@@ -74,10 +74,12 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
     workbook = load_workbook(
         BytesIO(
             outbound_order_workbook(
-                {
-                    "unit_name_snapshot": "测试单位01",
-                    "outbound_no": "CK20260827-0001",
-                    "created_at": "2026-08-27 16:56:00",
+                    {
+                        "unit_code": "004",
+                        "unit_name_snapshot": "测试单位01",
+                        "outbound_no": "CK20260827-0001",
+                        "created_at": "2026-08-27 16:56:00",
+                        "business_date": "2026-08-27",
                     "batch_no": "PS20260827-0001",
                 },
                 [
@@ -90,8 +92,9 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
     )
     sheet = workbook["出库单"]
 
-    assert sheet["A2"].value == "单位：测试单位01"
-    assert sheet["C2"].value == "出库单号：CK20260827-0001"
+    assert sheet["A1"].value == "三公鲜配出库单（20260827/004）"
+    assert sheet["A2"].value == "单位：004 · 测试单位01"
+    assert sheet["C2"].value == "系统出库单号：CK20260827-0001"
     assert sheet["E2"].value == "日期：2026-08-27 16:56:00"
     assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} >= {"A2:B2", "C2:D2", "E2:F2"}
     assert sheet.column_dimensions["E"].width + sheet.column_dimensions["F"].width >= 30
@@ -169,7 +172,8 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     assert len(exported.content) > 0
     workbook = load_workbook(BytesIO(exported.content), data_only=True)
     sheet = workbook["出库单"]
-    assert sheet.cell(1, 1).value == "三公鲜配出库单"
+    assert sheet.cell(1, 1).value.startswith(f"三公鲜配出库单（")
+    assert sheet.cell(1, 1).value.endswith(f"/{body['unit_code']}）")
     assert unit_a["outbound_no"] in " ".join(str(cell.value or "") for cell in sheet[2])
     assert sheet["F5"].value == 5
     assert sheet["F5"].number_format == '¥0.00'

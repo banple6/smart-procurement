@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta http-equiv="Cache-Control" content="no-store" />
     <title>管理工作台 - 三公鲜配</title>
-    <link rel="stylesheet" href="/admin-assets/dashboard.css?v=0.3.7.0" />
+    <link rel="stylesheet" href="/admin-assets/dashboard.css?v=0.3.7.1" />
     <link rel="stylesheet" href="/admin-assets/analytics.css?v=1.0.1" />
   </head>
   <body class="admin-page">
@@ -45,6 +45,10 @@
           <button id="logoutButton" class="ghost-button" type="button">安全退出</button>
         </div>
       </header>
+      <div id="newDataBanner" class="new-data-banner" hidden>
+        <span>检测到新数据，当前页面不会自动跳动。</span>
+        <button id="applyNewDataButton" class="table-action primary" type="button">刷新数据</button>
+      </div>
       <main class="content">
         <div id="globalError" class="error-banner" hidden>
           工作台数据加载失败
@@ -175,6 +179,7 @@
     <script src="/admin-assets/vendor/echarts-5.6.0/echarts.min.js" defer></script>
     <script src="/admin-assets/analytics.js?v=1.0.1" defer></script>
     <script src="/admin-assets/order-selection-policy.js?v=1.0.1" defer></script>
-    <script src="/admin-assets/dashboard.js?v=0.3.7.2" defer></script>
+    <script src="/admin-assets/refresh-policy.js?v=1.0.0" defer></script>
+    <script src="/admin-assets/dashboard.js?v=0.3.7.4" defer></script>
   </body>
 </html>

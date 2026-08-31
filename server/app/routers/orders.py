@@ -143,6 +143,7 @@ def order_out(conn, order: dict, include_items: bool = True, include_shipping_ph
     item_count = one(conn, "SELECT COUNT(*) AS c FROM order_items WHERE order_id = ?", (order["id"],))["c"]
     photo_count = one(conn, "SELECT COUNT(*) AS c FROM order_shipping_photos WHERE order_id = ?", (order["id"],))["c"]
     localized_order = order_with_local_times(order)
+    unit = one(conn, "SELECT unit_code FROM units WHERE id = ?", (order.get("unit_id"),))
     payload = {
         **localized_order,
         **order_status_payload(order.get("status", "")),
@@ -156,6 +157,7 @@ def order_out(conn, order: dict, include_items: bool = True, include_shipping_ph
         "item_count": item_count,
         "shipping_note": order.get("shipping_note") or "",
         "shipping_photo_count": photo_count,
+        "unit_code": (unit or {}).get("unit_code", ""),
         **order_actions(order, viewer),
     }
     payload.pop("created_by", None)
@@ -197,6 +199,11 @@ def order_list_out(conn, orders: list[dict], include_items: bool, viewer: dict |
             order_ids,
         )
     }
+    unit_ids = sorted({row.get("unit_id") for row in orders if row.get("unit_id")})
+    unit_codes = {
+        row["id"]: row["unit_code"]
+        for row in all_rows(conn, f"SELECT id, unit_code FROM units WHERE id IN ({_placeholders(unit_ids)})", unit_ids)
+    } if unit_ids else {}
     items_by_order: dict[str, list[dict]] = {order_id: [] for order_id in order_ids}
     if include_items:
         for item in all_rows(
@@ -221,6 +228,7 @@ def order_list_out(conn, orders: list[dict], include_items: bool, viewer: dict |
             "item_count": int(item_counts.get(order["id"], 0)),
             "shipping_note": order.get("shipping_note") or "",
             "shipping_photo_count": int(photo_counts.get(order["id"], 0)),
+            "unit_code": unit_codes.get(order.get("unit_id"), ""),
             **order_actions(order, viewer),
         }
         payload.pop("created_by", None)

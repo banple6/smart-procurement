@@ -5,6 +5,8 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+from .local_time import display_local_time
+
 
 HEADER_FILL = PatternFill("solid", fgColor="DDEAF6")
 TITLE_FILL = PatternFill("solid", fgColor="1F5A94")
@@ -19,6 +21,33 @@ THIN_BORDER = Border(
 def _safe_sheet_title(value: str) -> str:
     title = "".join("_" if char in "[]:*?/\\" else char for char in (value or "其他"))
     return title[:31] or "其他"
+
+
+def _unique_sheet_title(wb, value: str) -> str:
+    base = _safe_sheet_title(value)
+    candidate = base
+    suffix = 2
+    while candidate in wb.sheetnames:
+        marker = f"-{suffix}"
+        candidate = f"{base[:31 - len(marker)]}{marker}"
+        suffix += 1
+    return candidate
+
+
+def document_date(value: str | None) -> str:
+    localized = display_local_time(value)
+    return localized[:10].replace("-", "") if len(localized) >= 10 else "日期未记录"
+
+
+def business_document_date(document: dict) -> str:
+    value = str(document.get("business_date") or "")
+    if len(value) >= 10:
+        return value[:10].replace("-", "")
+    return document_date(document.get("created_at"))
+
+
+def _safe_filename_part(value: str) -> str:
+    return "".join("_" if char in '/\\:*?\"<>|' else char for char in str(value or "").strip()) or "未命名"
 
 
 
@@ -115,9 +144,24 @@ def _append_signatures(ws, row: int, outbound: bool = False):
     ws.row_dimensions[row].height = 28
 
 
-def _picking_sheet(ws, title: str, lines: list[dict]):
+def _picking_sheet(
+    ws,
+    title: str,
+    lines: list[dict],
+    *,
+    unit_name: str = "",
+    unit_code: str = "",
+    batch_no: str = "",
+):
     headers = ["序号", "商品名称", "规格", "计量单位", "需求数量"]
     _setup_sheet(ws, title, headers, [10, 24, 20, 14, 16])
+    ws.merge_cells("A2:C2")
+    ws.merge_cells("D2:E2")
+    ws.cell(2, 1, f"单位：{unit_code + ' · ' if unit_code else ''}{unit_name or '批次汇总'}")
+    ws.cell(2, 4, f"系统备货单号：{batch_no}")
+    ws.cell(2, 1).alignment = Alignment(vertical="center", wrap_text=False)
+    ws.cell(2, 4).alignment = Alignment(horizontal="right", vertical="center", wrap_text=False)
+    ws.row_dimensions[2].height = 22
     for index, line in enumerate(lines, start=1):
         ws.append([index, line["product_name"], line.get("spec") or "", line["unit"], line["actual_quantity"]])
     end_row = 3 + len(lines)
@@ -126,6 +170,25 @@ def _picking_sheet(ws, title: str, lines: list[dict]):
         for cell in ws["E"][3:end_row]:
             cell.number_format = "0.###"
     _append_signatures(ws, end_row)
+    ws.print_area = f"A1:E{end_row + 2}"
+
+
+def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = ""):
+    batch = aggregation["batch"]
+    date = business_document_date(batch)
+    for unit in aggregation["by_unit"]:
+        code = unit.get("unit_code") or "未编码"
+        for category, lines in _report_category_lines(unit["items"]).items():
+            sheet_name = f"{name_prefix}{code}-{category}"
+            ws = wb.create_sheet(_unique_sheet_title(wb, sheet_name))
+            _picking_sheet(
+                ws,
+                f"{category}备货单（{date}/{code}）",
+                lines,
+                unit_name=unit["unit_name"],
+                unit_code=code,
+                batch_no=batch["batch_no"],
+            )
 
 
 def batch_picking_workbook(aggregation: dict) -> bytes:
@@ -133,12 +196,14 @@ def batch_picking_workbook(aggregation: dict) -> bytes:
     categories = _report_category_lines(lines)
     wb = Workbook()
     wb.properties.title = f"三公鲜配备货单 {aggregation['batch']['batch_no']}"
-    total = wb.active
+    wb.remove(wb.active)
+    _append_unit_picking_sheets(wb, aggregation)
+    total = wb.create_sheet("总计")
     total.title = "总计"
-    _picking_sheet(total, f"三公鲜配备货单（{aggregation['batch']['batch_no']}）", lines)
+    _picking_sheet(total, f"三公鲜配备货单（{aggregation['batch']['batch_no']}）", lines, batch_no=aggregation["batch"]["batch_no"])
     for category, category_lines in categories.items():
-        ws = wb.create_sheet(_safe_sheet_title(category))
-        _picking_sheet(ws, f"{category}备货单（{aggregation['batch']['batch_no']}）", category_lines)
+        ws = wb.create_sheet(_unique_sheet_title(wb, category))
+        _picking_sheet(ws, f"{category}备货单（{aggregation['batch']['batch_no']}）", category_lines, batch_no=aggregation["batch"]["batch_no"])
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()
@@ -150,11 +215,13 @@ def batch_picking_workbook_multi(aggregations: list[dict]) -> bytes:
     wb.remove(wb.active)
     for aggregation in aggregations:
         batch_no = aggregation["batch"]["batch_no"]
-        total = wb.create_sheet(_safe_sheet_title(f"总计-{batch_no}"))
-        _picking_sheet(total, f"三公鲜配备货单（{batch_no}）", aggregation["document_lines"])
+        short_batch = batch_no[-4:]
+        _append_unit_picking_sheets(wb, aggregation, name_prefix=f"{short_batch}-")
+        total = wb.create_sheet(_unique_sheet_title(wb, f"总计-{batch_no}"))
+        _picking_sheet(total, f"三公鲜配备货单（{batch_no}）", aggregation["document_lines"], batch_no=batch_no)
         for category, category_lines in _report_category_lines(aggregation["document_lines"]).items():
-            ws = wb.create_sheet(_safe_sheet_title(f"{batch_no}-{category}"))
-            _picking_sheet(ws, f"{category}备货单（{batch_no}）", category_lines)
+            ws = wb.create_sheet(_unique_sheet_title(wb, f"{batch_no}-{category}"))
+            _picking_sheet(ws, f"{category}备货单（{batch_no}）", category_lines, batch_no=batch_no)
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()
@@ -227,14 +294,16 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
     ws = wb.active
     ws.title = "出库单"
     headers = ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
-    _setup_sheet(ws, "三公鲜配出库单", headers, [8, 16, 24, 20, 14, 16])
+    code = outbound.get("unit_code") or "未编码"
+    date = business_document_date(outbound)
+    _setup_sheet(ws, f"三公鲜配出库单（{date}/{code}）", headers, [8, 16, 24, 20, 14, 16])
 
     # Keep the document metadata readable without relying on a manual column resize.
     ws.merge_cells("A2:B2")
     ws.merge_cells("C2:D2")
     ws.merge_cells("E2:F2")
-    ws.cell(2, 1, f"单位：{outbound['unit_name_snapshot']}")
-    ws.cell(2, 3, f"出库单号：{outbound['outbound_no']}")
+    ws.cell(2, 1, f"单位：{code} · {outbound['unit_name_snapshot']}")
+    ws.cell(2, 3, f"系统出库单号：{outbound['outbound_no']}")
     ws.cell(2, 5, f"日期：{outbound.get('created_at') or ''}")
     for column in (1, 3, 5):
         ws.cell(2, column).alignment = Alignment(vertical="center", wrap_text=False)
@@ -273,9 +342,31 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
     ws.cell(signature_row, 1, "配送人：________________")
     ws.cell(signature_row, 4, "收货人：________________")
     ws.row_dimensions[signature_row].height = 28
+    ws.print_area = f"A1:F{signature_row}"
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()
+
+
+def batch_picking_filename(aggregation: dict) -> str:
+    units = aggregation.get("by_unit") or []
+    if len(units) == 1 and units[0].get("unit_code"):
+        unit = units[0]
+        categories = list(_report_category_lines(unit.get("items") or []))
+        document_name = f"{categories[0]}备货单" if len(categories) == 1 else "备货单"
+        return (
+            f"{document_name}_{_safe_filename_part(unit['unit_code'])}_"
+            f"{_safe_filename_part(unit['unit_name'])}_{business_document_date(aggregation['batch'])}.xlsx"
+        )
+    return f"三公鲜配_备货单_{_safe_filename_part(aggregation['batch']['batch_no'])}.xlsx"
+
+
+def outbound_order_filename(outbound: dict) -> str:
+    code = outbound.get("unit_code") or "未编码"
+    return (
+        f"出库单_{_safe_filename_part(code)}_{_safe_filename_part(outbound['unit_name_snapshot'])}_"
+        f"{business_document_date(outbound)}.xlsx"
+    )
 
 
 def batch_summary_workbook(aggregation: dict) -> bytes:
