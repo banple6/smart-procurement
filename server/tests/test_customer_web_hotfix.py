@@ -4,7 +4,7 @@ from io import BytesIO
 import pytest
 from openpyxl import load_workbook
 
-from app.services.batch_exports import batch_picking_filename, batch_picking_workbook
+from app.services.batch_exports import batch_picking_filename, batch_picking_workbook, batch_picking_workbook_multi
 from app.services.customer_unit_codes import (
     CUSTOMER_UNIT_CODES,
     apply_customer_unit_codes,
@@ -132,10 +132,14 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
     workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
     sheet = workbook[f"{code}-蔬菜"]
 
+    assert workbook.sheetnames == [f"{code}-蔬菜"]
     assert sheet["A1"].value == f"蔬菜备货单（20260831/{code}）"
-    assert sheet["A2"].value == f"单位：{code} · {name}"
+    assert sheet["A2"].value is None
     assert sheet["D2"].value == "系统备货单号：PS20260831-0016"
     assert [sheet.cell(4, column).value for column in range(1, 6)] == [1, "历史圆白菜", "历史规格", "斤", "12.5"]
     assert str(sheet.print_area).endswith("!$A$1:$E$6")
     assert sheet.page_setup.fitToWidth == 1
     assert batch_picking_filename(aggregation) == f"蔬菜备货单_{code}_{name}_20260831.xlsx"
+
+    bulk_workbook = load_workbook(BytesIO(batch_picking_workbook_multi([aggregation])), data_only=True)
+    assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜"]
