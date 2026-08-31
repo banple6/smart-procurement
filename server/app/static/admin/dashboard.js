@@ -2030,6 +2030,26 @@
     return ({ open: "备货中", closed: "已完成", cancelled: "已归档" })[status] || "未知状态";
   }
 
+  function batchDisplayName(batch) {
+    const explicitName = String(batch.name || "").trim();
+    if (explicitName) return explicitName;
+    const orderLabels = new Map();
+    (batch.orders || []).forEach((order) => {
+      const unitId = String(order.unit_id || "");
+      if (!unitId || orderLabels.has(unitId)) return;
+      const unitCode = String(order.unit_code || "--").trim() || "--";
+      const unitName = String(order.unit_name_snapshot || "单位名称未记录").trim();
+      orderLabels.set(unitId, `${unitCode} · ${unitName}`);
+    });
+    const labels = orderLabels.size
+      ? [...orderLabels.values()]
+      : String(batch.unit_labels || "").split(",").map((value) => value.trim()).filter(Boolean);
+    if (labels.length) return [...new Set(labels)].sort((left, right) => left.localeCompare(right, "zh-CN")).join("；");
+    const codes = String(batch.unit_codes || "").split(",").map((value) => value.trim()).filter(Boolean).sort();
+    if (codes.length) return `${codes.join("、")} · 单位备货单`;
+    return batch.batch_no ? `备货单 ${batch.batch_no}` : "备货单";
+  }
+
   function batchOrderId(order) {
     return String(order.id || order.order_id || "");
   }
@@ -2288,8 +2308,8 @@
         <div class="panel-header"><div><h2>备货单记录</h2><p>按日期查看、导出或完成备货；完成后可按单位生成出库单。</p></div></div>
         <div class="page-toolbar"><input id="batchDateFrom" type="date" value="${html(dateFrom)}" aria-label="开始日期" /><input id="batchDateTo" type="date" value="${html(dateTo)}" aria-label="结束日期" /><button id="batchFilterButton" class="table-action primary" type="button">查询</button><button id="batchClearFilterButton" class="table-action" type="button">清除筛选</button><button id="batchBulkExport" class="table-action" type="button" disabled>批量导出</button></div>
         <div id="batchSelectionSummary" class="order-result-summary">已选择 0 张备货单</div>
-        ${table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "名称", "单位编码", "创建时间", "订单", "单位", "食材", "状态", "操作"], batches.map((batch) => `
-          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batch.name || "未命名备货单")}</td><td>${html(String(batch.unit_codes || "").split(",").filter(Boolean).sort().join("、") || "--")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "closed" ? `<button class="table-action primary" data-generate-outbound="${batch.id}">生成出库单</button>` : ""} ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
+        ${table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "单位 / 名称", "单位编码", "创建时间", "订单", "单位", "食材", "状态", "操作"], batches.map((batch) => `
+          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batchDisplayName(batch))}</td><td>${html(String(batch.unit_codes || "").split(",").filter(Boolean).sort().join("、") || "--")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "closed" ? `<button class="table-action primary" data-generate-outbound="${batch.id}">生成出库单</button>` : ""} ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
         `), "暂无备货单")}
       </article>`;
     if (preselectIds.length) {
@@ -2428,7 +2448,7 @@
       : `<span class="secondary-button disabled" title="${html(reason)}">${label}</span>`;
     content().innerHTML += `
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>${html(batch.batch_no)} · ${html(batch.name || "未命名备货单")}</h2><p>${num(summary.order_count)} 笔订单 · ${num(summary.unit_count)} 个单位 · ${num(summary.product_count)} 类食材</p></div><span class="status-tag">${html(deliveryBatchStatus(batch.status))}</span></div>
+        <div class="panel-header"><div><h2>${html(batch.batch_no)} · ${html(batchDisplayName(batch))}</h2><p>${num(summary.order_count)} 笔订单 · ${num(summary.unit_count)} 个单位 · ${num(summary.product_count)} 类食材</p></div><span class="status-tag">${html(deliveryBatchStatus(batch.status))}</span></div>
         <dl class="status-list detail-list"><dt>备货单备注</dt><dd>${html(batch.note || "无")}</dd><dt>创建时间</dt><dd>${dateTime(batch.created_at)}</dd></dl>
         <div class="page-toolbar">
           ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该备货单暂无有效备货需求")}

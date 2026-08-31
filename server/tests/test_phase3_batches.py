@@ -98,6 +98,11 @@ def test_phase3_aggregates_by_product_and_unit_and_exports(tmp_path):
     assert listed.status_code == 200, listed.text
     assert listed.json()["items"][0]["order_count"] == 4
     assert set(listed.json()["items"][0]["unit_codes"].split(",")) == {"PH3-A", "PH3-B", "PH3-C"}
+    assert set(listed.json()["items"][0]["unit_labels"].split(",")) == {
+        "PH3-A · Phase3单位A",
+        "PH3-B · Phase3单位B",
+        "PH3-C · Phase3单位C",
+    }
 
     order_list = client.get("/api/v1/admin/orders?page=1&page_size=100", headers=admin_headers)
     assert order_list.status_code == 200, order_list.text

@@ -236,7 +236,11 @@ def list_delivery_batches(
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.id END) AS order_count,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN orders.unit_id END) AS unit_count,
                    COUNT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN order_items.product_id END) AS product_count,
-                   GROUP_CONCAT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN units.unit_code END) AS unit_codes
+                   GROUP_CONCAT(DISTINCT CASE WHEN orders.is_deleted = 0 THEN units.unit_code END) AS unit_codes,
+                   GROUP_CONCAT(
+                       DISTINCT CASE WHEN orders.is_deleted = 0
+                       THEN COALESCE(NULLIF(units.unit_code, ''), '--') || ' · ' || orders.unit_name_snapshot END
+                   ) AS unit_labels
             FROM delivery_batches
             LEFT JOIN delivery_batch_orders ON delivery_batch_orders.batch_id = delivery_batches.id
             LEFT JOIN orders ON orders.id = delivery_batch_orders.order_id
