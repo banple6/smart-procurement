@@ -238,6 +238,6 @@ def test_phase3_date_filter_bulk_export_and_concurrent_duplicate_protection(tmp_
     )
     assert bulk.status_code == 200, bulk.text
     workbook = load_workbook(BytesIO(bulk.content), read_only=True)
-    assert len(workbook.sheetnames) == 1
-    assert "PH3-BULK" in workbook.sheetnames[0]
-    assert not any(name.startswith("总计-") for name in workbook.sheetnames)
+    assert len(workbook.sheetnames) == 2
+    assert any("PH3-BULK" in name for name in workbook.sheetnames)
+    assert sum(name.startswith("总计-") for name in workbook.sheetnames) == 1

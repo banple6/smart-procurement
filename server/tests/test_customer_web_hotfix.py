@@ -132,7 +132,7 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
     workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
     sheet = workbook[f"{code}-蔬菜"]
 
-    assert workbook.sheetnames == [f"{code}-蔬菜"]
+    assert workbook.sheetnames == [f"{code}-蔬菜", "总计"]
     assert sheet["A1"].value == f"蔬菜备货单（20260831/{code}）"
     assert sheet["A2"].value is None
     assert sheet["D2"].value == "系统备货单号：PS20260831-0016"
@@ -142,4 +142,4 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
     assert batch_picking_filename(aggregation) == f"蔬菜备货单_{code}_{name}_20260831.xlsx"
 
     bulk_workbook = load_workbook(BytesIO(batch_picking_workbook_multi([aggregation])), data_only=True)
-    assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜"]
+    assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜", "总计-PS20260831-0016"]
