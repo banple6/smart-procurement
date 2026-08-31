@@ -39,5 +39,9 @@ assert.equal(policy.apiErrorMessage(500, ""), "服务器异常，请稍后重试
 assert.equal(policy.apiErrorMessage(409, "后端明确错误"), "后端明确错误");
 assert.equal(policy.hasActiveSelections({ orders: 0, products: 0 }), false);
 assert.equal(policy.hasActiveSelections({ orders: 1, products: 0 }), true);
+assert.equal(policy.batchRecommendation({ pending_order_count: 3, open_batch_count: 0 }), "create");
+assert.equal(policy.batchRecommendation({ pending_order_count: 1, open_batch_count: 1 }), "append");
+assert.equal(policy.batchRecommendation({ pending_order_count: 0, open_batch_count: 2 }), "reconcile");
+assert.equal(policy.batchRecommendation({ pending_order_count: 0, open_batch_count: 1 }), "none");
 
 console.log("admin refresh and delete policy tests passed");

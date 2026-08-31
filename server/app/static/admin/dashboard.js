@@ -79,6 +79,7 @@
     selectedOrderIds: new Set(),
     selectedOrderVersions: new Map(),
     selectedBatchIds: new Set(),
+    batchWorkbench: [],
     selectedOutboundIds: new Set(),
     orderItems: [],
     orderBulkBusy: false,
@@ -243,9 +244,10 @@
 
   function automaticRefreshShouldWait() {
     const active = document.activeElement;
+    const pendingBatchSelections = document.querySelectorAll("[data-unit-pending-order]:checked").length;
     return window.AdminRefreshPolicy.shouldDefer({
       formDirty: state.formDirty,
-      selectionCount: state.selectedOrderIds.size + state.selectedProductIds.size + state.selectedBatchIds.size + state.selectedOutboundIds.size,
+      selectionCount: state.selectedOrderIds.size + state.selectedProductIds.size + state.selectedBatchIds.size + state.selectedOutboundIds.size + pendingBatchSelections,
       dialogOpen: Boolean(document.querySelector('.org-dialog-backdrop, [role="dialog"]')),
       mutationInFlight: state.mutationInFlight,
       activeTag: active?.tagName || "",
@@ -2028,6 +2030,221 @@
     return ({ open: "备货中", closed: "已完成", cancelled: "已归档" })[status] || "未知状态";
   }
 
+  function batchOrderId(order) {
+    return String(order.id || order.order_id || "");
+  }
+
+  function batchReviewDialog({ title, group, targetLabel, orders, warning = "", confirmLabel = "确认", onConfirm, onCancel = null, onComplete = null }) {
+    const dialog = openOrgDialog(title, `
+      <div class="batch-review">
+        ${warning ? `<div class="notice-banner batch-warning">${html(warning)}</div>` : ""}
+        <dl class="status-list detail-list">
+          <dt>单位</dt><dd>${html(group.unit_code || "--")} · ${html(group.unit_name)}</dd>
+          <dt>目标备货单</dt><dd>${html(targetLabel)}</dd>
+          <dt>订单数量</dt><dd>${num(orders.length)} 张</dd>
+          <dt>食材种类</dt><dd>${Number.isFinite(Number(group.product_count)) ? `${num(group.product_count)} 种` : "以最新汇总为准"}</dd>
+        </dl>
+        ${table(["订单编号", "状态", "下单时间"], orders.map((order) => `<tr><td>${html(order.order_no)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td></tr>`), "没有可处理订单")}
+        <p class="row-sub">相同商品、规格和计量单位将按历史订单快照汇总；不同计量单位不会相加。</p>
+        <p id="batchReviewError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button id="cancelBatchReview" class="secondary-button" type="button">返回修改</button><button id="confirmBatchReview" class="primary-link" type="button">${html(confirmLabel)}</button></div>
+      </div>
+    `);
+    $("cancelBatchReview").addEventListener("click", () => {
+      dialog.close();
+      if (onCancel) onCancel();
+    });
+    $("confirmBatchReview").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      formButtonBusy(button, true, confirmLabel);
+      try {
+        await onConfirm();
+        dialog.close();
+        state.formDirty = false;
+        if (onComplete) await onComplete(); else await loadBatches();
+      } catch (error) {
+        $("batchReviewError").textContent = error.message || "备货单操作失败";
+        $("batchReviewError").hidden = false;
+        formButtonBusy(button, false, confirmLabel);
+      }
+    });
+  }
+
+  function selectedPendingOrders(group) {
+    const selected = new Set(
+      Array.from(document.querySelectorAll("[data-unit-pending-order]"))
+        .filter((checkbox) => checkbox.checked && checkbox.dataset.unitId === group.unit_id)
+        .map((checkbox) => checkbox.dataset.unitPendingOrder)
+    );
+    return (group.pending_orders || []).filter((order) => selected.has(batchOrderId(order)));
+  }
+
+  function openGroupBatchAction(group, action) {
+    const pendingOrders = selectedPendingOrders(group);
+    const openBatches = group.open_batches || [];
+    const target = openBatches[0];
+    if (["create", "append", "separate"].includes(action) && !pendingOrders.length) {
+      toast("请至少选择一张待处理订单");
+      return;
+    }
+    if (action === "create" || action === "separate") {
+      const duplicateWarning = action === "separate" && openBatches.length
+        ? "该单位已经存在未完成备货单。通常应追加到现有备货单；继续新建将产生多张现场单据。"
+        : "";
+      batchReviewDialog({
+        title: action === "separate" ? "确认单独新建" : "即将生成备货单",
+        group,
+        targetLabel: "新备货单",
+        orders: pendingOrders,
+        warning: duplicateWarning,
+        confirmLabel: action === "separate" ? "仍然新建" : "确认生成",
+        onConfirm: async () => {
+          const batch = await api("/api/v1/admin/batches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: `${group.unit_code || ""} ${group.unit_name}备货单`.trim(),
+              note: "按单位整理生成",
+              order_ids: pendingOrders.map(batchOrderId),
+              client_request_id: requestId("batch-create"),
+            }),
+          });
+          toast(`已生成 ${batch.batch_no}`);
+        },
+      });
+      return;
+    }
+    if (action === "append" && target) {
+      batchReviewDialog({
+        title: "即将追加备货需求",
+        group,
+        targetLabel: target.batch_no,
+        orders: pendingOrders,
+        confirmLabel: "确认追加",
+        onConfirm: async () => {
+          await api(`/api/v1/admin/batches/${target.id}/orders`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              add_order_ids: pendingOrders.map(batchOrderId),
+              remove_order_ids: [],
+              expected_version: target.version,
+              client_request_id: requestId("batch-append"),
+            }),
+          });
+          toast(`已追加到 ${target.batch_no}`);
+        },
+      });
+      return;
+    }
+    if (action === "reconcile" && openBatches.length >= 2) {
+      const sourceBatches = openBatches.slice(1);
+      const linkedOrders = openBatches.flatMap((batch) => batch.orders || []);
+      batchReviewDialog({
+        title: "即将整理为一张备货单",
+        group,
+        targetLabel: target.batch_no,
+        orders: linkedOrders,
+        warning: `将把该单位在 ${num(openBatches.length)} 张未完成备货单中的订单整理到 ${target.batch_no}。其它单位订单不受影响。`,
+        confirmLabel: "确认整理",
+        onConfirm: async () => {
+          await api("/api/v1/admin/batches/reconcile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              unit_id: group.unit_id,
+              target_batch_id: target.id,
+              source_batch_ids: sourceBatches.map((batch) => batch.id),
+              order_ids: linkedOrders.map(batchOrderId),
+              expected_versions: Object.fromEntries(openBatches.map((batch) => [batch.id, batch.version])),
+              client_request_id: requestId("batch-reconcile"),
+            }),
+          });
+          toast(`已整理到 ${target.batch_no}`);
+        },
+      });
+    }
+  }
+
+  function batchWorkbenchGroup(group) {
+    const recommendation = window.AdminRefreshPolicy.batchRecommendation(group);
+    const primaryLabel = ({ create: "合并生成 1 张备货单", append: `追加到 ${group.open_batches?.[0]?.batch_no || "现有备货单"}`, reconcile: "整理为一张" })[recommendation] || "查看";
+    const pendingRows = (group.pending_orders || []).map((order) => `
+      <tr><td><input type="checkbox" data-unit-pending-order="${html(order.id)}" data-unit-id="${html(group.unit_id)}" checked aria-label="选择订单 ${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>
+    `);
+    const batches = (group.open_batches || []).map((batch) => `<a class="table-action" href="/admin/batches/${batch.id}">${html(batch.batch_no)}（${num(batch.orders?.length)} 张订单）</a>`).join(" ");
+    return `
+      <section class="unit-batch-group" data-unit-group="${html(group.unit_id)}">
+        <div class="panel-header"><div><h3>${html(group.unit_code || "--")} · ${html(group.unit_name)}</h3><p>待处理订单 ${num(group.pending_order_count)} 张 · 现有未完成备货单 ${num(group.open_batch_count)} 张 · 食材种类 ${num(group.product_count)}</p></div></div>
+        ${group.open_batch_count > 1 ? `<div class="notice-banner batch-warning">该单位存在多张未完成备货单：${batches}</div>` : group.open_batch_count === 1 ? `<div class="notice-banner">该单位已有未完成备货单：${batches}</div>` : ""}
+        ${group.pending_order_count ? table(["选择", "订单编号", "状态", "下单时间", "金额"], pendingRows, "暂无待处理订单") : ""}
+        <div class="page-toolbar">
+          ${recommendation !== "none" ? `<button class="primary-link" type="button" data-batch-v2-action="${recommendation}" data-unit-id="${html(group.unit_id)}">${html(primaryLabel)}</button>` : ""}
+          ${group.open_batch_count > 0 && group.pending_order_count > 0 ? `<button class="secondary-button" type="button" data-batch-v2-action="separate" data-unit-id="${html(group.unit_id)}">单独新建</button>` : ""}
+        </div>
+      </section>
+    `;
+  }
+
+  function openBatchAdjustDialog(batch, eligible, selectedIds = null) {
+    const currentIds = new Set((batch.orders || []).map(batchOrderId));
+    const allOrders = [...(batch.orders || []), ...eligible.filter((order) => !currentIds.has(batchOrderId(order)))];
+    const checkedIds = selectedIds || new Set(currentIds);
+    const dialog = openOrgDialog("调整备货单订单", `
+      <form id="batchAdjustForm">
+        <p>仅调整订单与当前未完成备货单的关联，不修改订单状态、商品快照、数量或金额。</p>
+        ${table(["保留/加入", "订单编号", "单位编码", "单位", "状态", "当前关系"], allOrders.map((order) => `
+          <tr><td><input type="checkbox" name="orderId" value="${html(batchOrderId(order))}" ${checkedIds.has(batchOrderId(order)) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${currentIds.has(batchOrderId(order)) ? "当前备货单" : "待整理"}</td></tr>
+        `), "没有可调整订单")}
+        <p id="batchAdjustError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button id="cancelBatchAdjust" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">查看并确认</button></div>
+      </form>
+    `);
+    $("cancelBatchAdjust").addEventListener("click", dialog.close);
+    $("batchAdjustForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const selected = new Set(new FormData(event.currentTarget).getAll("orderId").map(String));
+      const addIds = Array.from(selected).filter((id) => !currentIds.has(id));
+      const removeIds = Array.from(currentIds).filter((id) => !selected.has(id));
+      if (!addIds.length && !removeIds.length) {
+        $("batchAdjustError").textContent = "订单选择没有变化";
+        $("batchAdjustError").hidden = false;
+        return;
+      }
+      const resultOrders = allOrders.filter((order) => selected.has(batchOrderId(order)));
+      const unitIds = new Set(resultOrders.map((order) => order.unit_id));
+      const first = resultOrders[0] || batch.orders?.[0] || {};
+      dialog.close();
+      batchReviewDialog({
+        title: "即将调整备货需求",
+        group: {
+          unit_code: unitIds.size === 1 ? first.unit_code : "多个",
+          unit_name: unitIds.size === 1 ? first.unit_name_snapshot : "多个单位",
+          product_count: "--",
+        },
+        targetLabel: batch.batch_no,
+        orders: resultOrders,
+        warning: resultOrders.length ? `将加入 ${num(addIds.length)} 张、移出 ${num(removeIds.length)} 张订单。` : "移出全部订单后，该空备货单将安全归档。",
+        confirmLabel: "确认调整",
+        onCancel: () => openBatchAdjustDialog(batch, eligible, selected),
+        onComplete: () => loadBatchDetail(batch.id),
+        onConfirm: async () => {
+          await api(`/api/v1/admin/batches/${batch.id}/orders`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              add_order_ids: addIds,
+              remove_order_ids: removeIds,
+              expected_version: batch.version,
+              client_request_id: requestId("batch-adjust"),
+            }),
+          });
+          toast("备货单订单已调整");
+        },
+      });
+    });
+  }
+
   async function loadBatches() {
     pageShell("备货单", "把多笔订单汇总成一张备货清单");
     const params = new URLSearchParams(window.location.search);
@@ -2036,26 +2253,33 @@
     const query = new URLSearchParams();
     if (dateFrom) query.set("date_from", dateFrom);
     if (dateTo) query.set("date_to", dateTo);
-    const [batchData, eligibleData] = await Promise.all([
+    const [batchData, eligibleData, workbenchData] = await Promise.all([
       api(`/api/v1/admin/batches?${query.toString()}`),
       api("/api/v1/admin/batches/eligible-orders"),
+      api("/api/v1/admin/batches/unit-workbench"),
     ]);
     const batches = batchData.items || [];
     const eligible = eligibleData.items || [];
+    const workbench = workbenchData.items || [];
+    state.batchWorkbench = workbench;
     const preselectIds = params.getAll("preselect");
     const eligibleIds = new Set(eligible.map((order) => order.id));
     const missingPreselect = preselectIds.filter((id) => !eligibleIds.has(id));
     state.selectedBatchIds = new Set(Array.from(state.selectedBatchIds).filter((id) => batches.some((batch) => batch.id === id)));
     content().innerHTML += `
+      <article class="panel section-panel batch-workbench">
+        <div class="panel-header"><div><h2>按单位整理待备货需求</h2><p>优先把同一单位的新订单追加到现有未完成备货单；多张未完成单可按订单安全整理。</p></div></div>
+        ${workbench.length ? workbench.map(batchWorkbenchGroup).join("") : empty("当前没有需要整理的待备货订单或重复备货单")}
+      </article>
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>生成备货单</h2><p>只列出已接单且尚未进入有效备货单的订单。</p></div></div>
+        <div class="panel-header"><div><h2>手动选择订单</h2><p>用于跨单位或特殊分批场景；日常操作请优先使用上方按单位建议。</p></div></div>
         <form id="batchCreateForm">
           <div class="form-grid compact">
             <label class="form-field"><span>备货单名称</span><input name="name" type="text" required placeholder="例如：上午第一批" /></label>
             <label class="form-field"><span>备注</span><input name="note" type="text" placeholder="选填" /></label>
           </div>
-          ${table(["选择", "订单编号", "单位", "配送点", "状态", "下单时间", "金额"], eligible.map((order) => `
-            <tr><td><input type="checkbox" name="orderId" value="${order.id}" aria-label="选择订单${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_name_snapshot)}</td><td>${html(order.delivery_point_snapshot || "--")}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>
+          ${table(["选择", "订单编号", "单位编码", "单位", "配送点", "状态", "下单时间", "金额"], eligible.map((order) => `
+            <tr><td><input type="checkbox" name="orderId" value="${order.id}" aria-label="选择订单${html(order.order_no)}" /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot)}</td><td>${html(order.delivery_point_snapshot || "--")}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>
           `), "当前没有可生成备货单的订单")}
           <div class="page-toolbar"><button class="primary-link" type="submit" ${eligible.length ? "" : "disabled"}>生成备货单</button></div>
         </form>
@@ -2112,21 +2336,35 @@
       const data = new FormData(form);
       const orderIds = data.getAll("orderId").map(String);
       if (!orderIds.length) return toast("请至少选择一笔订单");
-      const button = form.querySelector('button[type="submit"]');
-      button.disabled = true;
-      button.textContent = "创建中";
-      try {
-        const batch = await api("/api/v1/admin/batches", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: String(data.get("name") || "").trim(), note: String(data.get("note") || "").trim(), order_ids: orderIds }),
-        });
-        window.location.assign(`/admin/batches/${batch.id}`);
-      } catch (error) {
-        toast(error.message || "生成备货单失败");
-        button.disabled = false;
-        button.textContent = "生成备货单";
-      }
+      const selectedOrders = eligible.filter((order) => orderIds.includes(order.id));
+      const unitIds = new Set(selectedOrders.map((order) => order.unit_id));
+      const first = selectedOrders[0] || {};
+      const reviewGroup = {
+        unit_code: unitIds.size === 1 ? first.unit_code : "多个",
+        unit_name: unitIds.size === 1 ? first.unit_name_snapshot : "多个单位",
+        product_count: "--",
+      };
+      batchReviewDialog({
+        title: "即将手动生成备货单",
+        group: reviewGroup,
+        targetLabel: "新备货单",
+        orders: selectedOrders,
+        warning: unitIds.size > 1 ? "当前选择包含多个单位，将生成包含多个单位的备货单。" : "",
+        confirmLabel: "确认生成",
+        onConfirm: async () => {
+          const batch = await api("/api/v1/admin/batches", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: String(data.get("name") || "").trim(),
+              note: String(data.get("note") || "").trim(),
+              order_ids: orderIds,
+              client_request_id: requestId("batch-create-manual"),
+            }),
+          });
+          toast(`已生成 ${batch.batch_no}`);
+        },
+      });
     });
     document.querySelectorAll("[data-batch-complete]").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
@@ -2175,10 +2413,15 @@
 
   async function loadBatchDetail(batchId, selectedTab = "product") {
     pageShell("备货单详情", "按食材汇总总需求，并按单位核对明细");
-    const [batch, summary] = await Promise.all([
+    const [batch, summary, eligibleData, workbenchData] = await Promise.all([
       api(`/api/v1/admin/batches/${batchId}`),
       api(`/api/v1/admin/batches/${batchId}/summary`),
+      api("/api/v1/admin/batches/eligible-orders"),
+      api("/api/v1/admin/batches/unit-workbench"),
     ]);
+    const eligible = eligibleData.items || [];
+    state.batchWorkbench = workbenchData.items || [];
+    const duplicateGroups = state.batchWorkbench.filter((group) => group.open_batch_count > 1 && (group.open_batches || []).some((item) => item.id === batch.id));
     const canPick = (batch.orders || []).some((order) => ["accepted", "preparing"].includes(order.status));
     const downloadOrDisabled = (enabled, href, label, reason) => enabled
       ? `<a class="primary-link secondary" href="${href}">${label}</a>`
@@ -2190,7 +2433,7 @@
         <div class="page-toolbar">
           ${downloadOrDisabled(canPick, `/api/v1/admin/batches/${batch.id}/picking-list.xlsx`, "导出备货单", "该备货单暂无有效备货需求")}
           ${batch.status === "closed" ? `<button class="primary-link" data-generate-outbound-detail="${batch.id}">生成出库单</button>` : ""}
-          ${batch.status === "open" ? `<button class="secondary-button" data-batch-complete-detail="${batch.id}" data-version="${batch.version}">完成备货</button><button class="danger-button" data-batch-archive-detail="${batch.id}">归档备货单</button>` : ""}
+          ${batch.status === "open" ? `<button class="secondary-button" id="adjustBatchOrders" type="button">调整订单</button>${duplicateGroups.map((group) => `<button class="secondary-button" type="button" data-batch-v2-action="reconcile" data-unit-id="${html(group.unit_id)}">整理 ${html(group.unit_code || "--")} 同单位备货单</button>`).join("")}<button class="secondary-button" data-batch-complete-detail="${batch.id}" data-version="${batch.version}">完成备货</button><button class="danger-button" data-batch-archive-detail="${batch.id}">归档备货单</button>` : ""}
           <a class="table-action" href="/admin/batches">返回备货单列表</a>
         </div>
       </article>
@@ -2200,6 +2443,7 @@
       </article>
       <article class="panel table-panel"><div class="panel-header"><div><h2>备货单订单</h2><p>软删除订单不会进入正常备货汇总和单据。</p></div></div>${table(["订单编号", "单位编码", "单位", "状态", "下单时间", "金额"], (batch.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot)}</td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td></tr>`), "暂无订单")}</article>`;
     document.querySelectorAll("[data-batch-tab]").forEach((button) => button.addEventListener("click", () => loadBatchDetail(batchId, button.dataset.batchTab)));
+    $("adjustBatchOrders")?.addEventListener("click", () => openBatchAdjustDialog(batch, eligible));
     document.querySelectorAll("[data-batch-complete-detail]").forEach((button) => button.addEventListener("click", async () => {
       if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
       button.disabled = true;
@@ -2621,6 +2865,12 @@
   document.addEventListener("click", (event) => {
     const button = event.target.closest?.("[data-delete-order]");
     if (button) deleteOrder(button);
+    const batchAction = event.target.closest?.("[data-batch-v2-action]");
+    if (batchAction) {
+      const group = state.batchWorkbench.find((item) => item.unit_id === batchAction.dataset.unitId);
+      if (group) openGroupBatchAction(group, batchAction.dataset.batchV2Action);
+      else toast("单位备货数据已变化，请刷新后重试");
+    }
   });
 
   document.addEventListener("input", (event) => {
@@ -2629,6 +2879,7 @@
     }
   }, true);
   document.addEventListener("change", (event) => {
+    if (event.target.matches?.("[data-unit-pending-order]")) state.formDirty = true;
     if (shouldMarkFormDirty(event.target)) {
       state.formDirty = true;
     }
@@ -2643,6 +2894,7 @@
       orders: state.selectedOrderIds.size,
       products: state.selectedProductIds.size,
       batches: state.selectedBatchIds.size,
+      batchOrders: document.querySelectorAll("[data-unit-pending-order]:checked").length,
       outbounds: state.selectedOutboundIds.size,
     })) {
       toast("请先完成或取消当前选择，再刷新数据");

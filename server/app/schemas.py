@@ -304,6 +304,7 @@ class DeliveryBatchCreate(BaseModel):
     name: str = Field(default="", max_length=120)
     note: str = Field(default="", max_length=300)
     order_ids: list[str] = Field(min_length=1, max_length=1000)
+    client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
 
 
 class DeliveryBatchOrdersPatch(BaseModel):
@@ -312,6 +313,18 @@ class DeliveryBatchOrdersPatch(BaseModel):
     add_order_ids: list[str] = Field(default_factory=list, max_length=1000)
     remove_order_ids: list[str] = Field(default_factory=list, max_length=1000)
     expected_version: Optional[int] = Field(default=None, ge=1)
+    client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+
+
+class DeliveryBatchReconcile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    unit_id: str = Field(min_length=1, max_length=120)
+    target_batch_id: str = Field(min_length=1, max_length=120)
+    source_batch_ids: list[str] = Field(min_length=1, max_length=100)
+    order_ids: list[str] = Field(min_length=1, max_length=1000)
+    expected_versions: dict[str, int] = Field(min_length=2, max_length=101)
+    client_request_id: str = Field(min_length=1, max_length=120)
 
 
 class DeliveryBatchStatusPatch(BaseModel):

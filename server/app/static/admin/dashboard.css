@@ -1230,6 +1230,37 @@ button.primary-link {
   line-height: 1.6;
 }
 
+.batch-workbench {
+  display: grid;
+  gap: 14px;
+}
+
+.unit-batch-group {
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--soft-divider);
+}
+
+.unit-batch-group:first-of-type {
+  border-top: 0;
+}
+
+.unit-batch-group h3 {
+  margin: 0;
+  color: var(--command-navy);
+  font-size: 18px;
+}
+
+.batch-warning {
+  border-color: #d6ad65;
+  color: #734d0c;
+  background: #fff8e8;
+}
+
+.batch-review .table-scroll {
+  max-height: 280px;
+  overflow: auto;
+}
+
 .compact-form {
   margin: 12px 0;
 }

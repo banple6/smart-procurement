@@ -41,5 +41,14 @@
     return Object.values(counts || {}).some((count) => Number(count || 0) > 0);
   }
 
-  return { shouldDefer, orderFingerprint, apiErrorMessage, hasActiveSelections };
+  function batchRecommendation(group) {
+    const pending = Number(group?.pending_order_count || 0);
+    const open = Number(group?.open_batch_count || 0);
+    if (open >= 2) return "reconcile";
+    if (open === 1 && pending > 0) return "append";
+    if (open === 0 && pending > 0) return "create";
+    return "none";
+  }
+
+  return { shouldDefer, orderFingerprint, apiErrorMessage, hasActiveSelections, batchRecommendation };
 });
