@@ -153,6 +153,71 @@ def _batch_unit_orders(conn, batch_id: str) -> list[dict]:
     )
 
 
+def create_outbound_for_orders(conn, batch: dict, orders: list[dict], admin: dict) -> tuple[dict, bool]:
+    """Create one unit-level outbound from existing order snapshots.
+
+    Both the normal batch workflow and fast order completion use this helper so
+    outbound identity, relationships, and audit data have one implementation.
+    """
+    if not orders:
+        raise HTTPException(status_code=409, detail="出库单缺少有效订单")
+    unit_ids = {order["unit_id"] for order in orders}
+    if len(unit_ids) != 1:
+        raise HTTPException(status_code=409, detail="不同单位订单不能生成同一张出库单")
+    unit_id = next(iter(unit_ids))
+    existing = one(
+        conn,
+        "SELECT * FROM outbound_orders WHERE preparation_batch_id = ? AND unit_id = ?",
+        (batch["id"], unit_id),
+    )
+    if existing:
+        return _outbound(conn, existing["id"]), False
+    order_ids = [order["id"] for order in orders]
+    placeholders = ",".join("?" for _ in order_ids)
+    linked = one(
+        conn,
+        f"SELECT outbound_order_id FROM outbound_order_orders WHERE order_id IN ({placeholders}) LIMIT 1",
+        order_ids,
+    )
+    if linked:
+        raise HTTPException(status_code=409, detail="订单已经进入其它出库流程，不能重复生成")
+
+    first = orders[0]
+    outbound_id = str(uuid4())
+    outbound_no = _outbound_no(conn)
+    conn.execute(
+        """
+        INSERT INTO outbound_orders(
+          id, outbound_no, preparation_batch_id, unit_id, unit_name_snapshot,
+          delivery_point_snapshot, created_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            outbound_id,
+            outbound_no,
+            batch["id"],
+            unit_id,
+            first["unit_name_snapshot"],
+            first["delivery_point_snapshot"] or "",
+            admin["id"],
+        ),
+    )
+    conn.executemany(
+        "INSERT INTO outbound_order_orders(outbound_order_id, order_id) VALUES (?, ?)",
+        [(outbound_id, order_id) for order_id in order_ids],
+    )
+    write_audit(
+        conn,
+        admin["id"],
+        admin["role"],
+        "OUTBOUND_ORDER_CREATED",
+        "outbound_order",
+        outbound_id,
+        after_json=json.dumps({"outbound_no": outbound_no, "batch_no": batch["batch_no"], "order_ids": order_ids}, ensure_ascii=False),
+    )
+    return _outbound(conn, outbound_id), True
+
+
 @router.post("/from-batch/{batch_id}")
 def generate_outbound_orders(batch_id: str, admin=Depends(require_admin_user)):
     """Generate every unit document in one transaction; retries return the same rows."""
@@ -168,47 +233,8 @@ def generate_outbound_orders(batch_id: str, admin=Depends(require_admin_user)):
             grouped.setdefault(order["unit_id"], []).append(order)
         created = 0
         for unit_id, orders in grouped.items():
-            existing = one(
-                conn,
-                "SELECT * FROM outbound_orders WHERE preparation_batch_id = ? AND unit_id = ?",
-                (batch_id, unit_id),
-            )
-            if existing:
-                continue
-            first = orders[0]
-            outbound_id = str(uuid4())
-            outbound_no = _outbound_no(conn)
-            conn.execute(
-                """
-                INSERT INTO outbound_orders(
-                  id, outbound_no, preparation_batch_id, unit_id, unit_name_snapshot,
-                  delivery_point_snapshot, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    outbound_id,
-                    outbound_no,
-                    batch_id,
-                    unit_id,
-                    first["unit_name_snapshot"],
-                    first["delivery_point_snapshot"] or "",
-                    admin["id"],
-                ),
-            )
-            conn.executemany(
-                "INSERT INTO outbound_order_orders(outbound_order_id, order_id) VALUES (?, ?)",
-                [(outbound_id, order["id"]) for order in orders],
-            )
-            created += 1
-            write_audit(
-                conn,
-                admin["id"],
-                admin["role"],
-                "OUTBOUND_ORDER_CREATED",
-                "outbound_order",
-                outbound_id,
-                after_json=json.dumps({"outbound_no": outbound_no, "batch_no": batch["batch_no"], "order_ids": [order["id"] for order in orders]}, ensure_ascii=False),
-            )
+            _, was_created = create_outbound_for_orders(conn, batch, orders, admin)
+            created += int(was_created)
         rows = all_rows(
             conn,
             "SELECT * FROM outbound_orders WHERE preparation_batch_id = ? ORDER BY unit_name_snapshot, id",

@@ -274,6 +274,13 @@ class OrderStatusPatch(BaseModel):
     expected_version: Optional[int] = None
 
 
+class OrderFastCompleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=1, max_length=120)
+
+
 class OrderLifecycleReason(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -2,7 +2,7 @@
   const statusText = {
     pending: "待接单",
     accepted: "已接单",
-    preparing: "备货中",
+    preparing: "已接单 / 待完成",
     shipped: "已发货",
     completed: "已完成",
     cancelled: "已取消",
@@ -478,7 +478,7 @@
       ["今日采购金额", money(metrics.today_total_cents), comparison(comparisons.amount_vs_yesterday_percent), "查看采购台账 >", "/admin/ledger?date=" + data.business_date, ""],
       ["待接单", num(metrics.pending), "需要管理员接单", "查看待接单订单 >", "/admin/orders?status=pending", metrics.pending ? "danger" : ""],
       ["备货中", num(metrics.preparing), "已接单或正在备货", "查看备货订单 >", "/admin/orders?status=accepted,preparing", ""],
-      ["待发货", num(metrics.waiting_shipment), "备货完成后确认发货", "查看待发货 >", "/admin/orders?status=preparing", metrics.waiting_shipment ? "warning" : ""],
+      ["待完成", num(metrics.waiting_shipment), "已接单订单可直接完成并自动生成出库单", "查看待完成 >", "/admin/orders?status=preparing", metrics.waiting_shipment ? "warning" : ""],
       ["待确认收货", num(metrics.waiting_receipt), "等待子单位确认", "查看已发货 >", "/admin/orders?status=shipped", ""],
       ["待处理异常", num(metrics.open_receipt_issues), "收货异常需跟进", "查看异常 >", "/admin/orders", metrics.open_receipt_issues ? "danger" : ""],
       ["库存预警", num(metrics.tight_inventory), "库存不足或供应紧张", "查看库存 >", "/admin/products?status=tight", metrics.tight_inventory ? "warning" : ""],
@@ -660,8 +660,8 @@
 
   function primaryAction(order) {
     if (order.status === "pending") return ["接单", "accepted"];
-    if (order.status === "accepted") return ["查看", ""];
-    if (order.status === "preparing") return ["确认发货", "ship"];
+    if (order.status === "accepted") return ["完成", "fast_complete"];
+    if (order.status === "preparing") return ["完成", "fast_complete"];
     if (order.status === "shipped") return ["完成订单", "completed"];
     return ["查看", ""];
   }
@@ -773,8 +773,8 @@
         }),
       });
       if (isAccept) {
-        toast("接单成功，正在进入备货流程");
-        window.location.assign(`/admin/batches?preselect=${orderId}`);
+        toast("接单成功，可直接完成订单");
+        await loadCurrent(true);
       } else {
         toast("操作已完成");
         await loadCurrent(true);
@@ -783,6 +783,56 @@
       toast(error.message || "操作失败，请刷新后重试");
       button.disabled = false;
       button.textContent = label;
+    }
+  }
+
+  async function openFastCompleteReview(button) {
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "加载中...";
+    try {
+      const order = await api(`/api/v1/admin/orders/${button.dataset.fastComplete}`);
+      if (order.status !== "preparing" && order.status !== "accepted") {
+        throw new Error("订单已被其他管理员修改，请刷新后重试。");
+      }
+      const dialog = openOrgDialog("完成订单", `
+        <div class="batch-review">
+          <dl class="status-list detail-list">
+            <dt>单位</dt><dd>${html(order.unit_code || "--")} · ${html(order.unit_name_snapshot || "--")}</dd>
+            <dt>订单</dt><dd>${html(order.order_no)}</dd>
+            <dt>食材</dt><dd>${num(order.item_count || (order.items || []).length)} 种</dd>
+          </dl>
+          <p>完成后系统将结束本订单处理、自动执行必要的内部出库准备并生成对应出库单；子单位无需进行后续确认。</p>
+          <div class="page-toolbar dialog-actions"><button id="cancelFastComplete" class="secondary-button" type="button">取消</button><button id="confirmFastComplete" class="primary-link" type="button">确认完成</button></div>
+        </div>
+      `);
+      $("cancelFastComplete").addEventListener("click", dialog.close);
+      $("confirmFastComplete").addEventListener("click", async () => {
+        const confirmButton = $("confirmFastComplete");
+        formButtonBusy(confirmButton, true, "确认完成");
+        try {
+          const result = await api(`/api/v1/admin/orders/${order.id}/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              expected_version: Number(order.version || 0),
+              client_request_id: requestId("web-fast-complete"),
+            }),
+          });
+          dialog.close();
+          toast(`订单已完成，已自动生成出库单 ${result.outbound?.outbound_no || ""}`.trim());
+          await loadCurrent(true);
+        } catch (error) {
+          if (error.status === 409) showNewDataBanner("订单已被其他管理员修改，请刷新后重试。");
+          toast(error.message || "完成订单失败，请刷新后重试");
+          formButtonBusy(confirmButton, false, "确认完成");
+        }
+      });
+    } catch (error) {
+      toast(error.message || "无法加载订单明细，请刷新后重试");
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
     }
   }
 
@@ -1092,7 +1142,7 @@
     const query = orderListQuery();
     state.orderItems = [];
     state.orderBulkBusy = false;
-    pageShell("订单管理", "接单、备货和完成订单");
+    pageShell("订单管理", "接单并完成订单；备货单仅作采购和分拣辅助");
     content().innerHTML += `
       <div class="page-toolbar">
         <input id="orderQueryInput" type="search" value="${html(params.get("query") || "")}" placeholder="搜索订单编号或单位" />
@@ -1116,7 +1166,9 @@
     if (reconciliation.removed) toast(`${reconciliation.removed} 条需求单状态已变化，已从选择中移除。`);
     const orderRows = items.map((order) => {
       const action = primaryAction(order);
-      const button = action[1] === "ship"
+      const button = action[1] === "fast_complete"
+        ? `<button class="table-action primary" data-fast-complete="${order.id}" type="button">${action[0]}</button>`
+        : action[1] === "ship"
         ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
         : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
       const lifecycle = order.can_cancel ? `<button class="table-action" data-lifecycle="cancel" data-order="${order.id}">取消</button>`
@@ -1126,7 +1178,7 @@
       const deleteButton = order.can_delete
         ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
         : `<button class="table-action danger" type="button" data-delete-order="${order.id}" data-delete-blocked="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
-      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td>${button} ${lifecycle} ${deleteButton}</td></tr>` };
+      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td><a class="table-action" href="/admin/orders/${order.id}">查看明细</a> ${button} ${lifecycle} ${deleteButton}</td></tr>` };
     });
     const groups = new Map();
     orderRows.forEach((entry) => {
@@ -1173,6 +1225,7 @@
     $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
     renderOrderSelection();
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-fast-complete]").forEach((button) => button.addEventListener("click", () => openFastCompleteReview(button)));
     document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
     if (data.has_more && data.next_cursor) {
@@ -1230,21 +1283,9 @@
           <dt>备注</dt><dd>${html(order.remark || "无")}</dd>
           <dt>订单金额</dt><dd>${money(order.total_cents)}</dd>
         </dl>
-        <div class="page-toolbar">${action[1] && action[1] !== "ship" ? `<button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : ""}${lifecycle}${deleteButton}</div>
+        <div class="page-toolbar">${action[1] === "fast_complete" ? `<button class="primary-link" data-fast-complete="${order.id}" type="button">完成</button>` : action[1] && action[1] !== "ship" ? `<button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : ""}${lifecycle}${deleteButton}</div>
       </article>
     `;
-    if (order.status === "preparing") {
-      content().innerHTML += `
-        <article class="panel section-panel">
-          <div class="panel-header"><div><h2>发货留存</h2><p>上传 1 到 3 张发货照片后确认发货</p></div></div>
-          <div class="form-grid">
-            <label class="form-field"><span>发货照片</span><input id="shippingPhotosInput" name="photos" type="file" accept="image/*" capture="environment" multiple /></label>
-            <label class="form-field"><span>发货备注</span><input id="shippingNoteInput" type="text" placeholder="可填写数量核对、配送说明" /></label>
-          </div>
-          <div class="page-toolbar"><button class="primary-link" data-ship-detail="${order.id}" data-order="${order.id}" type="button">确认发货</button></div>
-        </article>
-      `;
-    }
     if ((order.shipping_photos || []).length) {
       content().innerHTML += `
         <article class="panel section-panel">
@@ -1257,10 +1298,8 @@
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.price_cents_snapshot)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    document.querySelectorAll("[data-fast-complete]").forEach((button) => button.addEventListener("click", () => openFastCompleteReview(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
-    document.querySelectorAll("[data-ship-detail]").forEach((button) => button.addEventListener("click", () => {
-      shipOrder(button, $("shippingPhotosInput").files, $("shippingNoteInput").value || "");
-    }));
   }
 
   async function loadProducts() {

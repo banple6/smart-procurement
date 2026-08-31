@@ -6,10 +6,10 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 
-from ..database import all_rows, one, transaction, connect
+from ..database import all_rows, one, transaction, connect, write_audit
 from ..dependencies import current_user, require_admin_user, require_unit_user
 from ..models import ADMIN_TRANSITIONS
-from ..schemas import OrderCreate, OrderLifecycleReason, OrderSoftDeleteRequest, OrderStatusPatch
+from ..schemas import OrderCreate, OrderFastCompleteRequest, OrderLifecycleReason, OrderSoftDeleteRequest, OrderStatusPatch
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text, release_product, reserve_product
 from ..services.order_status import order_status_payload
@@ -754,6 +754,236 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
         enqueue_order_status_changed(conn, updated_order, body.status)
         invalidate_dashboard_cache()
         return order_out(conn, updated_order, viewer=admin)
+
+
+def _existing_order_outbound(conn, order_id: str):
+    return one(
+        conn,
+        """
+        SELECT outbound_orders.id
+        FROM outbound_order_orders
+        JOIN outbound_orders ON outbound_orders.id = outbound_order_orders.outbound_order_id
+        WHERE outbound_order_orders.order_id = ?
+        ORDER BY outbound_orders.created_at, outbound_orders.id
+        LIMIT 1
+        """,
+        (order_id,),
+    )
+
+
+def _fast_complete_result(conn, order: dict, outbound_id: str, admin: dict, idempotent: bool) -> dict:
+    from .outbounds import _outbound, _outbound_out
+
+    return {
+        "order": order_out(conn, order, viewer=admin),
+        "outbound": _outbound_out(conn, _outbound(conn, outbound_id), include_details=True),
+        "idempotent": idempotent,
+    }
+
+
+def _detach_order_from_open_batches_for_fast_completion(conn, order: dict, admin: dict) -> list[str]:
+    memberships = all_rows(
+        conn,
+        """
+        SELECT delivery_batches.*
+        FROM delivery_batch_orders
+        JOIN delivery_batches ON delivery_batches.id = delivery_batch_orders.batch_id
+        WHERE delivery_batch_orders.order_id = ?
+        """,
+        (order["id"],),
+    )
+    for batch in memberships:
+        if batch["status"] != "open":
+            raise HTTPException(status_code=409, detail="该订单已进入已完成备货单，请继续按备货单生成出库单")
+        if one(conn, "SELECT 1 AS found FROM outbound_orders WHERE preparation_batch_id = ? LIMIT 1", (batch["id"],)):
+            raise HTTPException(status_code=409, detail="该订单所在备货单已生成出库单，不能自动完成")
+
+    related_batch_ids = [batch["id"] for batch in memberships]
+    for batch in memberships:
+        conn.execute(
+            "DELETE FROM delivery_batch_orders WHERE batch_id = ? AND order_id = ?",
+            (batch["id"], order["id"]),
+        )
+        remaining = one(
+            conn,
+            "SELECT COUNT(*) AS count FROM delivery_batch_orders WHERE batch_id = ?",
+            (batch["id"],),
+        )["count"]
+        if remaining:
+            conn.execute(
+                "UPDATE delivery_batches SET version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'",
+                (batch["id"],),
+            )
+            after_status = "open"
+        else:
+            conn.execute(
+                """
+                UPDATE delivery_batches
+                SET status = 'cancelled', closed_by = ?, closed_at = CURRENT_TIMESTAMP,
+                    version = version + 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'open'
+                """,
+                (admin["id"], batch["id"]),
+            )
+            after_status = "cancelled"
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "BATCH_ORDER_REMOVED_BY_FAST_COMPLETE",
+            "delivery_batch",
+            batch["id"],
+            before_json=json.dumps({"status": batch["status"], "order_ids": [order["id"]]}, ensure_ascii=False),
+            after_json=json.dumps({"status": after_status, "remaining_order_count": remaining, "order_ids": [order["id"]]}, ensure_ascii=False),
+        )
+    return related_batch_ids
+
+
+@router.post("/admin/orders/{order_id}/complete")
+def complete_order_fast(order_id: str, body: OrderFastCompleteRequest, admin=Depends(require_admin_user)):
+    request_id = body.client_request_id.strip()
+    if not request_id:
+        raise HTTPException(status_code=400, detail="请求编号不能为空")
+    with transaction() as conn:
+        previous = one(
+            conn,
+            """
+            SELECT object_id, after_json
+            FROM audit_logs
+            WHERE actor_id = ? AND action = 'ORDER_FAST_COMPLETED' AND request_id = ? AND result = 'success'
+            ORDER BY created_at, id
+            LIMIT 1
+            """,
+            (admin["id"], request_id),
+        )
+        if previous:
+            if previous["object_id"] != order_id:
+                raise HTTPException(status_code=409, detail="请求编号已被其他订单使用")
+            try:
+                previous_payload = json.loads(previous.get("after_json") or "{}")
+            except json.JSONDecodeError:
+                previous_payload = {}
+            outbound_id = previous_payload.get("generated_outbound_id")
+            order = fetch_order_for_user(conn, order_id, admin)
+            if outbound_id and order["status"] == "completed":
+                return _fast_complete_result(conn, order, outbound_id, admin, idempotent=True)
+            raise HTTPException(status_code=409, detail="订单完成结果不完整，请刷新后重试")
+
+        order = fetch_order_for_user(conn, order_id, admin)
+        existing_outbound = _existing_order_outbound(conn, order_id)
+        if existing_outbound:
+            if order["status"] == "completed":
+                return _fast_complete_result(conn, order, existing_outbound["id"], admin, idempotent=True)
+            raise HTTPException(status_code=409, detail="该订单已经进入出库流程，请使用现有出库单继续处理")
+        if order["status"] not in {"accepted", "preparing"}:
+            raise HTTPException(status_code=409, detail="只有已接单的订单可以完成，请刷新后重试")
+        ensure_expected_order_state(order, expected_version=body.expected_version)
+
+        related_batch_ids = _detach_order_from_open_batches_for_fast_completion(conn, order, admin)
+        from .batches import _batch_no
+        from .outbounds import create_outbound_for_orders
+
+        internal_batch_id = str(uuid4())
+        internal_batch_no = _batch_no(conn)
+        conn.execute(
+            """
+            INSERT INTO delivery_batches(
+              id, batch_no, name, note, status, created_by, closed_by, closed_at
+            ) VALUES (?, ?, ?, ?, 'closed', ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                internal_batch_id,
+                internal_batch_no,
+                f"自动完成：{order['order_no']}",
+                "订单快速完成自动生成，仅包含该订单",
+                admin["id"],
+                admin["id"],
+            ),
+        )
+        conn.execute(
+            "INSERT INTO delivery_batch_orders(batch_id, order_id, added_by) VALUES (?, ?, ?)",
+            (internal_batch_id, order_id, admin["id"]),
+        )
+        internal_batch = one(conn, "SELECT * FROM delivery_batches WHERE id = ?", (internal_batch_id,))
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "DELIVERY_BATCH_FAST_COMPLETION_CREATED",
+            "delivery_batch",
+            internal_batch_id,
+            after_json=json.dumps({"batch_no": internal_batch_no, "order_ids": [order_id], "source_batch_ids": related_batch_ids}, ensure_ascii=False),
+        )
+        outbound, created = create_outbound_for_orders(conn, internal_batch, [order], admin)
+        if not created:
+            raise HTTPException(status_code=409, detail="订单已存在出库单，请刷新后重试")
+
+        for item in order_items(conn, order_id):
+            complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order_id, admin["id"])
+        finalize_order_quota(conn, order_id=order_id, actor_id=admin["id"])
+        cursor = conn.execute(
+            """
+            UPDATE orders
+            SET status = 'completed',
+                shipped_at = COALESCE(shipped_at, CURRENT_TIMESTAMP),
+                completed_at = CURRENT_TIMESTAMP,
+                version = version + 1,
+                updated_at = CURRENT_TIMESTAMP,
+                shipping_note = '系统自动完成并生成出库单'
+            WHERE id = ? AND status IN ('accepted', 'preparing') AND version = ?
+            """,
+            (order_id, body.expected_version),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="订单已被其他管理员修改，请刷新后重试")
+        conn.execute(
+            """
+            UPDATE outbound_orders
+            SET status = 'shipped', shipped_at = CURRENT_TIMESTAMP, shipped_by = ?,
+                version = version + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending'
+            """,
+            (admin["id"], outbound["id"]),
+        )
+        updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
+        conn.execute(
+            "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, 'fast_complete', ?, 'completed', ?)",
+            (str(uuid4()), order_id, admin["id"], order["status"], outbound["outbound_no"]),
+        )
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "ORDER_FAST_COMPLETED",
+            "order",
+            order_id,
+            before_json=json.dumps({"status": order["status"], "version": order["version"]}, ensure_ascii=False),
+            after_json=json.dumps(
+                {
+                    "final_state": "completed",
+                    "generated_outbound_id": outbound["id"],
+                    "generated_outbound_no": outbound["outbound_no"],
+                    "internal_batch_id": internal_batch_id,
+                    "related_batch_ids": related_batch_ids,
+                    "client_request_id": request_id,
+                },
+                ensure_ascii=False,
+            ),
+            request_id=request_id,
+        )
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "OUTBOUND_ORDER_FAST_COMPLETED",
+            "outbound_order",
+            outbound["id"],
+            after_json=json.dumps({"order_id": order_id, "outbound_no": outbound["outbound_no"], "client_request_id": request_id}, ensure_ascii=False),
+            request_id=request_id,
+        )
+        enqueue_order_status_changed(conn, updated_order, "completed")
+        invalidate_dashboard_cache()
+        return _fast_complete_result(conn, updated_order, outbound["id"], admin, idempotent=False)
 
 
 @router.delete("/admin/orders/{order_id}")
