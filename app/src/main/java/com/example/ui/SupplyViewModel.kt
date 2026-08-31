@@ -238,6 +238,9 @@ class SupplyViewModel(
     val cartItems: StateFlow<List<CartItemEntity>> = repository.cartItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val cartLines: StateFlow<List<CartLine>> = repository.cartLines
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val allOrders: StateFlow<List<OrderEntity>> = repository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -730,17 +733,19 @@ class SupplyViewModel(
         isRefreshingProducts = true
         viewModelScope.launch {
             try {
-                runCatching {
-                    val products = withContext(Dispatchers.IO) { apiClient.products(authToken) }
-                    repository.replaceProducts(products)
-                    lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-                }.onFailure {
+                refreshProductsFromServer().onFailure {
                     snackbarMessage = it.toUserMessage("食材同步失败")
                 }
             } finally {
                 isRefreshingProducts = false
             }
         }
+    }
+
+    private suspend fun refreshProductsFromServer(): Result<Unit> = runCatching {
+        val products = withContext(Dispatchers.IO) { apiClient.products(authToken) }
+        repository.replaceProducts(products)
+        lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
     }
 
     fun refreshUnitQuota() {
@@ -2456,16 +2461,6 @@ class SupplyViewModel(
         if (isSubmittingOrder) return
         if (!requireNetworkForWrite()) return
         viewModelScope.launch {
-            val cartList = repository.getCartItemsDirect()
-            if (cartList.isEmpty()) return@launch
-            val invalid = cartList.firstNotNullOfOrNull { item ->
-                val product = allProducts.value.find { it.id == item.productId }
-                if (product == null) "食材不存在或已下架" else validateCartQuantity(product, item.quantity).message.takeIf { validateCartQuantity(product, item.quantity).isValid.not() }
-            }
-            if (invalid != null) {
-                alertMessage = invalid
-                return@launch
-            }
             if (authToken.isBlank()) {
                 alertMessage = "请先登录后再提交订单"
                 popToRootAndNavigate(Screen.Login)
@@ -2473,27 +2468,61 @@ class SupplyViewModel(
             }
 
             isSubmittingOrder = true
-            val remoteResult = runCatching {
-                withContext(Dispatchers.IO) {
-                    apiClient.createOrder(authToken, remarks, cartList.map { it.productId to it.quantity })
+            try {
+                val refreshResult = refreshProductsFromServer()
+                if (refreshResult.isFailure) {
+                    alertMessage = refreshResult.exceptionOrNull().toUserMessage("食材同步失败，请稍后重试")
+                    return@launch
                 }
-            }
-            isSubmittingOrder = false
-            if (remoteResult.isFailure) {
-                val errMsg = remoteResult.exceptionOrNull().toUserMessage("订单提交失败")
-                alertMessage = errMsg
-                // 额度不足时服务端已重新计算；刷新本地额度卡片以确保显示最新余额
-                if (errMsg.contains("采购额度") || errMsg.contains("QUOTA_INSUFFICIENT", ignoreCase = true)) {
-                    refreshUnitQuota()
+
+                val cartLines = repository.getCartLinesDirect()
+                if (cartLines.isEmpty()) return@launch
+                val staleCount = cartLines.count { !it.canSubmit }
+                if (staleCount > 0) {
+                    alertMessage = "清单中有 $staleCount 项食材已更新或停止供应，请处理后再提交。"
+                    return@launch
                 }
-                return@launch
+
+                val invalid = cartLines.firstNotNullOfOrNull { line ->
+                    line.product?.let { product ->
+                        validateCartQuantity(product, line.cartItem.quantity)
+                            .message
+                            .takeIf { validateCartQuantity(product, line.cartItem.quantity).isValid.not() }
+                    }
+                }
+                if (invalid != null) {
+                    alertMessage = invalid
+                    return@launch
+                }
+
+                val remoteResult = runCatching {
+                    withContext(Dispatchers.IO) {
+                        apiClient.createOrder(authToken, remarks, cartLines.map { it.cartItem.productId to it.cartItem.quantity })
+                    }
+                }
+                if (remoteResult.isFailure) {
+                    val error = remoteResult.exceptionOrNull()
+                    if (error.isProductCatalogConflict()) {
+                        refreshProductsFromServer()
+                        alertMessage = "部分食材状态已发生变化，请处理清单后重新提交。"
+                    } else {
+                        val errMsg = error.toUserMessage("订单提交失败")
+                        alertMessage = errMsg
+                        if (errMsg.contains("采购额度") || errMsg.contains("QUOTA_INSUFFICIENT", ignoreCase = true)) {
+                            refreshUnitQuota()
+                        }
+                    }
+                    return@launch
+                }
+                val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())
+                repository.upsertOrder(remoteOrder)
+                repository.clearCart()
+                refreshProducts()
+                refreshUnitQuota()
+                popToRootAndNavigate(Screen.SubmitSuccess(remoteOrder.order.orderId))
+            } finally {
+                isSubmittingOrder = false
             }
-            val remoteOrder = RemoteOrderMapper.mapOrder(remoteResult.getOrThrow())
-            repository.upsertOrder(remoteOrder)
-            repository.clearCart()
-            refreshProducts()
-            refreshUnitQuota()
-            popToRootAndNavigate(Screen.SubmitSuccess(remoteOrder.order.orderId))
         }
     }
 
@@ -2670,6 +2699,14 @@ class SupplyViewModel(
             clearLocalSessionForAuthError()
         }
         return userMessage
+    }
+
+    private fun Throwable?.isProductCatalogConflict(): Boolean {
+        val error = this as? ApiRequestException ?: return false
+        if (error.statusCode != 409) return false
+        return error.errorCode in setOf("PRODUCT_NOT_FOUND", "PRODUCT_INACTIVE") ||
+            error.message.orEmpty().contains("食材") ||
+            error.message.orEmpty().contains("供应")
     }
 
     private fun clearLocalSessionForAuthError() {

@@ -62,14 +62,12 @@ fun CartScreen(viewModel: SupplyViewModel) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
     val dividerColor = MaterialTheme.colorScheme.outlineVariant
-    val cartList by viewModel.cartItems.collectAsState()
-    val products by viewModel.allProducts.collectAsState()
+    val cartLines by viewModel.cartLines.collectAsState()
     var note by remember { mutableStateOf("") }
     var showConfirm by remember { mutableStateOf(false) }
-    val rows = cartList.mapNotNull { item ->
-        products.find { it.id == item.productId }?.let { product -> item to product }
-    }
-    val totalCents = rows.sumOf { (item, product) -> lineSubtotalCents(product.price, item.quantity) }
+    val validLines = cartLines.filter { it.canSubmit && it.product != null }
+    val staleLines = cartLines.filterNot { it.canSubmit }
+    val totalCents = validLines.sumOf { line -> lineSubtotalCents(line.product!!.price, line.cartItem.quantity) }
     val quota = viewModel.unitQuota
     val quotaExceeded = quota.enabled && totalCents > quota.availableCents
 
@@ -88,7 +86,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (cartList.isEmpty()) {
+            if (cartLines.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -122,7 +120,52 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    items(rows, key = { it.first.productId }) { (item, p) ->
+                    if (staleLines.isNotEmpty()) {
+                        item {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Default.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    Text(
+                                        "清单中有 ${staleLines.size} 项食材已更新或停止供应，请处理后再提交。",
+                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    items(cartLines, key = { it.cartItem.productId }) { line ->
+                        if (!line.canSubmit || line.product == null) {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(Icons.Default.WarningAmber, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(line.displayName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                        Text("原数量：${line.cartItem.quantity.cleanQty()}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(line.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    }
+                                    TextButton(onClick = { viewModel.deleteCartItem(line.cartItem.productId) }) { Text("移除") }
+                                }
+                            }
+                        } else {
+                            val item = line.cartItem
+                            val p = requireNotNull(line.product)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -187,11 +230,15 @@ fun CartScreen(viewModel: SupplyViewModel) {
                                 }
                             }
                         }
+                        }
                     }
                     item {
                         DocumentSection(title = "结算摘要") {
-                            DetailRow("食材种类", "${rows.size} 种")
+                            DetailRow("食材种类", "${validLines.size} 种")
                             DetailRow("订单金额", Money.formatCents(totalCents))
+                            if (staleLines.isNotEmpty()) {
+                                Text("失效食材未计入合计", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                            }
                             if (quota.enabled) {
                                 DetailRow("当前可用额度", Money.formatCents(quota.availableCents))
                                 DetailRow("提交后预计余额", Money.formatCents((quota.availableCents - totalCents).coerceAtLeast(0)))
@@ -225,7 +272,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     JrxpPrimaryButton(
                         text = "提交订单",
                         onClick = { showConfirm = true },
-                        enabled = !viewModel.isSubmittingOrder && !quotaExceeded,
+                        enabled = !viewModel.isSubmittingOrder && !quotaExceeded && staleLines.isEmpty(),
                         isLoading = viewModel.isSubmittingOrder
                     )
                 }
@@ -239,7 +286,7 @@ fun CartScreen(viewModel: SupplyViewModel) {
             title = { Text("确认提交此采购单？") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("共 ${rows.size} 种食材")
+                    Text("共 ${validLines.size} 种食材")
                     Text("合计 ${Money.formatCents(totalCents)}")
                     if (quota.enabled) Text("当前可用额度 ${Money.formatCents(quota.availableCents)}")
                     Text("配送点：${viewModel.defaultDeliveryPoint.ifBlank { "未设置" }}")

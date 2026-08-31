@@ -1,6 +1,7 @@
 package com.smartprocurement.internal.data
 
 import androidx.room.withTransaction
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -13,6 +14,13 @@ class SupplyRepository(private val database: AppDatabase) {
     val allProducts: Flow<List<ProductEntity>> = supplyDao.getAllProductsFlow()
     val deletedProducts: Flow<List<ProductEntity>> = supplyDao.getDeletedProductsFlow()
     val cartItems: Flow<List<CartItemEntity>> = supplyDao.getCartItemsFlow()
+    val cartLines: Flow<List<CartLine>> = combine(
+        cartItems,
+        allProducts,
+        deletedProducts,
+    ) { cart, active, deleted ->
+        CartReconciler.reconcile(cart, active, active + deleted)
+    }
     val allOrders: Flow<List<OrderEntity>> = supplyDao.getAllOrdersFlow()
 
     fun getOrderFlow(orderId: String): Flow<OrderEntity?> = supplyDao.getOrderFlow(orderId)
@@ -53,6 +61,14 @@ class SupplyRepository(private val database: AppDatabase) {
     suspend fun getUserByUsername(username: String): UserEntity? = supplyDao.getUserByUsername(username)
 
     suspend fun getCartItemsDirect(): List<CartItemEntity> = supplyDao.getCartItemsDirect()
+    suspend fun getCartLinesDirect(): List<CartLine> {
+        val products = supplyDao.getAllProductsDirect()
+        return CartReconciler.reconcile(
+            cartItems = supplyDao.getCartItemsDirect(),
+            activeProducts = products.filter { !it.isDeleted },
+            knownProducts = products,
+        )
+    }
     suspend fun addToCart(productId: String, quantity: Double, remarks: String = "") {
         val existing = supplyDao.getCartItemsDirect().find { it.productId == productId }
         if (existing != null) {
