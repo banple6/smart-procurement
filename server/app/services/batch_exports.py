@@ -185,6 +185,14 @@ def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = ""):
             )
 
 
+def _picking_summary_title(aggregation: dict) -> str:
+    batch = aggregation["batch"]
+    if len(aggregation["by_unit"]) == 1:
+        code = aggregation["by_unit"][0].get("unit_code") or "未编码"
+        return f"三公鲜配备货单（{business_document_date(batch)}/{code}）"
+    return f"三公鲜配备货单（{batch['batch_no']}）"
+
+
 def batch_picking_workbook(aggregation: dict) -> bytes:
     lines = aggregation["document_lines"]
     categories = _report_category_lines(lines)
@@ -193,7 +201,7 @@ def batch_picking_workbook(aggregation: dict) -> bytes:
     wb.remove(wb.active)
     _append_unit_picking_sheets(wb, aggregation)
     total = wb.create_sheet("总计")
-    _picking_sheet(total, f"三公鲜配备货单（{aggregation['batch']['batch_no']}）", lines, batch_no=aggregation["batch"]["batch_no"])
+    _picking_sheet(total, _picking_summary_title(aggregation), lines, batch_no=aggregation["batch"]["batch_no"])
     if len(aggregation["by_unit"]) > 1:
         for category, category_lines in categories.items():
             ws = wb.create_sheet(_unique_sheet_title(wb, category))
@@ -212,7 +220,7 @@ def batch_picking_workbook_multi(aggregations: list[dict]) -> bytes:
         short_batch = batch_no[-4:]
         _append_unit_picking_sheets(wb, aggregation, name_prefix=f"{short_batch}-")
         total = wb.create_sheet(_unique_sheet_title(wb, f"总计-{batch_no}"))
-        _picking_sheet(total, f"三公鲜配备货单（{batch_no}）", aggregation["document_lines"], batch_no=batch_no)
+        _picking_sheet(total, _picking_summary_title(aggregation), aggregation["document_lines"], batch_no=batch_no)
         if len(aggregation["by_unit"]) > 1:
             for category, category_lines in _report_category_lines(aggregation["document_lines"]).items():
                 ws = wb.create_sheet(_unique_sheet_title(wb, f"{batch_no}-{category}"))

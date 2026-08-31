@@ -131,9 +131,13 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
     aggregation = _single_unit_aggregation(code, name)
     workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
     sheet = workbook[f"{code}-蔬菜"]
+    total = workbook["总计"]
 
     assert workbook.sheetnames == [f"{code}-蔬菜", "总计"]
     assert sheet["A1"].value == f"蔬菜备货单（20260831/{code}）"
+    assert total["A1"].value == f"三公鲜配备货单（20260831/{code}）"
+    assert total["A2"].value is None
+    assert total["D2"].value == "系统备货单号：PS20260831-0016"
     assert sheet["A2"].value is None
     assert sheet["D2"].value == "系统备货单号：PS20260831-0016"
     assert [sheet.cell(4, column).value for column in range(1, 6)] == [1, "历史圆白菜", "历史规格", "斤", "12.5"]
@@ -143,3 +147,4 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
 
     bulk_workbook = load_workbook(BytesIO(batch_picking_workbook_multi([aggregation])), data_only=True)
     assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜", "总计-PS20260831-0016"]
+    assert bulk_workbook["总计-PS20260831-0016"]["A1"].value == f"三公鲜配备货单（20260831/{code}）"
