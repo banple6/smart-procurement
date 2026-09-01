@@ -112,17 +112,18 @@ def test_0020_and_0021_migrations_create_explicit_batch_and_soft_delete_columns(
 
     status = migration_status()
     assert status["pending"] == []
-    assert status["applied"][-6:] == [
+    assert status["applied"][-7:] == [
         "0020_delivery_batches",
         "0021_order_soft_delete",
         "0022_accept_immediately_preparing",
         "0023_outbound_orders",
         "0024_unit_monthly_quota",
         "0025_announcements",
+        "0026_realtime_revisions",
     ]
     with connect() as conn:
         tables = {row["name"] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert {"delivery_batches", "delivery_batch_orders", "outbound_orders", "outbound_order_orders"} <= tables
+        assert {"delivery_batches", "delivery_batch_orders", "outbound_orders", "outbound_order_orders", "web_resource_revisions"} <= tables
         order_columns = {row["name"] for row in conn.execute("PRAGMA table_info(orders)")}
         assert {"is_deleted", "deleted_at", "deleted_by"} <= order_columns
 

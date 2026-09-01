@@ -17,6 +17,7 @@ from ..services.batch_exports import (
     batch_summary_workbook,
 )
 from ..services.local_time import display_local_time, local_now
+from ..services.realtime import bump_resources
 
 
 router = APIRouter(prefix="/admin/batches", tags=["delivery-batches"])
@@ -202,6 +203,7 @@ def create_delivery_batch(body: DeliveryBatchCreate, admin=Depends(require_admin
             after_json=json.dumps({"batch_no": batch_no, "order_count": len(order_ids), "request_hash": request_hash}, ensure_ascii=False),
             request_id=request_id or "",
         )
+        bump_resources(conn, "batches", "dashboard")
         return _batch_out(conn, _batch(conn, batch_id))
 
 
@@ -443,6 +445,7 @@ def archive_delivery_batch(batch_id: str, admin=Depends(require_admin_user)):
             before_json=json.dumps({"status": batch["status"]}, ensure_ascii=False),
             after_json=json.dumps({"status": updated["status"], "released_order_ids": archived_order_ids}, ensure_ascii=False),
         )
+        bump_resources(conn, "batches", "dashboard")
         return _batch_out(conn, updated)
 
 
@@ -563,6 +566,7 @@ def patch_delivery_batch_orders(batch_id: str, body: DeliveryBatchOrdersPatch, a
                 after_json=json.dumps({"order_ids": remove_ids, "batch_archived": remaining == 0}, ensure_ascii=False),
                 request_id=request_id or "",
             )
+        bump_resources(conn, "batches", "dashboard")
         return _batch_out(conn, _batch(conn, batch_id))
 
 
@@ -676,6 +680,7 @@ def reconcile_delivery_batches(body: DeliveryBatchReconcile, admin=Depends(requi
             after_json=json.dumps(after, ensure_ascii=False),
             request_id=request_id,
         )
+        bump_resources(conn, "batches", "dashboard")
         return _batch_out(conn, _batch(conn, body.target_batch_id))
 
 
@@ -701,6 +706,7 @@ def patch_delivery_batch_status(batch_id: str, body: DeliveryBatchStatusPatch, a
             (body.status, closed_values[0], body.status, batch_id),
         )
         write_audit(conn, admin["id"], admin["role"], "DELIVERY_BATCH_STATUS_CHANGED", "delivery_batch", batch_id, before_json=json.dumps({"status": batch["status"]}), after_json=json.dumps({"status": body.status}))
+        bump_resources(conn, "batches", "dashboard")
         return _batch_out(conn, _batch(conn, batch_id))
 
 

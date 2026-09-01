@@ -15,6 +15,7 @@ from ..services.inventory import as_decimal, complete_product, decimal_text, rel
 from ..services.order_status import order_status_payload
 from ..services.outbound_reconciliation import reconcile_outbound_status_for_orders
 from ..services.push_outbox import enqueue_order_created, enqueue_order_status_changed
+from ..services.realtime import bump_resources
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads, resolve_private_path
 from ..services.local_time import display_local_time, local_now
 from ..services.unit_quota import adjust_order_quota, finalize_order_quota, release_order_quota, reserve_order_quota
@@ -363,6 +364,7 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
         "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (str(uuid4()), order_id, user["id"], "create" if not existing_order_id else "update", None, "pending", body.note),
     )
+    bump_resources(conn, "orders", "dashboard", "quota")
     return one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
 
 
@@ -542,6 +544,7 @@ def cancel_order(order_id: str, body: OrderLifecycleReason, user=Depends(require
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, user)
         updated = _cancel_order(conn, order, user, reason, "android_or_api")
+        bump_resources(conn, "orders", "dashboard", "quota")
         invalidate_dashboard_cache()
         return order_out(conn, updated, viewer=user)
 
@@ -560,6 +563,7 @@ def confirm_receipt(order_id: str, user=Depends(require_unit_user)):
             "INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status) VALUES (?, ?, ?, 'confirm_receipt', 'shipped', 'completed')",
             (str(uuid4()), order_id, user["id"]),
         )
+        bump_resources(conn, "orders", "dashboard", "quota")
         invalidate_dashboard_cache()
         return order_out(conn, one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,)), viewer=user)
 
@@ -616,6 +620,7 @@ def admin_cancel_order(order_id: str, body: OrderLifecycleReason, admin=Depends(
     with transaction() as conn:
         order = fetch_order_for_user(conn, order_id, admin)
         updated = _cancel_order(conn, order, admin, reason, "admin_web_or_api")
+        bump_resources(conn, "orders", "dashboard", "quota")
         invalidate_dashboard_cache()
         return order_out(conn, updated, viewer=admin)
 
@@ -652,6 +657,7 @@ def void_order(order_id: str, body: OrderLifecycleReason, admin=Depends(require_
         updated = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
         _audit_lifecycle(conn, updated, admin, "ORDER_VOIDED", order["status"], "voided", reason, "admin_web_or_api")
         enqueue_order_status_changed(conn, updated, "voided")
+        bump_resources(conn, "orders", "dashboard", "quota")
         invalidate_dashboard_cache()
         return order_out(conn, updated, viewer=admin)
 
@@ -674,6 +680,7 @@ def archive_order(order_id: str, user=Depends(current_user)):
             (str(uuid4()), order_id, user["id"], order["status"], order["status"]),
         )
         _audit_lifecycle(conn, updated, user, "ORDER_ARCHIVED", order["status"], order["status"], "", "api")
+        bump_resources(conn, "orders", "dashboard")
         invalidate_dashboard_cache()
         return order_out(conn, updated, viewer=user)
 
@@ -691,6 +698,7 @@ def unarchive_order(order_id: str, user=Depends(current_user)):
             (str(uuid4()), order_id, user["id"], order["status"], order["status"]),
         )
         _audit_lifecycle(conn, updated, user, "ORDER_UNARCHIVED", order["status"], order["status"], "", "api")
+        bump_resources(conn, "orders", "dashboard")
         invalidate_dashboard_cache()
         return order_out(conn, updated, viewer=user)
 
@@ -723,6 +731,7 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
             updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
             _audit_lifecycle(conn, updated_order, admin, "ORDER_ACCEPTED", order["status"], "preparing", "接单后自动进入备货", "admin_web_or_api")
             enqueue_order_status_changed(conn, updated_order, "preparing")
+            bump_resources(conn, "orders", "dashboard")
             invalidate_dashboard_cache()
             return order_out(conn, updated_order, viewer=admin)
         ensure_expected_order_state(order, body.expected_status, body.expected_version)
@@ -752,6 +761,10 @@ def admin_order_status(order_id: str, body: OrderStatusPatch, admin=Depends(requ
         updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order_id,))
         _audit_lifecycle(conn, updated_order, admin, "ORDER_STATUS_CHANGED", order["status"], body.status, "", "admin_web_or_api")
         enqueue_order_status_changed(conn, updated_order, body.status)
+        if body.status == "completed":
+            bump_resources(conn, "orders", "dashboard", "quota")
+        else:
+            bump_resources(conn, "orders", "dashboard")
         invalidate_dashboard_cache()
         return order_out(conn, updated_order, viewer=admin)
 
@@ -982,6 +995,7 @@ def complete_order_fast(order_id: str, body: OrderFastCompleteRequest, admin=Dep
             request_id=request_id,
         )
         enqueue_order_status_changed(conn, updated_order, "completed")
+        bump_resources(conn, "orders", "batches", "outbounds", "dashboard", "quota")
         invalidate_dashboard_cache()
         return _fast_complete_result(conn, updated_order, outbound["id"], admin, idempotent=False)
 
@@ -1016,6 +1030,7 @@ def soft_delete_order(order_id: str, body: OrderSoftDeleteRequest, admin=Depends
             (str(uuid4()), order_id, admin["id"], updated["status"], updated["status"], reason),
         )
         _audit_lifecycle(conn, updated, admin, "ORDER_ARCHIVED", updated["status"], updated["status"], reason, "admin_web_or_api")
+        bump_resources(conn, "orders", "dashboard", "quota")
         invalidate_dashboard_cache()
         return {"ok": True, "order_id": order_id, "already_deleted": False, "archived": True}
 

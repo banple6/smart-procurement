@@ -15,6 +15,7 @@ from ..services.inventory import as_decimal, complete_product
 from ..services.local_time import display_local_time, local_now
 from ..services.outbound_reconciliation import FULFILLED_ORDER_STATUSES, reconcile_outbound_status_for_orders
 from ..services.push_outbox import enqueue_order_status_changed
+from ..services.realtime import bump_resources
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads
 from ..services.unit_quota import finalize_order_quota
 
@@ -336,6 +337,7 @@ def complete_outbound_order(
             ),
             request_id=request_id,
         )
+        bump_resources(conn, "orders", "outbounds", "dashboard", "quota")
         invalidate_dashboard_cache()
         return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
 
@@ -362,6 +364,8 @@ def generate_outbound_orders(batch_id: str, admin=Depends(require_admin_user)):
             "SELECT * FROM outbound_orders WHERE preparation_batch_id = ? ORDER BY unit_name_snapshot, id",
             (batch_id,),
         )
+        if created:
+            bump_resources(conn, "outbounds", "dashboard")
         return {"created_count": created, "items": [_outbound_out(conn, _outbound(conn, row["id"])) for row in rows]}
 
 
@@ -464,6 +468,7 @@ def archive_outbound_order(outbound_id: str, admin=Depends(require_admin_user)):
         )
         updated = _outbound(conn, outbound_id)
         write_audit(conn, admin["id"], admin["role"], "OUTBOUND_ORDER_ARCHIVED", "outbound_order", outbound_id)
+        bump_resources(conn, "outbounds", "dashboard")
         return _outbound_out(conn, updated)
 
 
@@ -498,6 +503,7 @@ async def ship_outbound_order(
                     (request_id, outbound_id),
                 )
                 reconcile_outbound_status_for_orders(reconcile_conn, [order["id"] for order in orders], admin)
+                bump_resources(reconcile_conn, "orders", "outbounds", "dashboard", "quota")
                 return _outbound_out(reconcile_conn, _outbound(reconcile_conn, outbound_id), include_details=True)
     processed = await process_shipping_uploads(
         uploads,
@@ -527,6 +533,7 @@ async def ship_outbound_order(
                     (request_id, outbound_id),
                 )
                 reconcile_outbound_status_for_orders(conn, [order["id"] for order in orders], admin)
+                bump_resources(conn, "orders", "outbounds", "dashboard", "quota")
                 return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
             for order in preparing_orders:
                 for photo in processed:
@@ -568,6 +575,7 @@ async def ship_outbound_order(
                 after_json=json.dumps({"order_ids": [order["id"] for order in orders], "shipping_photo_count": len(processed), "client_request_id": request_id}, ensure_ascii=False),
             )
             invalidate_dashboard_cache()
+            bump_resources(conn, "orders", "outbounds", "dashboard", "quota")
             return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
     except Exception:
         cleanup_photos(processed)

@@ -30,6 +30,7 @@ from ..schemas import (
 )
 from ..security import hash_password
 from ..services.local_time import display_local_time
+from ..services.realtime import bump_resources
 from ..services.unit_quota import (
     adjust_quota,
     correct_current_month_quota,
@@ -191,7 +192,7 @@ def set_unit_quota(unit_id: str, body: UnitQuotaSettings, admin=Depends(require_
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return update_quota_settings(
+        result = update_quota_settings(
             conn,
             unit_id=unit_id,
             enabled=body.enabled,
@@ -200,6 +201,8 @@ def set_unit_quota(unit_id: str, body: UnitQuotaSettings, admin=Depends(require_
             expected_version=body.expected_version,
             client_request_id=body.client_request_id,
         )
+        bump_resources(conn, "quota", "dashboard")
+        return result
 
 
 @router.post("/units/{unit_id}/quota/adjustments")
@@ -207,7 +210,7 @@ def create_unit_quota_adjustment(unit_id: str, body: UnitQuotaAdjustment, admin=
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return adjust_quota(
+        result = adjust_quota(
             conn,
             unit_id=unit_id,
             delta_cents=body.delta_cents,
@@ -216,6 +219,8 @@ def create_unit_quota_adjustment(unit_id: str, body: UnitQuotaAdjustment, admin=
             expected_version=body.expected_version,
             client_request_id=body.client_request_id,
         )
+        bump_resources(conn, "quota", "dashboard")
+        return result
 
 
 @router.post("/units/{unit_id}/quota/current-month-correction")
@@ -223,7 +228,7 @@ def create_unit_quota_current_month_correction(unit_id: str, body: UnitQuotaCurr
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return correct_current_month_quota(
+        result = correct_current_month_quota(
             conn,
             unit_id=unit_id,
             effective_quota_cents=body.effective_quota_cents,
@@ -232,6 +237,8 @@ def create_unit_quota_current_month_correction(unit_id: str, body: UnitQuotaCurr
             expected_version=body.expected_version,
             client_request_id=body.client_request_id,
         )
+        bump_resources(conn, "quota", "dashboard")
+        return result
 
 
 @router.put("/units/{unit_id}/quota/future-months/{quota_month}")
@@ -239,7 +246,7 @@ def set_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuotaFu
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return set_future_quota_plan(
+        result = set_future_quota_plan(
             conn,
             unit_id=unit_id,
             quota_month=quota_month,
@@ -248,6 +255,8 @@ def set_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuotaFu
             expected_version=body.expected_version,
             client_request_id=body.client_request_id,
         )
+        bump_resources(conn, "quota", "dashboard")
+        return result
 
 
 @router.post("/units/{unit_id}/quota/future-months/{quota_month}/restore-default")
@@ -255,7 +264,7 @@ def restore_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuo
     with transaction() as conn:
         if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
             raise HTTPException(status_code=404, detail="子单位不存在")
-        return restore_future_quota_default(
+        result = restore_future_quota_default(
             conn,
             unit_id=unit_id,
             quota_month=quota_month,
@@ -263,6 +272,8 @@ def restore_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuo
             expected_version=body.expected_version,
             client_request_id=body.client_request_id,
         )
+        bump_resources(conn, "quota", "dashboard")
+        return result
 
 
 @router.get("/units/{unit_id}/quota/ledger")

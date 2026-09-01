@@ -11,6 +11,7 @@ from ..dependencies import current_user, require_admin_user
 from ..schemas import AnnouncementAction, AnnouncementCreate, AnnouncementUpdate
 from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.local_time import display_local_time
+from ..services.realtime import bump_resources
 
 
 router = APIRouter(tags=["announcements"])
@@ -243,6 +244,7 @@ def create_announcement(body: AnnouncementCreate, admin=Depends(require_admin_us
         _write_units(conn, announcement_id, data["unit_ids"])
         announcement = _announcement(conn, announcement_id)
         _audit(conn, admin, "ANNOUNCEMENT_CREATED", announcement, body.client_request_id, request_hash=request_hash)
+        bump_resources(conn, "announcements", "dashboard")
         return _out(conn, announcement)
 
 
@@ -273,6 +275,7 @@ def update_announcement(announcement_id: str, body: AnnouncementUpdate, admin=De
         _audit(conn, admin, "ANNOUNCEMENT_UPDATED", updated, body.client_request_id, before=before)
         if bool(current["is_pinned"]) != bool(updated["is_pinned"]):
             _audit(conn, admin, "ANNOUNCEMENT_PIN_CHANGED", updated, body.client_request_id, before=before)
+        bump_resources(conn, "announcements", "dashboard")
         invalidate_dashboard_cache()
         return _out(conn, updated)
 
@@ -301,6 +304,7 @@ def _transition(announcement_id: str, body: AnnouncementAction, admin: dict, *, 
             raise HTTPException(status_code=409, detail="公告已被其他管理员修改，请刷新后重试。")
         updated = _announcement(conn, announcement_id)
         _audit(conn, admin, action, updated, body.client_request_id, before={"status": current["status"], "version": current["version"]}, request_hash=request_hash)
+        bump_resources(conn, "announcements", "dashboard")
         invalidate_dashboard_cache()
         return _out(conn, updated)
 

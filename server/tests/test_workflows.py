@@ -1522,7 +1522,7 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "http://" not in combined_dashboard_source
     assert "https://" not in combined_dashboard_source
     assert '/admin-assets/dashboard.css?v=0.3.9.0' in dashboard_html
-    assert '/admin-assets/dashboard.js?v=0.3.12.0' in dashboard_html
+    assert '/admin-assets/dashboard.js?v=0.3.17.0' in dashboard_html
     assert '/admin-assets/refresh-policy.js?v=1.0.1' in dashboard_html
     assert 'const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";' in dashboard_js
     assert 'window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"' in dashboard_js

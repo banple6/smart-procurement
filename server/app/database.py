@@ -1364,6 +1364,20 @@ def apply_announcements_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_announcement_units_unit ON announcement_units(unit_id, announcement_id)")
 
 
+def apply_realtime_revisions_migration(conn: sqlite3.Connection):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS web_resource_revisions (
+            resource TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    conn.executemany(
+        "INSERT OR IGNORE INTO web_resource_revisions(resource, revision) VALUES (?, 0)",
+        [(resource,) for resource in ("orders", "batches", "outbounds", "announcements", "dashboard", "quota")],
+    )
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1399,6 +1413,7 @@ def migrate() -> list[str]:
             ("0023_outbound_orders", apply_outbound_orders_migration),
             ("0024_unit_monthly_quota", apply_unit_monthly_quota_migration),
             ("0025_announcements", apply_announcements_migration),
+            ("0026_realtime_revisions", apply_realtime_revisions_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1440,6 +1455,7 @@ def migration_status() -> dict:
         "0023_outbound_orders",
         "0024_unit_monthly_quota",
         "0025_announcements",
+        "0026_realtime_revisions",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

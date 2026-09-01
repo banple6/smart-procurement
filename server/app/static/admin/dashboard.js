@@ -80,14 +80,27 @@
     selectedOrderIds: new Set(),
     selectedOrderVersions: new Map(),
     selectedBatchIds: new Set(),
+    batchItems: [],
     batchWorkbench: [],
     selectedOutboundIds: new Set(),
+    outboundItems: [],
+    unitItems: [],
     orderItems: [],
     orderBulkBusy: false,
     mutationInFlight: 0,
     lastScrollInteractionAt: 0,
     routeFingerprint: "",
     pendingRefresh: false,
+    dashboardAnnouncements: [],
+    realtime: {
+      eventSource: null,
+      connected: false,
+      revisions: {},
+      dirtyResources: new Set(),
+      timers: new Map(),
+      fetches: new Map(),
+      fallbackTimer: null,
+    },
     productFormDefaults: {
       productCategory: "蔬菜",
       productUnit: "公斤",
@@ -276,15 +289,6 @@
     return Boolean(target.closest("form"));
   }
 
-  function refreshIntervalForRoute(route) {
-    if (["/admin/orders", "/admin/batches", "/admin/outbounds", "/admin/products", "/admin/inventory"].some((path) => route === path || route.startsWith(path + "/"))) {
-      return 15_000;
-    }
-    if (route === "/admin/dashboard") return 15_000;
-    if (["/admin/units", "/admin/accounts", "/admin/analytics"].includes(route)) return 60_000;
-    return 60_000;
-  }
-
   function renderAdminOrderReminder(orders, total) {
     const count = Math.max(0, Number(total || 0));
     const badge = $("orderReminderBadge");
@@ -366,6 +370,7 @@
       if (response.status === 204) return {};
       return response.json();
     } catch (error) {
+      if (error?.name === "AbortError") throw error;
       if (error.status) throw error;
       reportClientError("网络请求失败", path, { method });
       throw Object.assign(new Error("网络异常，请重试"), { status: 0 });
@@ -768,7 +773,8 @@
         api("/api/v1/announcements?limit=5"),
       ]);
       state.lastData = data;
-      renderDashboard(data, announcements.items || []);
+      state.dashboardAnnouncements = announcements.items || [];
+      renderDashboard(data, state.dashboardAnnouncements);
       if (!silent) toast("工作台已刷新");
     } catch (error) {
       $("globalError").hidden = false;
@@ -1161,14 +1167,115 @@
     window.history.replaceState({}, "", `/admin/orders${next.toString() ? `?${next.toString()}` : ""}`);
   }
 
-  async function pollOrdersForChanges() {
-    const data = await api(`/api/v1/admin/orders?limit=30&${orderListQuery().toString()}`);
-    const fingerprint = window.AdminRefreshPolicy.orderFingerprint(data);
-    if (state.routeFingerprint && fingerprint !== state.routeFingerprint) {
-      showNewDataBanner();
-    } else {
-      setSyncStatus(`已检查 · ${formatSyncTime()}`);
-    }
+  function orderRow(order) {
+    const action = primaryAction(order);
+    const button = action[1] === "fast_complete"
+      ? `<button class="table-action primary" data-fast-complete="${order.id}" type="button">${action[0]}</button>`
+      : action[1] === "ship"
+      ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
+      : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
+    const lifecycle = order.can_cancel ? `<button class="table-action" data-lifecycle="cancel" data-order="${order.id}">取消</button>`
+      : order.can_void ? `<button class="table-action" data-lifecycle="void" data-order="${order.id}">作废</button>`
+      : order.can_archive ? `<button class="table-action" data-lifecycle="archive" data-order="${order.id}">归档</button>`
+      : order.can_unarchive ? `<button class="table-action" data-lifecycle="unarchive" data-order="${order.id}">取消归档</button>` : "";
+    const deleteButton = order.can_delete
+      ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
+      : `<button class="table-action danger" type="button" data-delete-order="${order.id}" data-delete-blocked="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
+    return `<tr data-order-id="${html(order.id)}" data-order-version="${html(order.version || 1)}"><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td><a class="table-action" href="/admin/orders/${order.id}">查看明细</a> ${button} ${lifecycle} ${deleteButton}</td></tr>`;
+  }
+
+  function orderMonthTable(month, rows) {
+    const headers = [`<input class="select-all-orders" type="checkbox" aria-label="全选当前页订单" />`, "订单编号", "单位编码", "单位", "下单时间", "金额", "状态", "操作"];
+    return table(headers, rows, "暂无订单").replace("<tbody>", `<tbody data-order-month-rows="${html(month)}">`);
+  }
+
+  function orderMonthGroup(month, rows, open = false) {
+    return `<details class="order-month-group" data-order-month="${html(month)}" ${open ? "open" : ""}><summary><span>${html(orderMonthLabel(month))}</span><small data-order-month-count>${rows.length} 笔订单</small></summary>${orderMonthTable(month, rows)}</details>`;
+  }
+
+  function bindOrderRowControls(root) {
+    root.querySelectorAll?.("[data-order-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        state.selectedOrderIds.add(checkbox.dataset.orderSelect);
+        const order = state.orderItems.find((item) => item.id === checkbox.dataset.orderSelect);
+        state.selectedOrderVersions.set(checkbox.dataset.orderSelect, Number(order?.version || 1));
+      } else {
+        state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
+        state.selectedOrderVersions.delete(checkbox.dataset.orderSelect);
+      }
+      renderOrderSelection();
+    }));
+    root.querySelectorAll?.("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    root.querySelectorAll?.("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
+    root.querySelectorAll?.("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
+  }
+
+  function bindOrderMonthControls(root) {
+    root.querySelectorAll?.(".select-all-orders").forEach((checkbox) => checkbox.addEventListener("change", () => {
+      state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, checkbox.checked);
+      state.selectedOrderVersions = new Map(checkbox.checked
+        ? state.orderItems.map((order) => [order.id, Number(order.version || 1)])
+        : []);
+      document.querySelectorAll("[data-order-select]").forEach((rowCheckbox) => { rowCheckbox.checked = checkbox.checked; });
+      renderOrderSelection();
+    }));
+  }
+
+  function patchOrdersRealtime(data) {
+    const items = data.items || [];
+    const list = document.querySelector(".order-month-list");
+    if (!list) return loadOrders();
+    const reconciliation = window.AdminOrderSelectionPolicy.reconcileSelection(items, state.selectedOrderIds, state.selectedOrderVersions);
+    state.selectedOrderIds = reconciliation.selectedIds;
+    state.selectedOrderVersions = reconciliation.selectedVersions;
+    state.orderItems = items;
+    const wanted = new Set(items.map((item) => item.id));
+    list.querySelectorAll("tr[data-order-id]").forEach((row) => {
+      if (!wanted.has(row.dataset.orderId)) row.remove();
+    });
+    const byMonth = new Map();
+    items.forEach((item) => {
+      const month = orderMonthKey(item);
+      if (!byMonth.has(month)) byMonth.set(month, []);
+      byMonth.get(month).push(item);
+    });
+    byMonth.forEach((orders, month) => {
+      let group = list.querySelector(`[data-order-month="${CSS.escape(month)}"]`);
+      if (!group) {
+        const wrapper = document.createElement("div");
+        wrapper.innerHTML = orderMonthGroup(month, [], list.children.length === 0);
+        group = wrapper.firstElementChild;
+        list.append(group);
+        bindOrderMonthControls(group);
+      }
+      const body = group.querySelector(`[data-order-month-rows="${CSS.escape(month)}"]`);
+      orders.forEach((order, index) => {
+        const current = list.querySelector(`tr[data-order-id="${CSS.escape(order.id)}"]`);
+        let row = current;
+        if (!row || row.dataset.orderVersion !== String(order.version || 1)) {
+          const wrapper = document.createElement("tbody");
+          wrapper.innerHTML = orderRow(order);
+          const replacement = wrapper.firstElementChild;
+          if (row) row.replaceWith(replacement);
+          else row = replacement;
+          row = replacement;
+          bindOrderRowControls(row);
+        }
+        const next = orders.slice(index + 1).map((item) => body.querySelector(`tr[data-order-id="${CSS.escape(item.id)}"]`)).find(Boolean);
+        if (next) body.insertBefore(row, next);
+        else body.append(row);
+      });
+      const count = group.querySelector("[data-order-month-count]");
+      if (count) count.textContent = `${orders.length} 笔订单`;
+    });
+    list.querySelectorAll("[data-order-month]").forEach((group) => {
+      if (!group.querySelector("tr[data-order-id]")) group.remove();
+    });
+    const summary = document.querySelector(".order-result-summary");
+    if (summary) summary.textContent = `共 ${num(data.total || items.length)} 笔，本页显示 ${num(items.length)} 笔`;
+    renderOrderSelection();
+    state.routeFingerprint = window.AdminRefreshPolicy.orderFingerprint(data);
+    setSyncStatus(`已同步 · ${formatSyncTime()}`);
   }
 
   async function loadOrders() {
@@ -1198,27 +1305,11 @@
     state.selectedOrderIds = reconciliation.selectedIds;
     state.selectedOrderVersions = reconciliation.selectedVersions;
     if (reconciliation.removed) toast(`${reconciliation.removed} 条需求单状态已变化，已从选择中移除。`);
-    const orderRows = items.map((order) => {
-      const action = primaryAction(order);
-      const button = action[1] === "fast_complete"
-        ? `<button class="table-action primary" data-fast-complete="${order.id}" type="button">${action[0]}</button>`
-        : action[1] === "ship"
-        ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
-        : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
-      const lifecycle = order.can_cancel ? `<button class="table-action" data-lifecycle="cancel" data-order="${order.id}">取消</button>`
-        : order.can_void ? `<button class="table-action" data-lifecycle="void" data-order="${order.id}">作废</button>`
-        : order.can_archive ? `<button class="table-action" data-lifecycle="archive" data-order="${order.id}">归档</button>`
-        : order.can_unarchive ? `<button class="table-action" data-lifecycle="unarchive" data-order="${order.id}">取消归档</button>` : "";
-      const deleteButton = order.can_delete
-        ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
-        : `<button class="table-action danger" type="button" data-delete-order="${order.id}" data-delete-blocked="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
-      return { order, row: `<tr><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td><a class="table-action" href="/admin/orders/${order.id}">查看明细</a> ${button} ${lifecycle} ${deleteButton}</td></tr>` };
-    });
     const groups = new Map();
-    orderRows.forEach((entry) => {
-      const month = orderMonthKey(entry.order);
+    items.forEach((order) => {
+      const month = orderMonthKey(order);
       if (!groups.has(month)) groups.set(month, []);
-      groups.get(month).push(entry.row);
+      groups.get(month).push(orderRow(order));
     });
     content().innerHTML += items.length ? `
       <div id="orderBatchToolbar" class="order-bulk-toolbar" hidden>
@@ -1227,40 +1318,15 @@
       </div>
       <div class="order-result-summary">共 ${num(data.total || items.length)} 笔，本页显示 ${num(items.length)} 笔</div>
       <div class="order-month-list">
-        ${Array.from(groups.entries()).map(([month, rows], index) => `
-          <details class="order-month-group" ${index === 0 ? "open" : ""}>
-            <summary><span>${html(orderMonthLabel(month))}</span><small>${rows.length} 笔订单</small></summary>
-            ${table([`<input class="select-all-orders" type="checkbox" aria-label="全选当前页订单" />`, "订单编号", "单位编码", "单位", "下单时间", "金额", "状态", "操作"], rows, "暂无订单")}
-          </details>
-        `).join("")}
+        ${Array.from(groups.entries()).map(([month, rows], index) => orderMonthGroup(month, rows, index === 0)).join("")}
       </div>` : empty("没有符合条件的订单");
-    document.querySelectorAll("[data-order-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      if (checkbox.checked) {
-        state.selectedOrderIds.add(checkbox.dataset.orderSelect);
-        const order = state.orderItems.find((item) => item.id === checkbox.dataset.orderSelect);
-        state.selectedOrderVersions.set(checkbox.dataset.orderSelect, Number(order?.version || 1));
-      } else {
-        state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
-        state.selectedOrderVersions.delete(checkbox.dataset.orderSelect);
-      }
-      renderOrderSelection();
-    }));
-    document.querySelectorAll(".select-all-orders").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, checkbox.checked);
-      state.selectedOrderVersions = new Map(checkbox.checked
-        ? state.orderItems.map((order) => [order.id, Number(order.version || 1)])
-        : []);
-      document.querySelectorAll("[data-order-select]").forEach((rowCheckbox) => { rowCheckbox.checked = checkbox.checked; });
-      renderOrderSelection();
-    }));
+    bindOrderRowControls(content());
+    bindOrderMonthControls(content());
     $("clearOrderSelection")?.addEventListener("click", clearOrderSelection);
     $("bulkAcceptOrders")?.addEventListener("click", bulkAcceptOrders);
     $("bulkCreateBatchOrders")?.addEventListener("click", bulkCreatePreparationOrder);
     $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
     renderOrderSelection();
-    document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
-    document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
-    document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
     if (data.has_more && data.next_cursor) {
       content().innerHTML += `<div class="page-toolbar"><button id="nextOrderPage" class="table-action" type="button">下一页</button></div>`;
       $("nextOrderPage").addEventListener("click", () => {
@@ -1876,6 +1942,36 @@
     return year && month ? `${year}年${Number(month)}月` : "未来月份";
   }
 
+  function quotaSummaryCells(unit) {
+    return {
+      base: unit.quota?.enabled ? money(unit.quota.base_quota_cents) : "未启用",
+      available: unit.quota?.enabled ? money(unit.quota.available_cents) : "--",
+    };
+  }
+
+  async function refreshQuotaSummary(units) {
+    const items = units || await fetchRealtime("/api/v1/admin/units", "quota");
+    if (!items) return false;
+    state.unitItems = items;
+    const byId = new Map(items.map((unit) => [unit.id, unit]));
+    document.querySelectorAll("[data-unit-id]").forEach((row) => {
+      const unit = byId.get(row.dataset.unitId);
+      if (!unit) return;
+      const cells = quotaSummaryCells(unit);
+      const base = row.querySelector("[data-unit-quota-base]");
+      const available = row.querySelector("[data-unit-quota-available]");
+      if (base) base.textContent = cells.base;
+      if (available) available.textContent = cells.available;
+    });
+    return true;
+  }
+
+  async function refreshQuotaAfterMutation() {
+    state.formDirty = false;
+    state.realtime.dirtyResources.delete("quota");
+    await refreshQuotaSummary();
+  }
+
   function openFutureQuotaPlanDialog(unit, quota, plan) {
     const explicit = plan.source === "explicit";
     const dialog = openOrgDialog(`${unit.unit_name} · ${quotaMonthLabel(plan.quota_month)}计划额度`, `
@@ -1898,7 +1994,7 @@
         await request(`/api/v1/admin/units/${unit.id}/quota/future-months/${plan.quota_month}`, "PUT", { planned_quota_cents: quotaCents(new FormData(form).get("planned_amount")) });
         dialog.close();
         toast(`${quotaMonthLabel(plan.quota_month)}计划额度已保存`);
-        await loadUnits();
+        await refreshQuotaAfterMutation();
       } catch (requestError) {
         error.textContent = requestError.message || "保存计划失败";
         error.hidden = false;
@@ -1913,7 +2009,7 @@
         await request(`/api/v1/admin/units/${unit.id}/quota/future-months/${plan.quota_month}/restore-default`, "POST", {});
         dialog.close();
         toast(`${quotaMonthLabel(plan.quota_month)}已恢复默认额度`);
-        await loadUnits();
+        await refreshQuotaAfterMutation();
       } catch (requestError) {
         $("futureQuotaPlanError").textContent = requestError.message || "恢复默认失败";
         $("futureQuotaPlanError").hidden = false;
@@ -1938,7 +2034,7 @@
     };
     const send = (path, method, body) => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_version: quota.version, client_request_id: requestId("web-quota"), ...body }) });
     $("cancelQuotaSettings").addEventListener("click", dialog.close);
-    $("quotaSettingsForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaSettingsError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存默认额度"); try { await send(`/api/v1/admin/units/${unit.id}/quota`, "PUT", { enabled: form.enabled.checked, default_monthly_quota_cents: quotaCents(new FormData(form).get("monthly_amount")) }); dialog.close(); toast("默认月额度已保存"); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "保存失败"; error.hidden = false; formButtonBusy(submit, false, "保存默认额度"); } });
+    $("quotaSettingsForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaSettingsError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存默认额度"); try { await send(`/api/v1/admin/units/${unit.id}/quota`, "PUT", { enabled: form.enabled.checked, default_monthly_quota_cents: quotaCents(new FormData(form).get("monthly_amount")) }); dialog.close(); toast("默认月额度已保存"); await refreshQuotaAfterMutation(); } catch (requestError) { error.textContent = requestError.message || "保存失败"; error.hidden = false; formButtonBusy(submit, false, "保存默认额度"); } });
     $("correctCurrentQuota").addEventListener("click", () => openCurrentQuotaCorrectionDialog(unit, quota, dialog));
     $("adjustCurrentBalance").addEventListener("click", () => openCurrentBalanceAdjustmentDialog(unit, quota, dialog));
     document.querySelectorAll("[data-future-quota-month]").forEach((button) => button.addEventListener("click", () => openFutureQuotaPlanDialog(unit, quota, (quota.future_months || []).find((plan) => plan.quota_month === button.dataset.futureQuotaMonth))));
@@ -1949,13 +2045,13 @@
   function openCurrentQuotaCorrectionDialog(unit, quota, parentDialog) {
     const dialog = openOrgDialog(`${unit.unit_name} · 修正本月额度`, `<form id="currentQuotaCorrectionForm"><p class="row-sub">原始基础额度 ${money(quota.base_quota_cents)}，当前有效额度 ${money(quota.effective_quota_cents)}。此操作调整本月整体预算上限，不等同于临时余额调整。</p><div class="form-grid compact"><label class="form-field"><span>修正后本月有效额度（元）</span><input name="effective_amount" type="number" min="0" step="0.01" value="${(Number(quota.effective_quota_cents || 0) / 100).toFixed(2)}" required /></label><label class="form-field"><span>修正原因 *</span><input name="reason" maxlength="300" required /></label></div><p id="currentQuotaCorrectionError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelCurrentQuotaCorrection" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存修正</button></div></form>`);
     $("cancelCurrentQuotaCorrection").addEventListener("click", dialog.close);
-    $("currentQuotaCorrectionForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存修正"); try { await api(`/api/v1/admin/units/${unit.id}/quota/current-month-correction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ effective_quota_cents: quotaCents(new FormData(form).get("effective_amount")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-correction") }) }); dialog.close(); parentDialog.close(); toast("本月额度已修正"); await loadUnits(); } catch (error) { $("currentQuotaCorrectionError").textContent = error.message || "本月额度修正失败"; $("currentQuotaCorrectionError").hidden = false; formButtonBusy(submit, false, "保存修正"); } });
+    $("currentQuotaCorrectionForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存修正"); try { await api(`/api/v1/admin/units/${unit.id}/quota/current-month-correction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ effective_quota_cents: quotaCents(new FormData(form).get("effective_amount")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-correction") }) }); dialog.close(); parentDialog.close(); toast("本月额度已修正"); await refreshQuotaAfterMutation(); } catch (error) { $("currentQuotaCorrectionError").textContent = error.message || "本月额度修正失败"; $("currentQuotaCorrectionError").hidden = false; formButtonBusy(submit, false, "保存修正"); } });
   }
 
   function openCurrentBalanceAdjustmentDialog(unit, quota, parentDialog) {
     const dialog = openOrgDialog(`${unit.unit_name} · 调整当前可用额度`, `<form id="currentBalanceAdjustmentForm"><p class="row-sub">当前可用额度 ${money(quota.available_cents)}。此操作仅临时增减当前可用余额，不改变本月整体预算上限。</p><div class="form-grid compact"><label class="form-field"><span>调整金额（元，可为负）</span><input name="delta" type="number" step="0.01" required /></label><label class="form-field"><span>调整原因 *</span><input name="reason" maxlength="300" required /></label></div><p id="currentBalanceAdjustmentError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelCurrentBalanceAdjustment" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">提交调整</button></div></form>`);
     $("cancelCurrentBalanceAdjustment").addEventListener("click", dialog.close);
-    $("currentBalanceAdjustmentForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "提交调整"); try { await api(`/api/v1/admin/units/${unit.id}/quota/adjustments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delta_cents: quotaCents(new FormData(form).get("delta")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-balance") }) }); dialog.close(); parentDialog.close(); toast("当前可用额度已调整"); await loadUnits(); } catch (error) { $("currentBalanceAdjustmentError").textContent = error.message || "调整失败"; $("currentBalanceAdjustmentError").hidden = false; formButtonBusy(submit, false, "提交调整"); } });
+    $("currentBalanceAdjustmentForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "提交调整"); try { await api(`/api/v1/admin/units/${unit.id}/quota/adjustments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delta_cents: quotaCents(new FormData(form).get("delta")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-balance") }) }); dialog.close(); parentDialog.close(); toast("当前可用额度已调整"); await refreshQuotaAfterMutation(); } catch (error) { $("currentBalanceAdjustmentError").textContent = error.message || "调整失败"; $("currentBalanceAdjustmentError").hidden = false; formButtonBusy(submit, false, "提交调整"); } });
   }
 
   async function loadUnits() {
@@ -1969,6 +2065,7 @@
       const haystack = `${unit.unit_name} ${unit.unit_code}`.toLowerCase();
       return (!query || haystack.includes(query)) && (status === "all" || String(Boolean(unit.active)) === status);
     });
+    state.unitItems = units;
     const created = state.orgCreatedUnit;
     state.orgCreatedUnit = null;
     content().innerHTML += `
@@ -1977,7 +2074,7 @@
       <form id="unitFilters" class="compact-form page-toolbar"><label class="form-field"><span>单位名称 / 编码</span><input name="query" value="${html(params.get("query") || "")}" placeholder="搜索单位" /></label><label class="form-field"><span>状态</span><select name="status"><option value="all" ${status === "all" ? "selected" : ""}>全部</option><option value="true" ${status === "true" ? "selected" : ""}>启用</option><option value="false" ${status === "false" ? "selected" : ""}>停用</option></select></label><button class="secondary-button" type="submit">筛选</button></form>
     `;
     content().innerHTML += table(["单位编码", "单位名称", "采购额度", "当前可用", "关联账号", "订单数", "状态", "更新时间", "操作"], rows.map((unit) => `
-      <tr><td><strong>${html(unit.unit_code)}</strong></td><td>${html(unit.unit_name)}</td><td>${unit.quota?.enabled ? money(unit.quota.base_quota_cents) : "未启用"}</td><td>${unit.quota?.enabled ? money(unit.quota.available_cents) : "--"}</td><td><a class="text-link" href="${unitAccountLink(unit)}">${num(unit.account_count)} 个</a></td><td>${num(unit.order_count)}</td><td>${activeLabel(unit.active)}</td><td>${dateTime(unit.updated_at)}</td><td>${canManage ? `<button class="table-action" data-edit-unit="${unit.id}">编辑</button><button class="table-action" data-unit-quota="${unit.id}">额度</button><details class="action-menu"><summary>更多</summary><button type="button" data-unit-status="${unit.id}" data-next-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></details>` : "--"}</td></tr>
+      <tr data-unit-id="${unit.id}"><td><strong>${html(unit.unit_code)}</strong></td><td>${html(unit.unit_name)}</td><td data-unit-quota-base>${quotaSummaryCells(unit).base}</td><td data-unit-quota-available>${quotaSummaryCells(unit).available}</td><td><a class="text-link" href="${unitAccountLink(unit)}">${num(unit.account_count)} 个</a></td><td>${num(unit.order_count)}</td><td>${activeLabel(unit.active)}</td><td>${dateTime(unit.updated_at)}</td><td>${canManage ? `<button class="table-action" data-edit-unit="${unit.id}">编辑</button><button class="table-action" data-unit-quota="${unit.id}">额度</button><details class="action-menu"><summary>更多</summary><button type="button" data-unit-status="${unit.id}" data-next-active="${unit.active ? "0" : "1"}">${unit.active ? "停用" : "启用"}</button></details>` : "--"}</td></tr>
     `), "暂无符合条件的子单位");
     $("createUnitButton")?.addEventListener("click", () => openUnitDialog());
     $("unitFilters").addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(event.currentTarget); applyOrgFilters("/admin/units", { query: data.get("query"), status: data.get("status") === "all" ? "" : data.get("status") }); loadUnits(); });
@@ -2396,6 +2493,122 @@
     });
   }
 
+  function batchRow(batch) {
+    return `<tr data-batch-id="${batch.id}" data-batch-version="${html(batch.version)}"><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" ${state.selectedBatchIds.has(batch.id) ? "checked" : ""} /></td><td>${html(batch.batch_no)}</td><td>${html(batchDisplayName(batch))}</td><td>${html(String(batch.unit_codes || "").split(",").filter(Boolean).sort().join("、") || "--")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "closed" ? `<button class="table-action primary" data-generate-outbound="${batch.id}">生成出库单</button>` : ""} ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>`;
+  }
+
+  function batchListMarkup(items) {
+    return table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "单位 / 名称", "单位编码", "创建时间", "订单", "单位", "食材", "状态", "操作"], items.map(batchRow), "暂无备货单");
+  }
+
+  function renderBatchSelection() {
+    const items = state.batchItems;
+    const selected = Array.from(state.selectedBatchIds);
+    $("batchSelectionSummary").textContent = `已选择 ${selected.length} 张备货单`;
+    $("batchBulkExport").disabled = selected.length === 0;
+    const selectAll = $("selectAllBatches");
+    if (selectAll) {
+      selectAll.checked = items.length > 0 && selected.length === items.length;
+      selectAll.indeterminate = selected.length > 0 && selected.length < items.length;
+    }
+  }
+
+  function patchKeyedRows(target, items, rowSelector, idKey, versionKey, rowMarkup, versionOf, listMarkup) {
+    const tbody = target.querySelector("tbody");
+    if (!tbody || !items.length) {
+      target.innerHTML = listMarkup(items);
+      return;
+    }
+    const existing = new Map(Array.from(tbody.querySelectorAll(rowSelector)).map((row) => [row.dataset[idKey], row]));
+    let cursor = tbody.firstElementChild;
+    items.forEach((item) => {
+      let row = existing.get(item.id);
+      if (!row || row.dataset[versionKey] !== String(versionOf(item))) {
+        const template = document.createElement("template");
+        template.innerHTML = rowMarkup(item).trim();
+        const replacement = template.content.firstElementChild;
+        if (row) row.replaceWith(replacement);
+        row = replacement;
+      }
+      if (row !== cursor) tbody.insertBefore(row, cursor);
+      cursor = row.nextElementSibling;
+      existing.delete(item.id);
+    });
+    existing.forEach((row) => row.remove());
+  }
+
+  function renderBatchList(items) {
+    const target = $("batchRealtimeList");
+    if (!target) return;
+    state.batchItems = items;
+    state.selectedBatchIds = new Set(Array.from(state.selectedBatchIds).filter((id) => items.some((batch) => batch.id === id)));
+    patchKeyedRows(target, items, "[data-batch-id]", "batchId", "batchVersion", batchRow, (batch) => batch.version, batchListMarkup);
+    renderBatchSelection();
+    bindBatchListEvents(target);
+  }
+
+  async function refreshBatchListIncrementally() {
+    const params = new URLSearchParams(window.location.search);
+    const query = new URLSearchParams();
+    ["date_from", "date_to"].forEach((key) => { if (params.get(key)) query.set(key, params.get(key)); });
+    const data = await fetchRealtime(`/api/v1/admin/batches?${query.toString()}`, "batches");
+    if (!data) return false;
+    renderBatchList(data.items || []);
+    return true;
+  }
+
+  function bindBatchListEvents(target) {
+    if (target.dataset.bound === "1") return;
+    target.dataset.bound = "1";
+    target.addEventListener("change", (event) => {
+      const checkbox = event.target.closest?.("[data-batch-select]");
+      if (checkbox) {
+        if (checkbox.checked) state.selectedBatchIds.add(checkbox.dataset.batchSelect); else state.selectedBatchIds.delete(checkbox.dataset.batchSelect);
+        renderBatchSelection();
+        return;
+      }
+      if (event.target.id === "selectAllBatches") {
+        state.batchItems.forEach((batch) => { if (event.target.checked) state.selectedBatchIds.add(batch.id); else state.selectedBatchIds.delete(batch.id); });
+        target.querySelectorAll("[data-batch-select]").forEach((input) => { input.checked = event.target.checked; });
+        renderBatchSelection();
+      }
+    });
+    target.addEventListener("click", async (event) => {
+      const button = event.target.closest?.("[data-batch-complete], [data-batch-archive], [data-generate-outbound]");
+      if (!button) return;
+      event.preventDefault();
+      if (button.dataset.batchComplete) {
+        if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
+        button.disabled = true;
+        try {
+          await api(`/api/v1/admin/batches/${button.dataset.batchComplete}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
+          toast("备货已完成");
+          await refreshBatchListIncrementally();
+        } catch (error) { toast(error.message || "完成备货失败"); button.disabled = false; }
+        return;
+      }
+      if (button.dataset.batchArchive) {
+        if (!confirm("确认归档这张备货单吗？订单和历史记录不会删除，订单可重新组织备货。")) return;
+        button.disabled = true;
+        try {
+          await api(`/api/v1/admin/batches/${button.dataset.batchArchive}`, { method: "DELETE" });
+          toast("备货单已归档");
+          await refreshBatchListIncrementally();
+        } catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
+        return;
+      }
+      if (!confirm("确认按单位生成出库单吗？重复操作不会重复生成。")) return;
+      button.disabled = true;
+      const label = button.textContent;
+      button.textContent = "生成中";
+      try {
+        const result = await api(`/api/v1/admin/outbounds/from-batch/${button.dataset.generateOutbound}`, { method: "POST" });
+        toast(`已生成 ${num(result.created_count)} 张出库单`);
+        window.location.assign("/admin/outbounds");
+      } catch (error) { toast(error.message || "生成出库单失败"); button.disabled = false; button.textContent = label; }
+    });
+  }
+
   async function loadBatches() {
     pageShell("备货单", "把多笔订单汇总成一张备货清单");
     const params = new URLSearchParams(window.location.search);
@@ -2416,7 +2629,6 @@
     const preselectIds = params.getAll("preselect");
     const eligibleIds = new Set(eligible.map((order) => order.id));
     const missingPreselect = preselectIds.filter((id) => !eligibleIds.has(id));
-    state.selectedBatchIds = new Set(Array.from(state.selectedBatchIds).filter((id) => batches.some((batch) => batch.id === id)));
     content().innerHTML += `
       <article class="panel section-panel batch-workbench">
         <div class="panel-header"><div><h2>按单位整理待备货需求</h2><p>优先把同一单位的新订单追加到现有未完成备货单；多张未完成单可按订单安全整理。</p></div></div>
@@ -2439,9 +2651,7 @@
         <div class="panel-header"><div><h2>备货单记录</h2><p>按日期查看、导出或完成备货；完成后可按单位生成出库单。</p></div></div>
         <div class="page-toolbar"><input id="batchDateFrom" type="date" value="${html(dateFrom)}" aria-label="开始日期" /><input id="batchDateTo" type="date" value="${html(dateTo)}" aria-label="结束日期" /><button id="batchFilterButton" class="table-action primary" type="button">查询</button><button id="batchClearFilterButton" class="table-action" type="button">清除筛选</button><button id="batchBulkExport" class="table-action" type="button" disabled>批量导出</button></div>
         <div id="batchSelectionSummary" class="order-result-summary">已选择 0 张备货单</div>
-        ${table([`<input id="selectAllBatches" type="checkbox" aria-label="全选当前页备货单" />`, "备货单号", "单位 / 名称", "单位编码", "创建时间", "订单", "单位", "食材", "状态", "操作"], batches.map((batch) => `
-          <tr><td><input type="checkbox" data-batch-select="${batch.id}" aria-label="选择备货单 ${html(batch.batch_no)}" /></td><td>${html(batch.batch_no)}</td><td>${html(batchDisplayName(batch))}</td><td>${html(String(batch.unit_codes || "").split(",").filter(Boolean).sort().join("、") || "--")}</td><td>${dateTime(batch.created_at)}</td><td>${num(batch.order_count)}</td><td>${num(batch.unit_count)}</td><td>${num(batch.product_count)}</td><td>${html(deliveryBatchStatus(batch.status))}</td><td><a class="table-action" href="/admin/batches/${batch.id}">查看</a> <a class="table-action" href="/api/v1/admin/batches/${batch.id}/picking-list.xlsx">导出</a> ${batch.status === "closed" ? `<button class="table-action primary" data-generate-outbound="${batch.id}">生成出库单</button>` : ""} ${batch.status === "open" ? `<button class="table-action primary" data-batch-complete="${batch.id}" data-version="${batch.version}">完成备货</button><button class="table-action danger" data-batch-archive="${batch.id}">归档</button>` : ""}</td></tr>
-        `), "暂无备货单")}
+        <div id="batchRealtimeList"></div>
       </article>`;
     if (preselectIds.length) {
       document.querySelectorAll('input[name="orderId"]').forEach((checkbox) => { checkbox.checked = preselectIds.includes(checkbox.value); });
@@ -2449,25 +2659,7 @@
       if (nameInput && !nameInput.value) nameInput.value = new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + " 备货";
     }
     if (missingPreselect.length) toast("部分订单已不能加入备货单，请刷新后检查订单状态。");
-    const renderBatchSelection = () => {
-      const selected = Array.from(state.selectedBatchIds);
-      $("batchSelectionSummary").textContent = `已选择 ${selected.length} 张备货单`;
-      $("batchBulkExport").disabled = selected.length === 0;
-      const selectAll = $("selectAllBatches");
-      if (selectAll) {
-        selectAll.checked = batches.length > 0 && selected.length === batches.length;
-        selectAll.indeterminate = selected.length > 0 && selected.length < batches.length;
-      }
-    };
-    document.querySelectorAll("[data-batch-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      if (checkbox.checked) state.selectedBatchIds.add(checkbox.dataset.batchSelect); else state.selectedBatchIds.delete(checkbox.dataset.batchSelect);
-      renderBatchSelection();
-    }));
-    $("selectAllBatches")?.addEventListener("change", (event) => {
-      batches.forEach((batch) => { if (event.target.checked) state.selectedBatchIds.add(batch.id); else state.selectedBatchIds.delete(batch.id); });
-      document.querySelectorAll("[data-batch-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
-      renderBatchSelection();
-    });
+    renderBatchList(batches);
     $("batchBulkExport")?.addEventListener("click", () => {
       const query = new URLSearchParams();
       Array.from(state.selectedBatchIds).forEach((id) => query.append("batch_ids", id));
@@ -2480,7 +2672,6 @@
       window.location.assign(`/admin/batches${next.toString() ? `?${next.toString()}` : ""}`);
     });
     $("batchClearFilterButton")?.addEventListener("click", () => { window.location.assign("/admin/batches"); });
-    renderBatchSelection();
     $("batchCreateForm").addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -2517,35 +2708,6 @@
         },
       });
     });
-    document.querySelectorAll("[data-batch-complete]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认完成备货吗？完成后可按单位生成出库单，但不会自动发货。")) return;
-      button.disabled = true;
-      try {
-        await api(`/api/v1/admin/batches/${button.dataset.batchComplete}/status`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed", expected_version: Number(button.dataset.version) }) });
-        toast("备货已完成");
-        await loadBatches();
-      } catch (error) { toast(error.message || "完成备货失败"); button.disabled = false; }
-    }));
-    document.querySelectorAll("[data-batch-archive]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认归档这张备货单吗？订单和历史记录不会删除，订单可重新组织备货。")) return;
-      button.disabled = true;
-      try {
-        await api(`/api/v1/admin/batches/${button.dataset.batchArchive}`, { method: "DELETE" });
-        toast("备货单已归档");
-        await loadBatches();
-      } catch (error) { toast(error.message || "归档备货单失败"); button.disabled = false; }
-    }));
-    document.querySelectorAll("[data-generate-outbound]").forEach((button) => button.addEventListener("click", async () => {
-      if (!confirm("确认按单位生成出库单吗？重复操作不会重复生成。")) return;
-      button.disabled = true;
-      const label = button.textContent;
-      button.textContent = "生成中";
-      try {
-        const result = await api(`/api/v1/admin/outbounds/from-batch/${button.dataset.generateOutbound}`, { method: "POST" });
-        toast(`已生成 ${num(result.created_count)} 张出库单`);
-        window.location.assign("/admin/outbounds");
-      } catch (error) { toast(error.message || "生成出库单失败"); button.disabled = false; button.textContent = label; }
-    }));
   }
 
   function batchUnitTable(summary) {
@@ -2687,6 +2849,78 @@
     }
   }
 
+  function outboundRow(item) {
+    return `<tr data-outbound-id="${item.id}" data-outbound-version="${html(item.version)}"><td><input type="checkbox" data-outbound-select="${item.id}" aria-label="选择出库单 ${html(item.outbound_no)}" ${state.selectedOutboundIds.has(item.id) ? "checked" : ""} /></td><td>${html(item.outbound_no)}</td><td>${html(item.unit_code || "--")}</td><td>${html(item.unit_name_snapshot)}</td><td>${html(item.batch_no)}</td><td>${dateTime(item.created_at)}</td><td>${num(item.order_count)}</td><td>${num(item.product_count)}</td><td>${outboundStatusTag(item.status)}</td><td><a class="table-action" href="/admin/outbounds/${item.id}">查看</a> <a class="table-action" href="/api/v1/admin/outbounds/${item.id}/export.xlsx">导出</a> ${item.status === "pending" ? `<button class="table-action primary" type="button" data-outbound-complete="${item.id}">完成</button>` : ""}</td></tr>`;
+  }
+
+  function outboundListMarkup(items) {
+    return table([`<input id="selectAllOutbounds" type="checkbox" aria-label="全选当前页出库单" />`, "出库单号", "单位编码", "单位", "来源备货单", "日期", "订单数量", "食材种类", "状态", "操作"], items.map(outboundRow), "暂无出库单。请先在已完成备货单中生成出库单。");
+  }
+
+  function renderOutboundSelection() {
+    const items = state.outboundItems;
+    const selected = Array.from(state.selectedOutboundIds);
+    $("outboundSelectionSummary").textContent = `已选择 ${selected.length} 张出库单`;
+    $("outboundBulkExport").disabled = selected.length === 0;
+    const all = $("selectAllOutbounds");
+    if (all) {
+      all.checked = items.length > 0 && selected.length === items.length;
+      all.indeterminate = selected.length > 0 && selected.length < items.length;
+    }
+  }
+
+  function renderOutboundList(items) {
+    const target = $("outboundRealtimeList");
+    if (!target) return;
+    state.outboundItems = items;
+    state.selectedOutboundIds = new Set(Array.from(state.selectedOutboundIds).filter((id) => items.some((item) => item.id === id)));
+    patchKeyedRows(target, items, "[data-outbound-id]", "outboundId", "outboundVersion", outboundRow, (item) => item.version, outboundListMarkup);
+    renderOutboundSelection();
+    bindOutboundListEvents(target);
+  }
+
+  async function refreshOutboundListIncrementally() {
+    const params = new URLSearchParams(window.location.search);
+    const query = new URLSearchParams();
+    ["date_from", "date_to", "status"].forEach((key) => { if (params.get(key)) query.set(key, params.get(key)); });
+    const data = await fetchRealtime(`/api/v1/admin/outbounds?${query.toString()}`, "outbounds");
+    if (!data) return false;
+    renderOutboundList(data.items || []);
+    return true;
+  }
+
+  function bindOutboundListEvents(target) {
+    if (target.dataset.bound === "1") return;
+    target.dataset.bound = "1";
+    target.addEventListener("change", (event) => {
+      const checkbox = event.target.closest?.("[data-outbound-select]");
+      if (checkbox) {
+        if (checkbox.checked) state.selectedOutboundIds.add(checkbox.dataset.outboundSelect); else state.selectedOutboundIds.delete(checkbox.dataset.outboundSelect);
+        renderOutboundSelection();
+        return;
+      }
+      if (event.target.id === "selectAllOutbounds") {
+        state.outboundItems.forEach((item) => { if (event.target.checked) state.selectedOutboundIds.add(item.id); else state.selectedOutboundIds.delete(item.id); });
+        target.querySelectorAll("[data-outbound-select]").forEach((input) => { input.checked = event.target.checked; });
+        renderOutboundSelection();
+      }
+    });
+    target.addEventListener("click", (event) => {
+      const button = event.target.closest?.("[data-outbound-complete]");
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.dataset.outboundCompleteOpening === "1") return;
+      button.dataset.outboundCompleteOpening = "1";
+      openOutboundCompleteReview(button)
+        .catch((error) => {
+          reportClientError(error.message || "完成出库交互失败", "/api/v1/admin/outbounds/complete", { action: "outbound_direct_complete" });
+          toast(error.message || "完成出库失败，请刷新后重试");
+        })
+        .finally(() => { delete button.dataset.outboundCompleteOpening; });
+    });
+  }
+
   async function loadOutbounds() {
     pageShell("出库单", "按单位查看、导出和完成出库");
     const params = new URLSearchParams(window.location.search);
@@ -2694,7 +2928,6 @@
     ["date_from", "date_to", "status"].forEach((key) => { if (params.get(key)) query.set(key, params.get(key)); });
     const data = await api(`/api/v1/admin/outbounds?${query.toString()}`);
     const outbounds = data.items || [];
-    state.selectedOutboundIds = new Set(Array.from(state.selectedOutboundIds).filter((id) => outbounds.some((item) => item.id === id)));
     content().innerHTML += `
       <article class="panel table-panel">
         <div class="panel-header"><div><h2>单位出库单</h2><p>每个单位独立一张出库单；发货仅影响该单位对应订单。</p></div></div>
@@ -2707,26 +2940,9 @@
           <button id="outboundBulkExport" class="table-action" type="button" disabled>批量导出</button>
         </div>
         <div id="outboundSelectionSummary" class="order-result-summary">已选择 0 张出库单</div>
-        ${table([`<input id="selectAllOutbounds" type="checkbox" aria-label="全选当前页出库单" />`, "出库单号", "单位编码", "单位", "来源备货单", "日期", "订单数量", "食材种类", "状态", "操作"], outbounds.map((item) => `
-          <tr><td><input type="checkbox" data-outbound-select="${item.id}" aria-label="选择出库单 ${html(item.outbound_no)}" /></td><td>${html(item.outbound_no)}</td><td>${html(item.unit_code || "--")}</td><td>${html(item.unit_name_snapshot)}</td><td>${html(item.batch_no)}</td><td>${dateTime(item.created_at)}</td><td>${num(item.order_count)}</td><td>${num(item.product_count)}</td><td>${outboundStatusTag(item.status)}</td><td><a class="table-action" href="/admin/outbounds/${item.id}">查看</a> <a class="table-action" href="/api/v1/admin/outbounds/${item.id}/export.xlsx">导出</a> ${item.status === "pending" ? `<button class="table-action primary" type="button" data-outbound-complete="${item.id}">完成</button>` : ""}</td></tr>
-        `), "暂无出库单。请先在已完成备货单中生成出库单。")}
+        <div id="outboundRealtimeList"></div>
       </article>`;
-    const renderSelection = () => {
-      const selected = Array.from(state.selectedOutboundIds);
-      $("outboundSelectionSummary").textContent = `已选择 ${selected.length} 张出库单`;
-      $("outboundBulkExport").disabled = selected.length === 0;
-      const all = $("selectAllOutbounds");
-      if (all) { all.checked = outbounds.length > 0 && selected.length === outbounds.length; all.indeterminate = selected.length > 0 && selected.length < outbounds.length; }
-    };
-    document.querySelectorAll("[data-outbound-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      if (checkbox.checked) state.selectedOutboundIds.add(checkbox.dataset.outboundSelect); else state.selectedOutboundIds.delete(checkbox.dataset.outboundSelect);
-      renderSelection();
-    }));
-    $("selectAllOutbounds")?.addEventListener("change", (event) => {
-      outbounds.forEach((item) => { if (event.target.checked) state.selectedOutboundIds.add(item.id); else state.selectedOutboundIds.delete(item.id); });
-      document.querySelectorAll("[data-outbound-select]").forEach((checkbox) => { checkbox.checked = event.target.checked; });
-      renderSelection();
-    });
+    renderOutboundList(outbounds);
     $("outboundBulkExport").addEventListener("click", () => {
       const exportQuery = new URLSearchParams();
       Array.from(state.selectedOutboundIds).forEach((id) => exportQuery.append("outbound_ids", id));
@@ -2740,7 +2956,6 @@
       window.location.assign(`/admin/outbounds${next.toString() ? `?${next.toString()}` : ""}`);
     });
     $("outboundClearFilterButton").addEventListener("click", () => window.location.assign("/admin/outbounds"));
-    renderSelection();
   }
 
   async function loadOutboundDetail(outboundId) {
@@ -3025,6 +3240,17 @@
     await loadCurrent(true, "write");
   }
 
+  function renderAnnouncementList(items) {
+    const target = $("announcementList");
+    if (!target) return;
+    target.innerHTML = items.length ? items.map((item) => `<div class="announcement-admin-row" data-announcement-id="${html(item.id)}"><div><div class="row-head"><strong>${html(item.title)}</strong><span class="announcement-level ${html(item.level)}">${item.is_pinned ? "置顶 · " : ""}${html(announcementLevelLabel(item.level))}</span></div><div class="row-sub">${html(announcementStatusLabel(item.status))} · ${html(announcementAudienceLabel(item.audience_type))} · ${html(item.display_publish_at || "未发布")} · 更新 ${html(item.display_updated_at || "--")}</div></div><div class="page-toolbar"><button class="table-action" type="button" data-announcement-view="${item.id}">查看</button>${item.status !== "offline" ? `<button class="table-action" type="button" data-announcement-edit="${item.id}">编辑</button>` : ""}${item.status !== "published" ? `<button class="table-action primary" type="button" data-announcement-publish="${item.id}">发布</button>` : `<button class="table-action danger" type="button" data-announcement-offline="${item.id}">下线</button>`}</div></div>`).join("") : empty("暂无公告");
+    const byId = new Map(items.map((item) => [item.id, item]));
+    target.querySelectorAll("[data-announcement-view]").forEach((button) => button.addEventListener("click", () => openAnnouncementDetail(button.dataset.announcementView).catch((error) => toast(error.message || "加载公告失败"))));
+    target.querySelectorAll("[data-announcement-edit]").forEach((button) => button.addEventListener("click", () => openAnnouncementEditor(byId.get(button.dataset.announcementEdit)).catch((error) => toast(error.message || "加载公告表单失败"))));
+    target.querySelectorAll("[data-announcement-publish]").forEach((button) => button.addEventListener("click", () => announcementReview(byId.get(button.dataset.announcementPublish))));
+    target.querySelectorAll("[data-announcement-offline]").forEach((button) => button.addEventListener("click", () => offlineAnnouncement(byId.get(button.dataset.announcementOffline)).catch((error) => toast(error.message || "下线公告失败"))));
+  }
+
   async function loadAnnouncements() {
     const params = new URLSearchParams(window.location.search);
     const status = params.get("status") || "";
@@ -3038,12 +3264,149 @@
     $("createAnnouncementButton").addEventListener("click", () => openAnnouncementEditor().catch((error) => toast(error.message || "加载公告表单失败")));
     const data = await api(`/api/v1/admin/announcements?${new URLSearchParams({ ...(status ? { status } : {}), ...(level ? { level } : {}), ...(q ? { q } : {}) })}`);
     const items = data.items || [];
-    $("announcementList").innerHTML = items.length ? items.map((item) => `<div class="announcement-admin-row"><div><div class="row-head"><strong>${html(item.title)}</strong><span class="announcement-level ${html(item.level)}">${item.is_pinned ? "置顶 · " : ""}${html(announcementLevelLabel(item.level))}</span></div><div class="row-sub">${html(announcementStatusLabel(item.status))} · ${html(announcementAudienceLabel(item.audience_type))} · ${html(item.display_publish_at || "未发布")} · 更新 ${html(item.display_updated_at || "--")}</div></div><div class="page-toolbar"><button class="table-action" type="button" data-announcement-view="${item.id}">查看</button>${item.status !== "offline" ? `<button class="table-action" type="button" data-announcement-edit="${item.id}">编辑</button>` : ""}${item.status !== "published" ? `<button class="table-action primary" type="button" data-announcement-publish="${item.id}">发布</button>` : `<button class="table-action danger" type="button" data-announcement-offline="${item.id}">下线</button>`}</div></div>`).join("") : empty("暂无公告");
-    const byId = new Map(items.map((item) => [item.id, item]));
-    document.querySelectorAll("[data-announcement-view]").forEach((button) => button.addEventListener("click", () => openAnnouncementDetail(button.dataset.announcementView).catch((error) => toast(error.message || "加载公告失败"))));
-    document.querySelectorAll("[data-announcement-edit]").forEach((button) => button.addEventListener("click", () => openAnnouncementEditor(byId.get(button.dataset.announcementEdit)).catch((error) => toast(error.message || "加载公告表单失败"))));
-    document.querySelectorAll("[data-announcement-publish]").forEach((button) => button.addEventListener("click", () => announcementReview(byId.get(button.dataset.announcementPublish))));
-    document.querySelectorAll("[data-announcement-offline]").forEach((button) => button.addEventListener("click", () => offlineAnnouncement(byId.get(button.dataset.announcementOffline)).catch((error) => toast(error.message || "下线公告失败"))));
+    renderAnnouncementList(items);
+  }
+
+  function realtimeRouteUses(resource) {
+    const route = currentRoute();
+    if (route === "/admin/dashboard") return ["orders", "outbounds", "announcements", "dashboard", "quota"].includes(resource);
+    if (route === "/admin/orders") return resource === "orders";
+    if (route.startsWith("/admin/orders/")) return resource === "orders" || resource === "outbounds";
+    if (route === "/admin/batches" || route.startsWith("/admin/batches/")) return resource === "batches";
+    if (route === "/admin/outbounds" || route.startsWith("/admin/outbounds/")) return resource === "outbounds";
+    if (route === "/admin/announcements") return resource === "announcements";
+    if (route === "/admin/units") return resource === "quota";
+    return false;
+  }
+
+  function realtimeShouldDefer(resource) {
+    const active = document.activeElement;
+    if (state.formDirty || state.mutationInFlight || document.querySelector('.org-dialog-backdrop, [role="dialog"]')) return true;
+    if ((active instanceof HTMLInputElement && !["checkbox", "radio", "button", "submit", "reset"].includes(active.type)) || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) return true;
+    // Batch and outbound list renderers retain their own selected ids during a keyed patch.
+    if (resource !== "orders" && state.selectedProductIds.size) return true;
+    return false;
+  }
+
+  async function fetchRealtime(path, resource) {
+    const previous = state.realtime.fetches.get(resource);
+    previous?.controller.abort();
+    const controller = new AbortController();
+    const sequence = (previous?.sequence || 0) + 1;
+    state.realtime.fetches.set(resource, { controller, sequence });
+    try {
+      const value = await api(path, { signal: controller.signal });
+      if (state.realtime.fetches.get(resource)?.sequence !== sequence) return null;
+      return value;
+    } catch (error) {
+      if (error.name === "AbortError") return null;
+      throw error;
+    }
+  }
+
+  async function refreshRealtimeResource(resource) {
+    if (!realtimeRouteUses(resource)) return;
+    if (realtimeShouldDefer(resource)) {
+      state.realtime.dirtyResources.add(resource);
+      showNewDataBanner(resource === "quota" ? "额度数据已更新，请刷新后继续编辑。" : "当前内容已有更新，完成当前操作后可刷新。");
+      return false;
+    }
+    if (resource === "orders" && currentRoute() === "/admin/orders") {
+      const data = await fetchRealtime(`/api/v1/admin/orders?limit=30&${orderListQuery().toString()}`, resource);
+      if (data) patchOrdersRealtime(data);
+      return Boolean(data);
+    }
+    if (resource === "announcements" && currentRoute() === "/admin/announcements") {
+      const params = new URLSearchParams(window.location.search);
+      const data = await fetchRealtime(`/api/v1/admin/announcements?${new URLSearchParams({ ...(params.get("status") ? { status: params.get("status") } : {}), ...(params.get("level") ? { level: params.get("level") } : {}), ...(params.get("q") ? { q: params.get("q") } : {}) })}`, resource);
+      if (data) renderAnnouncementList(data.items || []);
+      return Boolean(data);
+    }
+    if (resource === "batches" && currentRoute() === "/admin/batches") return refreshBatchListIncrementally();
+    if (resource === "outbounds" && currentRoute() === "/admin/outbounds") return refreshOutboundListIncrementally();
+    if (resource === "quota" && currentRoute() === "/admin/units") return refreshQuotaSummary();
+    if (currentRoute() === "/admin/dashboard") {
+      const [overview, announcements] = await Promise.all([
+        fetchRealtime(`/api/v1/admin/dashboard/overview?range_days=${state.rangeDays}&unit_sort=${state.unitSort}`, "dashboard"),
+        resource === "announcements" || resource === "dashboard" ? fetchRealtime("/api/v1/announcements?limit=5", "announcements") : Promise.resolve(null),
+      ]);
+      if (overview) {
+        state.lastData = overview;
+        if (announcements) state.dashboardAnnouncements = announcements.items || [];
+        renderDashboard(overview, state.dashboardAnnouncements);
+        setSyncStatus(`已同步 · ${formatSyncTime()}`);
+      } else if (announcements) {
+        renderDashboardAnnouncements(announcements.items || []);
+      }
+      return Boolean(overview || announcements);
+    }
+    // Detail pages retain their open dialog/page context until the user refreshes.
+    state.realtime.dirtyResources.add(resource);
+    showNewDataBanner("当前列表已有更新，点击刷新获取最新数据。");
+    return false;
+  }
+
+  function queueRealtimeRefresh(resource) {
+    state.realtime.dirtyResources.add(resource);
+    window.clearTimeout(state.realtime.timers.get(resource));
+    state.realtime.timers.set(resource, window.setTimeout(() => {
+      state.realtime.timers.delete(resource);
+      if (document.hidden) return;
+      refreshRealtimeResource(resource)
+        .then((applied) => { if (applied) state.realtime.dirtyResources.delete(resource); })
+        .catch(() => setSyncStatus(`实时同步失败${staleSuffix}`));
+    }, 300));
+  }
+
+  async function pollRealtimeRevisions() {
+    const revisions = await fetchRealtime("/api/v1/admin/realtime/revisions", "revisions");
+    if (!revisions) return;
+    Object.entries(revisions).forEach(([resource, revision]) => {
+      const hasBaseline = Object.hasOwn(state.realtime.revisions, resource);
+      const previous = Number(state.realtime.revisions[resource] || 0);
+      state.realtime.revisions[resource] = Number(revision || 0);
+      if (hasBaseline && Number(revision) > previous) queueRealtimeRefresh(resource);
+    });
+  }
+
+  function scheduleRealtimeFallback() {
+    window.clearTimeout(state.realtime.fallbackTimer);
+    const delay = state.realtime.connected ? 120_000 : 20_000;
+    state.realtime.fallbackTimer = window.setTimeout(async () => {
+      if (!document.hidden) await pollRealtimeRevisions().catch(() => {});
+      scheduleRealtimeFallback();
+    }, delay);
+  }
+
+  function connectRealtime() {
+    if (!window.EventSource) {
+      state.realtime.connected = false;
+      pollRealtimeRevisions().catch(() => {}).finally(scheduleRealtimeFallback);
+      return;
+    }
+    if (state.realtime.eventSource) return;
+    const source = new EventSource("/api/v1/admin/realtime/events");
+    state.realtime.eventSource = source;
+    source.onopen = () => {
+      state.realtime.connected = true;
+      setSyncStatus("实时同步已连接");
+      scheduleRealtimeFallback();
+    };
+    source.addEventListener("resource_changed", (event) => {
+      try {
+        const change = JSON.parse(event.data || "{}");
+        if (!change.resource) return;
+        state.realtime.revisions[change.resource] = Number(change.revision || 0);
+        queueRealtimeRefresh(change.resource);
+      } catch (_) {
+        // Ignore a malformed non-authoritative invalidation and keep the fallback alive.
+      }
+    });
+    source.onerror = () => {
+      state.realtime.connected = false;
+      scheduleRealtimeFallback();
+    };
+    pollRealtimeRevisions().catch(() => {}).finally(scheduleRealtimeFallback);
   }
 
   async function loadPlaceholder(title, message) {
@@ -3054,14 +3417,6 @@
   async function loadCurrent(silent, source = "manual") {
     const automatic = source === "timer" || source === "focus" || source === "online" || source === "visibility" || source === "queued";
     const route = currentRoute();
-    if (automatic && route === "/admin/orders") {
-      try {
-        await pollOrdersForChanges();
-      } catch (_) {
-        setSyncStatus(`自动检查失败${staleSuffix}`);
-      }
-      return;
-    }
     if (automatic && automaticRefreshShouldWait()) {
       showNewDataBanner("自动刷新已暂停，点击刷新确认最新数据。");
       return;
@@ -3132,31 +3487,27 @@
 
   function schedule() {
     window.clearInterval(state.timer);
-    state.timer = window.setInterval(() => {
-      if (!document.hidden) loadCurrent(true, "timer");
-    }, refreshIntervalForRoute(currentRoute()));
     window.clearInterval(state.reminderTimer);
-    state.reminderTimer = window.setInterval(() => {
-      if (!document.hidden) checkAdminOrderReminders();
-    }, 10000);
+    connectRealtime();
   }
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
-      loadCurrent(true, "visibility");
-      checkAdminOrderReminders();
+      const dirty = Array.from(state.realtime.dirtyResources);
+      dirty.forEach(queueRealtimeRefresh);
+      pollRealtimeRevisions().catch(() => {});
     }
   });
 
   window.addEventListener("focus", () => {
     if (!document.hidden && Date.now() - state.lastSuccessfulSyncAt > 5_000) {
-      loadCurrent(true, "focus");
+      pollRealtimeRevisions().catch(() => {});
     }
   });
 
   window.addEventListener("online", () => {
     setSyncStatus("网络已恢复，正在同步");
-    loadCurrent(true, "online");
+    pollRealtimeRevisions().catch(() => {});
   });
 
   window.addEventListener("offline", () => setSyncStatus("网络已断开，当前数据可能不是最新"));
