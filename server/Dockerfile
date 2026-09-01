@@ -10,9 +10,10 @@ COPY requirements.txt /app/requirements.txt
 RUN set -eux; \
     . /etc/os-release; \
     rm -f /etc/apt/sources.list.d/debian.sources; \
-    printf 'deb https://mirrors.aliyun.com/debian/ %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list; \
-    printf 'deb https://mirrors.aliyun.com/debian/ %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
-    printf 'deb https://mirrors.aliyun.com/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list
+    printf 'deb https://deb.debian.org/debian %s main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" > /etc/apt/sources.list; \
+    printf 'deb https://deb.debian.org/debian %s-updates main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    printf 'deb https://security.debian.org/debian-security %s-security main contrib non-free non-free-firmware\n' "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' > /etc/apt/apt.conf.d/99network-retries
 RUN apt-get update \
     && apt-get install -y --no-install-recommends sqlite3 fonts-noto-cjk aapt apksigner \
     && rm -rf /var/lib/apt/lists/*
