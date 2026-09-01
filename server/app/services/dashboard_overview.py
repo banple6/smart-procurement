@@ -223,12 +223,12 @@ def task_payload(conn, now_utc: datetime, tight_count: int, open_issues: int) ->
         },
         {
             "type": "waiting_shipment",
-            "name": "等待发货",
+            "name": "待完成出库",
             "count": waiting_ship,
             "unit_label": "笔",
             "oldest_wait_seconds": wait_seconds(now_utc, oldest_timestamp(conn, ("preparing",), "preparing_at")),
             "priority": "high" if waiting_ship else "normal",
-            "action_label": "确认发货",
+            "action_label": "完成出库",
             "target_url": "/admin/orders?status=preparing",
         },
         {

@@ -8,12 +8,15 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Respon
 
 from ..database import all_rows, connect, one, transaction, write_audit
 from ..dependencies import require_admin_user
+from ..schemas import OutboundDirectCompleteRequest
 from ..services.batch_exports import outbound_order_filename, outbound_order_workbook
 from ..services.dashboard_cache import invalidate_dashboard_cache
+from ..services.inventory import as_decimal, complete_product
 from ..services.local_time import display_local_time, local_now
 from ..services.outbound_reconciliation import FULFILLED_ORDER_STATUSES, reconcile_outbound_status_for_orders
 from ..services.push_outbox import enqueue_order_status_changed
 from ..services.shipping_photos import cleanup_photos, process_shipping_uploads
+from ..services.unit_quota import finalize_order_quota
 
 
 router = APIRouter(prefix="/admin/outbounds", tags=["outbound-orders"])
@@ -216,6 +219,125 @@ def create_outbound_for_orders(conn, batch: dict, orders: list[dict], admin: dic
         after_json=json.dumps({"outbound_no": outbound_no, "batch_no": batch["batch_no"], "order_ids": order_ids}, ensure_ascii=False),
     )
     return _outbound(conn, outbound_id), True
+
+
+def _outbound_order_records(conn, outbound_id: str) -> list[dict]:
+    """Return authoritative order rows for a single outbound transaction."""
+    return all_rows(
+        conn,
+        """
+        SELECT orders.*
+        FROM outbound_order_orders
+        JOIN orders ON orders.id = outbound_order_orders.order_id
+        WHERE outbound_order_orders.outbound_order_id = ?
+        ORDER BY orders.created_at, orders.id
+        """,
+        (outbound_id,),
+    )
+
+
+@router.post("/{outbound_id}/complete")
+def complete_outbound_order(
+    outbound_id: str,
+    body: OutboundDirectCompleteRequest,
+    admin=Depends(require_admin_user),
+):
+    """Finish one legacy pending outbound without requiring a new photo.
+
+    The old photo-upload shipment endpoints stay intact for Android and history.
+    This action is deliberately outbound-scoped, so it cannot complete another
+    unit's outbound or unrelated orders from the same preparation batch.
+    """
+    request_id = body.client_request_id.strip()
+    if not request_id:
+        raise HTTPException(status_code=400, detail="缺少请求编号，请重试")
+    operation_id = f"direct-complete:{request_id}"
+    with transaction() as conn:
+        previous = one(conn, "SELECT * FROM outbound_orders WHERE ship_request_id = ?", (operation_id,))
+        if previous:
+            if previous["id"] != outbound_id:
+                raise HTTPException(status_code=409, detail="请求编号已被其他出库单使用")
+            return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
+
+        outbound = _outbound(conn, outbound_id)
+        if outbound["status"] == "shipped":
+            # A completed document is safe to return for a retry or a late click.
+            return _outbound_out(conn, outbound, include_details=True)
+        if outbound["status"] != "pending":
+            raise HTTPException(status_code=409, detail="当前出库单不能完成")
+        if int(outbound["version"] or 1) != body.expected_version:
+            raise HTTPException(status_code=409, detail="出库单已被其他管理员修改，请刷新后重试")
+
+        orders = _outbound_order_records(conn, outbound_id)
+        allowed = {"preparing", "shipped", "completed"}
+        if not orders or any(order["status"] not in allowed for order in orders):
+            raise HTTPException(status_code=409, detail="出库单中的订单状态已变化，请刷新后重试")
+
+        completed_order_ids: list[str] = []
+        for order in orders:
+            if order["status"] == "completed":
+                continue
+            for item in all_rows(conn, "SELECT product_id, quantity FROM order_items WHERE order_id = ?", (order["id"],)):
+                complete_product(conn, item["product_id"], as_decimal(item["quantity"]), order["id"], admin["id"])
+            finalize_order_quota(conn, order_id=order["id"], actor_id=admin["id"])
+            cursor = conn.execute(
+                """
+                UPDATE orders
+                SET status = 'completed', shipped_at = COALESCE(shipped_at, CURRENT_TIMESTAMP),
+                    completed_at = CURRENT_TIMESTAMP, version = version + 1,
+                    updated_at = CURRENT_TIMESTAMP,
+                    shipping_note = CASE WHEN TRIM(shipping_note) = '' THEN '系统直接完成出库（无需照片）' ELSE shipping_note END,
+                    ship_request_id = COALESCE(ship_request_id, ?)
+                WHERE id = ? AND status IN ('preparing', 'shipped')
+                """,
+                (f"{operation_id}:{order['id']}", order["id"]),
+            )
+            if cursor.rowcount != 1:
+                raise HTTPException(status_code=409, detail="订单已被其他管理员修改，请刷新后重试")
+            conn.execute(
+                """
+                INSERT INTO order_logs(id, order_id, actor_id, action, old_status, new_status, detail)
+                VALUES (?, ?, ?, 'outbound_direct_complete', ?, 'completed', ?)
+                """,
+                (str(uuid4()), order["id"], admin["id"], order["status"], outbound["outbound_no"]),
+            )
+            updated_order = one(conn, "SELECT * FROM orders WHERE id = ?", (order["id"],))
+            enqueue_order_status_changed(conn, updated_order, "completed")
+            completed_order_ids.append(order["id"])
+
+        cursor = conn.execute(
+            """
+            UPDATE outbound_orders
+            SET status = 'shipped', shipped_at = CURRENT_TIMESTAMP, shipped_by = ?,
+                ship_request_id = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending' AND version = ?
+            """,
+            (admin["id"], operation_id, outbound_id, body.expected_version),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=409, detail="出库单已被其他管理员修改，请刷新后重试")
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "OUTBOUND_ORDER_DIRECT_COMPLETED",
+            "outbound_order",
+            outbound_id,
+            before_json=json.dumps({"status": outbound["status"], "version": outbound["version"]}, ensure_ascii=False),
+            after_json=json.dumps(
+                {
+                    "status": "shipped",
+                    "order_ids": [order["id"] for order in orders],
+                    "completed_order_ids": completed_order_ids,
+                    "photo_upload_required": False,
+                    "client_request_id": request_id,
+                },
+                ensure_ascii=False,
+            ),
+            request_id=request_id,
+        )
+        invalidate_dashboard_cache()
+        return _outbound_out(conn, _outbound(conn, outbound_id), include_details=True)
 
 
 @router.post("/from-batch/{batch_id}")

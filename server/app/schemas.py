@@ -281,6 +281,15 @@ class OrderFastCompleteRequest(BaseModel):
     client_request_id: str = Field(min_length=1, max_length=120)
 
 
+class OutboundDirectCompleteRequest(BaseModel):
+    """Complete an existing outbound without requiring a new photo upload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=1, max_length=120)
+
+
 class OrderLifecycleReason(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -802,7 +802,7 @@
             <dt>订单</dt><dd>${html(order.order_no)}</dd>
             <dt>食材</dt><dd>${num(order.item_count || (order.items || []).length)} 种</dd>
           </dl>
-          <p>完成后系统将结束本订单处理、自动执行必要的内部出库准备并生成对应出库单；子单位无需进行后续确认。</p>
+          <p>完成后系统将结束本订单处理、自动生成并完成对应出库单；无需上传照片，子单位无需进行后续确认。</p>
           <div class="page-toolbar dialog-actions"><button id="cancelFastComplete" class="secondary-button" type="button">取消</button><button id="confirmFastComplete" class="primary-link" type="button">确认完成</button></div>
         </div>
       `);
@@ -820,7 +820,7 @@
             }),
           });
           dialog.close();
-          toast(`订单已完成，已自动生成出库单 ${result.outbound?.outbound_no || ""}`.trim());
+          toast(`订单已完成，出库单 ${result.outbound?.outbound_no || ""} 已自动生成并完成`.trim());
           await loadCurrent(true);
         } catch (error) {
           if (error.status === 409) {
@@ -2595,55 +2595,71 @@
   }
 
   function outboundStatus(status) {
-    return ({ pending: "待发货", shipped: "已发货", archived: "已归档" })[status] || "未知状态";
+    return ({ pending: "待完成", shipped: "已完成", archived: "已归档" })[status] || "未知状态";
   }
 
   function outboundStatusTag(status) {
     return `<span class="status-tag status-${html(status || "unknown")}">${html(outboundStatus(status))}</span>`;
   }
 
-  async function shipOutbound(button, files, note = "") {
-    const selected = Array.from(files || []).filter(Boolean);
-    if (!selected.length) return toast("请先上传发货照片");
-    if (selected.length > 3) return toast("最多上传三张发货照片");
-    if (!confirm("确认发货这张出库单吗？仅会更新该单位的订单。")) return;
+  async function openOutboundCompleteReview(button) {
     const label = button.textContent;
     button.disabled = true;
-    button.textContent = "提交中";
-    state.mutationInFlight += 1;
+    button.textContent = "加载中...";
     try {
-      const form = new FormData();
-      selected.forEach((file) => form.append("photos", file));
-      form.append("note", note || "");
-      form.append("client_request_id", requestId("web-outbound-ship"));
-      const response = await fetch(`/api/v1/admin/outbounds/${button.dataset.shipOutbound}/ship`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "X-CSRF-Token": decodeURIComponent(cookie("csrf_token")) },
-        body: form,
+      const outbound = await api(`/api/v1/admin/outbounds/${button.dataset.outboundComplete}`);
+      if (outbound.status !== "pending") {
+        throw new Error("出库单已被其他管理员处理，请刷新后重试。");
+      }
+      const dialog = openOrgDialog("完成出库", `
+        <div class="batch-review">
+          <dl class="status-list detail-list">
+            <dt>单位</dt><dd>${html(outbound.unit_code || "--")} · ${html(outbound.unit_name_snapshot || "--")}</dd>
+            <dt>出库单</dt><dd>${html(outbound.outbound_no)}</dd>
+            <dt>关联订单</dt><dd>${num(outbound.order_count)} 张</dd>
+            <dt>食材</dt><dd>${num(outbound.product_count)} 种</dd>
+          </dl>
+          <p>完成后本出库单及其关联订单将更新为已完成；无需上传发货照片，已有历史照片不会删除。</p>
+          <div class="page-toolbar dialog-actions"><button id="cancelOutboundComplete" class="secondary-button" type="button">取消</button><button id="confirmOutboundComplete" class="primary-link" type="button">确认完成</button></div>
+        </div>
+      `);
+      $("cancelOutboundComplete").addEventListener("click", dialog.close);
+      $("confirmOutboundComplete").addEventListener("click", async () => {
+        const confirmButton = $("confirmOutboundComplete");
+        formButtonBusy(confirmButton, true, "确认完成");
+        try {
+          const result = await api(`/api/v1/admin/outbounds/${outbound.id}/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              expected_version: Number(outbound.version || 0),
+              client_request_id: requestId("web-outbound-complete"),
+            }),
+          });
+          dialog.close();
+          toast(`出库单 ${result.outbound_no || ""} 已完成，无需上传照片`.trim());
+          await loadCurrent(true);
+        } catch (error) {
+          if (error.status === 409) {
+            dialog.close();
+            await loadCurrent(true, "conflict");
+            toast("出库单已被其他管理员修改，已加载最新状态，请重新确认。");
+            return;
+          }
+          toast(error.message || "完成出库失败，请刷新后重试");
+          formButtonBusy(confirmButton, false, "确认完成");
+        }
       });
-      if (response.status === 401) {
-        window.location.replace("/login?expired=1");
-        throw new Error("登录已过期，请重新登录");
-      }
-      if (!response.ok) {
-        let detail = "";
-        try { detail = (await response.json()).detail || ""; } catch (_) { detail = ""; }
-        throw new Error(detail || "发货失败，请刷新后重试");
-      }
-      toast("已确认发货");
-      await loadCurrent(true);
     } catch (error) {
-      toast(error.message || "发货失败，请刷新后重试");
+      toast(error.message || "无法加载出库单明细，请刷新后重试");
+    } finally {
       button.disabled = false;
       button.textContent = label;
-    } finally {
-      state.mutationInFlight = Math.max(0, state.mutationInFlight - 1);
     }
   }
 
   async function loadOutbounds() {
-    pageShell("出库单", "按单位核对配送需求、导出和确认发货");
+    pageShell("出库单", "按单位查看、导出和完成出库");
     const params = new URLSearchParams(window.location.search);
     const query = new URLSearchParams();
     ["date_from", "date_to", "status"].forEach((key) => { if (params.get(key)) query.set(key, params.get(key)); });
@@ -2656,14 +2672,14 @@
         <div class="page-toolbar">
           <input id="outboundDateFrom" type="date" value="${html(params.get("date_from") || "")}" aria-label="开始日期" />
           <input id="outboundDateTo" type="date" value="${html(params.get("date_to") || "")}" aria-label="结束日期" />
-          <select id="outboundStatus" aria-label="出库单状态"><option value="" ${!params.get("status") ? "selected" : ""}>全部有效单据</option><option value="pending" ${params.get("status") === "pending" ? "selected" : ""}>待发货</option><option value="shipped" ${params.get("status") === "shipped" ? "selected" : ""}>已发货</option><option value="archived" ${params.get("status") === "archived" ? "selected" : ""}>已归档</option></select>
+          <select id="outboundStatus" aria-label="出库单状态"><option value="" ${!params.get("status") ? "selected" : ""}>全部有效单据</option><option value="pending" ${params.get("status") === "pending" ? "selected" : ""}>待完成</option><option value="shipped" ${params.get("status") === "shipped" ? "selected" : ""}>已完成</option><option value="archived" ${params.get("status") === "archived" ? "selected" : ""}>已归档</option></select>
           <button id="outboundFilterButton" class="table-action primary" type="button">查询</button>
           <button id="outboundClearFilterButton" class="table-action" type="button">清除筛选</button>
           <button id="outboundBulkExport" class="table-action" type="button" disabled>批量导出</button>
         </div>
         <div id="outboundSelectionSummary" class="order-result-summary">已选择 0 张出库单</div>
         ${table([`<input id="selectAllOutbounds" type="checkbox" aria-label="全选当前页出库单" />`, "出库单号", "单位编码", "单位", "来源备货单", "日期", "订单数量", "食材种类", "状态", "操作"], outbounds.map((item) => `
-          <tr><td><input type="checkbox" data-outbound-select="${item.id}" aria-label="选择出库单 ${html(item.outbound_no)}" /></td><td>${html(item.outbound_no)}</td><td>${html(item.unit_code || "--")}</td><td>${html(item.unit_name_snapshot)}</td><td>${html(item.batch_no)}</td><td>${dateTime(item.created_at)}</td><td>${num(item.order_count)}</td><td>${num(item.product_count)}</td><td>${outboundStatusTag(item.status)}</td><td><a class="table-action" href="/admin/outbounds/${item.id}">查看</a> <a class="table-action" href="/api/v1/admin/outbounds/${item.id}/export.xlsx">导出</a> ${item.status === "pending" ? `<a class="table-action primary" href="/admin/outbounds/${item.id}">发货</a>` : ""}</td></tr>
+          <tr><td><input type="checkbox" data-outbound-select="${item.id}" aria-label="选择出库单 ${html(item.outbound_no)}" /></td><td>${html(item.outbound_no)}</td><td>${html(item.unit_code || "--")}</td><td>${html(item.unit_name_snapshot)}</td><td>${html(item.batch_no)}</td><td>${dateTime(item.created_at)}</td><td>${num(item.order_count)}</td><td>${num(item.product_count)}</td><td>${outboundStatusTag(item.status)}</td><td><a class="table-action" href="/admin/outbounds/${item.id}">查看</a> <a class="table-action" href="/api/v1/admin/outbounds/${item.id}/export.xlsx">导出</a> ${item.status === "pending" ? `<button class="table-action primary" type="button" data-outbound-complete="${item.id}">完成</button>` : ""}</td></tr>
         `), "暂无出库单。请先在已完成备货单中生成出库单。")}
       </article>`;
     const renderSelection = () => {
@@ -2699,7 +2715,7 @@
   }
 
   async function loadOutboundDetail(outboundId) {
-    pageShell("出库单详情", "按单位核对本次配送食材并确认发货");
+    pageShell("出库单详情", "按单位查看本次配送食材和完成状态");
     const outbound = await api(`/api/v1/admin/outbounds/${outboundId}`);
     const status = outboundStatus(outbound.status);
     content().innerHTML += `
@@ -2709,14 +2725,13 @@
         <div class="page-toolbar"><a class="primary-link secondary" href="/api/v1/admin/outbounds/${outbound.id}/export.xlsx">导出出库单</a>${outbound.status === "pending" ? `<button class="danger-button" id="archiveOutboundButton" type="button">归档出库单</button>` : ""}<a class="table-action" href="/admin/outbounds">返回出库单列表</a></div>
       </article>
       <article class="panel table-panel"><div class="panel-header"><div><h2>配送食材</h2><p>只包含该单位在来源备货单中的订单明细。</p></div></div>${table(["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"], (outbound.lines || []).map((item, index) => `<tr><td>${index + 1}</td><td>${html(item.category || "其他")}</td><td>${html(item.product_name)}</td><td>${html(item.spec || "--")}</td><td>${html(item.unit)}</td><td><strong>${qty(item.quantity)}</strong></td></tr>`), "暂无配送食材")}</article>
-      <article class="panel table-panel"><div class="panel-header"><div><h2>关联订单</h2><p>发货只会更新以下订单。</p></div></div>${table(["订单编号", "状态", "下单时间", "发货照片"], (outbound.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${num(order.shipping_photo_count)} 张</td></tr>`), "暂无订单")}</article>
-      ${outbound.status === "pending" ? `<article class="panel section-panel"><div class="panel-header"><div><h2>确认发货</h2><p>上传 1 到 3 张发货照片后，才会将本单位订单更新为已发货。</p></div></div><div class="form-grid compact"><label class="form-field"><span>发货照片</span><input id="outboundShippingPhotos" type="file" accept="image/*" capture="environment" multiple /></label><label class="form-field"><span>发货备注</span><input id="outboundShippingNote" type="text" placeholder="可填写数量核对、配送说明" /></label></div><div class="page-toolbar"><button id="shipOutboundButton" class="primary-link" data-ship-outbound="${outbound.id}" type="button">上传照片并确认发货</button></div></article>` : ""}`;
+      <article class="panel table-panel"><div class="panel-header"><div><h2>关联订单</h2><p>完成出库只会更新以下订单；已有历史发货照片仍可保留查看。</p></div></div>${table(["订单编号", "状态", "下单时间", "历史照片"], (outbound.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${Number(order.shipping_photo_count || 0) ? `<a class="table-action" href="/admin/orders/${order.id}">查看 ${num(order.shipping_photo_count)} 张</a>` : "无"}</td></tr>`), "暂无订单")}</article>
+      ${outbound.status === "pending" ? `<article class="panel section-panel"><div class="panel-header"><div><h2>完成出库</h2><p>完成后本出库单及其关联订单将更新为已完成，无需上传发货照片。</p></div></div><div class="page-toolbar"><button class="primary-link" data-outbound-complete="${outbound.id}" type="button">完成</button></div></article>` : ""}`;
     $("archiveOutboundButton")?.addEventListener("click", async () => {
       if (!confirm("确认归档这张待发货出库单吗？订单、备货单和历史记录不会删除。")) return;
       try { await api(`/api/v1/admin/outbounds/${outbound.id}`, { method: "DELETE" }); toast("出库单已归档"); window.location.assign("/admin/outbounds"); }
       catch (error) { toast(error.message || "归档失败，请刷新后重试"); }
     });
-    $("shipOutboundButton")?.addEventListener("click", (event) => shipOutbound(event.currentTarget, $("outboundShippingPhotos").files, $("outboundShippingNote").value || ""));
   }
 
   async function loadPreparationSummary() {
@@ -2996,6 +3011,19 @@
           toast(error.message || "完成订单失败，请刷新后重试");
         })
         .finally(() => { delete fastCompleteButton.dataset.fastCompleteOpening; });
+      return;
+    }
+    const outboundCompleteButton = event.target.closest?.("[data-outbound-complete]");
+    if (outboundCompleteButton) {
+      event.preventDefault();
+      if (outboundCompleteButton.dataset.outboundCompleteOpening === "1") return;
+      outboundCompleteButton.dataset.outboundCompleteOpening = "1";
+      openOutboundCompleteReview(outboundCompleteButton)
+        .catch((error) => {
+          reportClientError(error.message || "完成出库交互失败", "/api/v1/admin/outbounds/complete", { action: "outbound_direct_complete" });
+          toast(error.message || "完成出库失败，请刷新后重试");
+        })
+        .finally(() => { delete outboundCompleteButton.dataset.outboundCompleteOpening; });
       return;
     }
     const button = event.target.closest?.("[data-delete-order]");
