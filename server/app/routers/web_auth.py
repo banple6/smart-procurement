@@ -11,6 +11,7 @@ import qrcode.image.svg
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 
 from ..database import all_rows, connect, one, write_audit
+from ..services.local_time import display_local_time
 from ..dependencies import current_bearer_user, current_web_user
 from ..schemas import WebQrScanRequest
 from ..security import hash_token
@@ -349,8 +350,7 @@ def web_sessions(user=Depends(current_web_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="当前账号没有管理平台访问权限")
     with connect() as conn:
-        return {
-            "items": all_rows(
+        rows = all_rows(
                 conn,
                 """
                 SELECT s.id, s.user_id, u.username, u.display_name, s.role, s.unit_id,
@@ -364,7 +364,10 @@ def web_sessions(user=Depends(current_web_user)):
                 LIMIT 200
                 """,
             )
-        }
+        for row in rows:
+            for field in ("created_at", "last_seen_at", "idle_expires_at", "absolute_expires_at", "revoked_at"):
+                row[field] = display_local_time(row.get(field))
+        return {"items": rows}
 
 
 @mobile_router.post("/web-auth/qr/scan")
@@ -512,6 +515,8 @@ def mobile_web_sessions(user=Depends(current_bearer_user)):
     for row in rows:
         row["browser_ip"] = mask_ip(row["browser_ip"])
         row["active"] = bool(row["active"])
+        for field in ("created_at", "last_seen_at", "idle_expires_at", "absolute_expires_at", "revoked_at"):
+            row[field] = display_local_time(row.get(field))
     return {"items": rows}
 
 

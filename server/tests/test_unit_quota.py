@@ -167,3 +167,108 @@ def test_quota_month_grants_only_once_and_carries_balance(tmp_path):
         assert quota_payload(conn, unit["id"], "2026-10")["available_cents"] == 2400
         count = conn.execute("SELECT COUNT(*) FROM unit_quota_months WHERE unit_id = ?", (unit["id"],)).fetchone()[0]
         assert count == 3
+
+
+def test_future_month_plan_default_fallback_modify_and_restore(tmp_path):
+    client = make_client(tmp_path)
+    admin, _, unit, _ = setup_quota(client, cents=1000)
+    initial = client.get(f"/api/v1/admin/units/{unit['id']}/quota", headers=admin).json()
+    future = initial["future_months"][0]
+    assert future["source"] == "default"
+    assert future["planned_quota_cents"] == 1000
+
+    planned = client.put(
+        f"/api/v1/admin/units/{unit['id']}/quota/future-months/{future['quota_month']}",
+        headers=admin,
+        json={"planned_quota_cents": 2500, "expected_version": initial["version"], "client_request_id": "future-plan-one"},
+    )
+    assert planned.status_code == 200, planned.text
+    explicit = next(item for item in planned.json()["future_months"] if item["quota_month"] == future["quota_month"])
+    assert explicit == {"quota_month": future["quota_month"], "planned_quota_cents": 2500, "source": "explicit", "editable": True}
+
+    changed_default = client.put(
+        f"/api/v1/admin/units/{unit['id']}/quota",
+        headers=admin,
+        json={"enabled": True, "default_monthly_quota_cents": 1800, "expected_version": planned.json()["version"], "client_request_id": "default-change"},
+    )
+    assert changed_default.status_code == 200, changed_default.text
+    explicit_after_default = next(item for item in changed_default.json()["future_months"] if item["quota_month"] == future["quota_month"])
+    assert explicit_after_default["planned_quota_cents"] == 2500
+    assert explicit_after_default["source"] == "explicit"
+
+    restored = client.post(
+        f"/api/v1/admin/units/{unit['id']}/quota/future-months/{future['quota_month']}/restore-default",
+        headers=admin,
+        json={"expected_version": changed_default.json()["version"], "client_request_id": "future-plan-restore"},
+    )
+    assert restored.status_code == 200, restored.text
+    default_after_restore = next(item for item in restored.json()["future_months"] if item["quota_month"] == future["quota_month"])
+    assert default_after_restore["source"] == "default"
+    assert default_after_restore["planned_quota_cents"] == 1800
+
+
+def test_current_month_correction_and_balance_adjustment_are_distinct_and_idempotent(tmp_path):
+    client = make_client(tmp_path)
+    admin, _, unit, _ = setup_quota(client, cents=1000)
+    initial = client.get(f"/api/v1/admin/units/{unit['id']}/quota", headers=admin).json()
+    correction_payload = {
+        "effective_quota_cents": 1400,
+        "reason": "本月预算修正",
+        "expected_version": initial["version"],
+        "client_request_id": "month-correction-one",
+    }
+    corrected = client.post(f"/api/v1/admin/units/{unit['id']}/quota/current-month-correction", headers=admin, json=correction_payload)
+    assert corrected.status_code == 200, corrected.text
+    repeat = client.post(f"/api/v1/admin/units/{unit['id']}/quota/current-month-correction", headers=admin, json=correction_payload)
+    assert repeat.status_code == 200, repeat.text
+    assert repeat.json()["available_cents"] == 1400
+    assert repeat.json()["monthly_correction_cents"] == 400
+    assert repeat.json()["effective_quota_cents"] == 1400
+
+    adjusted = client.post(
+        f"/api/v1/admin/units/{unit['id']}/quota/adjustments",
+        headers=admin,
+        json={"delta_cents": -300, "reason": "临时扣减", "expected_version": repeat.json()["version"], "client_request_id": "balance-adjustment-one"},
+    )
+    assert adjusted.status_code == 200, adjusted.text
+    assert adjusted.json()["available_cents"] == 1100
+    assert adjusted.json()["monthly_correction_cents"] == 400
+    assert adjusted.json()["effective_quota_cents"] == 1400
+    assert adjusted.json()["balance_adjustment_cents"] == -300
+
+    unsafe = client.post(
+        f"/api/v1/admin/units/{unit['id']}/quota/current-month-correction",
+        headers=admin,
+        json={"effective_quota_cents": 0, "reason": "不安全降低", "expected_version": adjusted.json()["version"], "client_request_id": "month-correction-negative"},
+    )
+    assert unsafe.status_code == 409
+    assert "当前可用额度为负" in unsafe.json()["detail"]
+
+    ledger = client.get(f"/api/v1/admin/units/{unit['id']}/quota/ledger", headers=admin).json()["items"]
+    assert sum(item["event_type"] == "MONTHLY_QUOTA_CORRECTION" for item in ledger) == 1
+    assert any(item["event_type"] == "MANUAL_DECREASE" for item in ledger)
+
+
+def test_future_explicit_plan_materializes_once_when_activated(tmp_path):
+    client = make_client(tmp_path)
+    admin, _, unit, _ = setup_quota(client, cents=1000)
+    initial = client.get(f"/api/v1/admin/units/{unit['id']}/quota", headers=admin).json()
+    future = initial["future_months"][0]
+    planned = client.put(
+        f"/api/v1/admin/units/{unit['id']}/quota/future-months/{future['quota_month']}",
+        headers=admin,
+        json={"planned_quota_cents": 2500, "expected_version": initial["version"], "client_request_id": "future-materialize"},
+    )
+    assert planned.status_code == 200, planned.text
+
+    from app.database import transaction
+    from app.services.unit_quota import ensure_quota_month
+
+    with transaction() as conn:
+        activated = ensure_quota_month(conn, unit["id"], future["quota_month"])
+        assert activated["balance_cents"] == 3500
+        ensure_quota_month(conn, unit["id"], future["quota_month"])
+        assert conn.execute(
+            "SELECT COUNT(*) FROM unit_quota_ledger WHERE unit_id = ? AND quota_month = ? AND event_type = 'MONTHLY_GRANT'",
+            (unit["id"], future["quota_month"]),
+        ).fetchone()[0] == 1

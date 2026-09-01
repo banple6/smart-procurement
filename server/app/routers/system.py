@@ -222,11 +222,11 @@ def latest_backup_payload(conn) -> dict | None:
     return {
         "id": latest["id"],
         "status": latest["status"],
-        "created_at": latest["started_at"],
-        "finished_at": latest["finished_at"] or "",
+        "created_at": display_local_time(latest["started_at"]),
+        "finished_at": display_local_time(latest["finished_at"]),
         "size_bytes": latest["size_bytes"],
         "verified": latest["verify_status"] == "success",
-        "verified_at": latest["verified_at"] or "",
+        "verified_at": display_local_time(latest["verified_at"]),
         "offsite_synced": bool(latest["offsite_synced"]),
         "app_version": latest["app_version"] or "",
         "database_version": latest["database_version"] or "",
@@ -347,7 +347,7 @@ def alert_payloads(conn, resources: dict, performance: dict, latest_backup: dict
         {
             "level": row["severity"],
             "title": row["title"],
-            "occurred_at": row["last_seen_at"],
+            "occurred_at": display_local_time(row["last_seen_at"]),
             "impact": row["message"],
             "suggestion": "请在业务低峰期处理并完成复查",
             "hit_count": row["hit_count"],
@@ -770,8 +770,7 @@ def verify_backup(backup_id: str, admin=Depends(require_manage_backups)):
 @router.get("/backups")
 def list_backups(admin=Depends(require_system_status)):
     with connect() as conn:
-        return {
-            "items": all_rows(
+        rows = all_rows(
                 conn,
                 """
                 SELECT id, backup_type, status, started_at, finished_at, size_bytes, object_count,
@@ -781,7 +780,10 @@ def list_backups(admin=Depends(require_system_status)):
                 LIMIT 50
                 """,
             )
-        }
+        for row in rows:
+            for field in ("started_at", "finished_at", "verified_at"):
+                row[field] = display_local_time(row.get(field))
+        return {"items": rows}
 
 
 @router.get("/backup-jobs/{job_id}")
@@ -793,7 +795,10 @@ def backup_job(job_id: str, admin=Depends(require_system_status)):
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="备份任务不存在")
-        return dict(row)
+        result = dict(row)
+        for field in ("created_at", "updated_at"):
+            result[field] = display_local_time(result.get(field))
+        return result
 
 
 def require_restore_backup_user(user=Depends(current_user)):

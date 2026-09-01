@@ -19,6 +19,9 @@ from ..schemas import (
     UnitCreate,
     UnitUpdate,
     UnitQuotaAdjustment,
+    UnitQuotaCurrentMonthCorrection,
+    UnitQuotaFuturePlan,
+    UnitQuotaFuturePlanRestore,
     UnitQuotaSettings,
     UnitUserCreate,
     UserCreate,
@@ -26,7 +29,16 @@ from ..schemas import (
     UserUpdate,
 )
 from ..security import hash_password
-from ..services.unit_quota import adjust_quota, quota_ledger, quota_payload, update_quota_settings
+from ..services.local_time import display_local_time
+from ..services.unit_quota import (
+    adjust_quota,
+    correct_current_month_quota,
+    quota_ledger,
+    quota_payload,
+    restore_future_quota_default,
+    set_future_quota_plan,
+    update_quota_settings,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -160,6 +172,9 @@ def list_units(admin=Depends(require_admin_user)):
         )
         for row in rows:
             row["quota"] = quota_payload(conn, row["id"])
+            for field in ("created_at", "updated_at", "last_order_at"):
+                if field in row:
+                    row[field] = display_local_time(row.get(field))
         return rows
 
 
@@ -183,6 +198,7 @@ def set_unit_quota(unit_id: str, body: UnitQuotaSettings, admin=Depends(require_
             default_monthly_quota_cents=body.default_monthly_quota_cents,
             actor=admin,
             expected_version=body.expected_version,
+            client_request_id=body.client_request_id,
         )
 
 
@@ -198,6 +214,54 @@ def create_unit_quota_adjustment(unit_id: str, body: UnitQuotaAdjustment, admin=
             reason=body.reason,
             actor=admin,
             expected_version=body.expected_version,
+            client_request_id=body.client_request_id,
+        )
+
+
+@router.post("/units/{unit_id}/quota/current-month-correction")
+def create_unit_quota_current_month_correction(unit_id: str, body: UnitQuotaCurrentMonthCorrection, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return correct_current_month_quota(
+            conn,
+            unit_id=unit_id,
+            effective_quota_cents=body.effective_quota_cents,
+            reason=body.reason,
+            actor=admin,
+            expected_version=body.expected_version,
+            client_request_id=body.client_request_id,
+        )
+
+
+@router.put("/units/{unit_id}/quota/future-months/{quota_month}")
+def set_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuotaFuturePlan, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return set_future_quota_plan(
+            conn,
+            unit_id=unit_id,
+            quota_month=quota_month,
+            planned_quota_cents=body.planned_quota_cents,
+            actor=admin,
+            expected_version=body.expected_version,
+            client_request_id=body.client_request_id,
+        )
+
+
+@router.post("/units/{unit_id}/quota/future-months/{quota_month}/restore-default")
+def restore_unit_quota_future_plan(unit_id: str, quota_month: str, body: UnitQuotaFuturePlanRestore, admin=Depends(require_manage_accounts)):
+    with transaction() as conn:
+        if not one(conn, "SELECT id FROM units WHERE id = ?", (unit_id,)):
+            raise HTTPException(status_code=404, detail="子单位不存在")
+        return restore_future_quota_default(
+            conn,
+            unit_id=unit_id,
+            quota_month=quota_month,
+            actor=admin,
+            expected_version=body.expected_version,
+            client_request_id=body.client_request_id,
         )
 
 
@@ -286,7 +350,7 @@ def list_users(unit_id: str | None = None, admin=Depends(require_admin_user)):
     with connect() as conn:
         where = "WHERE u.unit_id = ?" if unit_id else ""
         params = (unit_id,) if unit_id else ()
-        return all_rows(
+        rows = all_rows(
             conn,
             f"""
             SELECT u.id, u.username, u.display_name, u.role, u.unit_id, units.unit_name, units.unit_code,
@@ -300,6 +364,10 @@ def list_users(unit_id: str | None = None, admin=Depends(require_admin_user)):
             """,
             params,
         )
+        for row in rows:
+            for field in ("created_at", "updated_at", "last_login_at"):
+                row[field] = display_local_time(row.get(field))
+        return rows
 
 
 @router.post("/users")

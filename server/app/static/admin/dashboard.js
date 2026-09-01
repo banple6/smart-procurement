@@ -823,7 +823,12 @@
           toast(`订单已完成，已自动生成出库单 ${result.outbound?.outbound_no || ""}`.trim());
           await loadCurrent(true);
         } catch (error) {
-          if (error.status === 409) showNewDataBanner("订单已被其他管理员修改，请刷新后重试。");
+          if (error.status === 409) {
+            dialog.close();
+            await loadCurrent(true, "conflict");
+            toast("订单已被其他管理员修改，已加载最新状态，请重新确认。");
+            return;
+          }
           toast(error.message || "完成订单失败，请刷新后重试");
           formButtonBusy(confirmButton, false, "确认完成");
         }
@@ -1225,7 +1230,6 @@
     $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
     renderOrderSelection();
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
-    document.querySelectorAll("[data-fast-complete]").forEach((button) => button.addEventListener("click", () => openFastCompleteReview(button)));
     document.querySelectorAll("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
     if (data.has_more && data.next_cursor) {
@@ -1298,7 +1302,6 @@
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.price_cents_snapshot)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
     document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
-    document.querySelectorAll("[data-fast-complete]").forEach((button) => button.addEventListener("click", () => openFastCompleteReview(button)));
     document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
   }
 
@@ -1830,40 +1833,100 @@
     return `/admin/accounts?unit_id=${encodeURIComponent(unit.id)}&create=unit`;
   }
 
+  function quotaCents(value) {
+    const text = String(value || "").trim();
+    if (!/^-?\d+(\.\d{1,2})?$/.test(text)) throw new Error("金额最多保留两位小数");
+    const negative = text.startsWith("-");
+    const [whole, fraction = ""] = text.replace(/^[+-]/, "").split(".");
+    const amount = Number(whole) * 100 + Number((fraction + "00").slice(0, 2));
+    return negative ? -amount : amount;
+  }
+
+  function quotaMonthLabel(value) {
+    const [year, month] = String(value || "").split("-");
+    return year && month ? `${year}年${Number(month)}月` : "未来月份";
+  }
+
+  function openFutureQuotaPlanDialog(unit, quota, plan) {
+    const explicit = plan.source === "explicit";
+    const dialog = openOrgDialog(`${unit.unit_name} · ${quotaMonthLabel(plan.quota_month)}计划额度`, `
+      <form id="futureQuotaPlanForm">
+        <p class="row-sub">当前来源：${explicit ? "单独设置" : "默认月额度"}</p>
+        <label class="form-field"><span>计划额度（元）</span><input name="planned_amount" type="number" min="0.01" step="0.01" value="${(Number(plan.planned_quota_cents || 0) / 100).toFixed(2)}" required /></label>
+        <p id="futureQuotaPlanError" class="error-inline" hidden></p>
+        <div class="page-toolbar dialog-actions"><button id="cancelFutureQuotaPlan" class="secondary-button" type="button">取消</button>${explicit ? '<button id="restoreFutureQuotaDefault" class="secondary-button" type="button">恢复默认</button>' : ""}<button class="primary-link" type="submit">保存计划</button></div>
+      </form>
+    `);
+    const request = async (path, method, body) => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_version: quota.version, client_request_id: requestId("web-quota-plan"), ...body }) });
+    $("cancelFutureQuotaPlan").addEventListener("click", dialog.close);
+    $("futureQuotaPlanForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const submit = form.querySelector('[type="submit"]');
+      const error = $("futureQuotaPlanError");
+      formButtonBusy(submit, true, "保存计划");
+      try {
+        await request(`/api/v1/admin/units/${unit.id}/quota/future-months/${plan.quota_month}`, "PUT", { planned_quota_cents: quotaCents(new FormData(form).get("planned_amount")) });
+        dialog.close();
+        toast(`${quotaMonthLabel(plan.quota_month)}计划额度已保存`);
+        await loadUnits();
+      } catch (requestError) {
+        error.textContent = requestError.message || "保存计划失败";
+        error.hidden = false;
+        formButtonBusy(submit, false, "保存计划");
+      }
+    });
+    $("restoreFutureQuotaDefault")?.addEventListener("click", async (event) => {
+      if (!confirm(`恢复 ${quotaMonthLabel(plan.quota_month)} 的默认月额度吗？`)) return;
+      const button = event.currentTarget;
+      formButtonBusy(button, true, "恢复默认");
+      try {
+        await request(`/api/v1/admin/units/${unit.id}/quota/future-months/${plan.quota_month}/restore-default`, "POST", {});
+        dialog.close();
+        toast(`${quotaMonthLabel(plan.quota_month)}已恢复默认额度`);
+        await loadUnits();
+      } catch (requestError) {
+        $("futureQuotaPlanError").textContent = requestError.message || "恢复默认失败";
+        $("futureQuotaPlanError").hidden = false;
+        formButtonBusy(button, false, "恢复默认");
+      }
+    });
+  }
+
   function openUnitQuotaDialog(unit) {
     const quota = unit.quota || {};
-    const dialog = openOrgDialog(`${unit.unit_name} · 采购额度`, `
-      <form id="quotaSettingsForm">
-        <div class="form-grid compact">
-          <label class="switch-field span-2"><input name="enabled" type="checkbox" ${quota.enabled ? "checked" : ""} />启用采购额度控制</label>
-          <label class="form-field span-2"><span>未来月度基础额度（元）</span><input name="monthly_amount" type="number" min="0" step="0.01" value="${((quota.default_monthly_quota_cents || 0) / 100).toFixed(2)}" required /></label>
-        </div>
-        <p class="row-sub">当前可用：${money(quota.available_cents)} · 本月基础额度：${money(quota.base_quota_cents)}</p>
-        <p id="quotaSettingsError" class="error-inline" hidden></p>
-        <div class="page-toolbar dialog-actions"><button id="cancelQuotaSettings" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存设置</button></div>
-      </form>
-      <form id="quotaAdjustmentForm">
-        <h3>调整当前可用额度</h3>
-        <div class="form-grid compact"><label class="form-field"><span>调整金额（元，可为负）</span><input name="delta" type="number" step="0.01" required /></label><label class="form-field"><span>调整原因 *</span><input name="reason" maxlength="300" required /></label></div>
-        <p id="quotaAdjustmentError" class="error-inline" hidden></p>
-        <div class="page-toolbar dialog-actions"><button class="secondary-button" type="submit">提交调整</button></div>
-      </form>
+    const futurePlans = (quota.future_months || []).map((plan) => `<div class="row-item"><div class="row-head"><strong>${html(quotaMonthLabel(plan.quota_month))}</strong><span>${money(plan.planned_quota_cents)}</span></div><div class="row-sub">来源：${plan.source === "explicit" ? "单独设置" : plan.source === "default" ? "默认额度" : "已形成实际月份账户"}</div>${plan.editable ? `<div class="page-toolbar"><button class="table-action" type="button" data-future-quota-month="${html(plan.quota_month)}">${plan.source === "explicit" ? "修改" : "设置"}</button>${plan.source === "explicit" ? `<button class="table-action" type="button" data-future-quota-restore="${html(plan.quota_month)}">恢复默认</button>` : ""}</div>` : ""}</div>`).join("") || '<div class="row-sub">暂无未来月份计划</div>';
+    const dialog = openOrgDialog(`${unit.unit_code || "--"} · ${unit.unit_name} · 采购额度`, `
+      <section class="simple-list"><h3>当前月份 · ${html(quotaMonthLabel(quota.quota_month))}</h3><div class="row-sub">原始基础额度 ${money(quota.base_quota_cents)} · 本月额度修正 ${Number(quota.monthly_correction_cents || 0) >= 0 ? "+" : ""}${money(quota.monthly_correction_cents)} · 本月有效额度 ${money(quota.effective_quota_cents)} · 当前可用额度 ${money(quota.available_cents)}</div><div class="page-toolbar"><button id="correctCurrentQuota" class="table-action" type="button">修正本月额度</button><button id="adjustCurrentBalance" class="table-action" type="button">调整当前可用额度</button></div></section>
+      <form id="quotaSettingsForm"><div class="form-grid compact"><label class="switch-field span-2"><input name="enabled" type="checkbox" ${quota.enabled ? "checked" : ""} />启用采购额度控制</label><label class="form-field span-2"><span>默认月额度（元）</span><input name="monthly_amount" type="number" min="0" step="0.01" value="${((quota.default_monthly_quota_cents || 0) / 100).toFixed(2)}" required /></label></div><p class="row-sub">未单独设置且尚未激活的未来月份使用此额度。</p><p id="quotaSettingsError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelQuotaSettings" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存默认额度</button></div></form>
+      <section class="simple-list"><h3>未来月份计划</h3>${futurePlans}</section>
+      <section class="simple-list"><h3>过去月份</h3><div class="row-sub">历史月份只读；额度流水和订单额度关联不会被重写。</div></section>
       <section id="quotaLedger" class="simple-list"><div class="row-sub">正在加载额度流水…</div></section>
     `);
-    const cents = (value) => {
-      const text = String(value || "").trim();
-      if (!/^-?\d+(\.\d{1,2})?$/.test(text)) throw new Error("金额最多保留两位小数");
-      const [whole, fraction = ""] = text.replace("+", "").split(".");
-      return Number(whole) * 100 + Number((fraction + "00").slice(0, 2)) * (text.startsWith("-") ? -1 : 1);
-    };
     const renderLedger = async () => {
       const data = await api(`/api/v1/admin/units/${unit.id}/quota/ledger`);
-      $("quotaLedger").innerHTML = (data.items || []).map((item) => `<div class="row-item"><div class="row-head"><strong>${html(item.event_type)}</strong><span>${item.delta_cents >= 0 ? "+" : ""}${money(item.delta_cents)}</span></div><div class="row-sub">余额 ${money(item.balance_after_cents)} · ${html(item.order_no || item.note || "--")} · ${html(dateTime(item.created_at))}</div></div>`).join("") || '<div class="row-sub">暂无额度流水</div>';
+      $("quotaLedger").innerHTML = `<h3>本月额度流水</h3>${(data.items || []).map((item) => `<div class="row-item"><div class="row-head"><strong>${html(item.event_type)}</strong><span>${item.delta_cents >= 0 ? "+" : ""}${money(item.delta_cents)}</span></div><div class="row-sub">余额 ${money(item.balance_after_cents)} · ${html(item.order_no || item.note || "--")} · ${html(dateTime(item.display_created_at || item.created_at))}</div></div>`).join("") || '<div class="row-sub">暂无额度流水</div>'}`;
     };
+    const send = (path, method, body) => api(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_version: quota.version, client_request_id: requestId("web-quota"), ...body }) });
     $("cancelQuotaSettings").addEventListener("click", dialog.close);
-    $("quotaSettingsForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaSettingsError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存设置"); try { await api(`/api/v1/admin/units/${unit.id}/quota`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: form.enabled.checked, default_monthly_quota_cents: cents(new FormData(form).get("monthly_amount")) }) }); dialog.close(); toast("采购额度设置已保存"); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "保存失败"; error.hidden = false; formButtonBusy(submit, false, "保存设置"); } });
-    $("quotaAdjustmentForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaAdjustmentError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "提交调整"); try { await api(`/api/v1/admin/units/${unit.id}/quota/adjustments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delta_cents: cents(new FormData(form).get("delta")), reason: new FormData(form).get("reason") }) }); toast("额度已调整"); await renderLedger(); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "调整失败"; error.hidden = false; formButtonBusy(submit, false, "提交调整"); } });
+    $("quotaSettingsForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const error = $("quotaSettingsError"); const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存默认额度"); try { await send(`/api/v1/admin/units/${unit.id}/quota`, "PUT", { enabled: form.enabled.checked, default_monthly_quota_cents: quotaCents(new FormData(form).get("monthly_amount")) }); dialog.close(); toast("默认月额度已保存"); await loadUnits(); } catch (requestError) { error.textContent = requestError.message || "保存失败"; error.hidden = false; formButtonBusy(submit, false, "保存默认额度"); } });
+    $("correctCurrentQuota").addEventListener("click", () => openCurrentQuotaCorrectionDialog(unit, quota, dialog));
+    $("adjustCurrentBalance").addEventListener("click", () => openCurrentBalanceAdjustmentDialog(unit, quota, dialog));
+    document.querySelectorAll("[data-future-quota-month]").forEach((button) => button.addEventListener("click", () => openFutureQuotaPlanDialog(unit, quota, (quota.future_months || []).find((plan) => plan.quota_month === button.dataset.futureQuotaMonth))));
+    document.querySelectorAll("[data-future-quota-restore]").forEach((button) => button.addEventListener("click", () => openFutureQuotaPlanDialog(unit, quota, (quota.future_months || []).find((plan) => plan.quota_month === button.dataset.futureQuotaRestore))));
     renderLedger().catch((error) => { $("quotaLedger").innerHTML = `<div class="row-sub">${html(error.message || "额度流水加载失败")}</div>`; });
+  }
+
+  function openCurrentQuotaCorrectionDialog(unit, quota, parentDialog) {
+    const dialog = openOrgDialog(`${unit.unit_name} · 修正本月额度`, `<form id="currentQuotaCorrectionForm"><p class="row-sub">原始基础额度 ${money(quota.base_quota_cents)}，当前有效额度 ${money(quota.effective_quota_cents)}。此操作调整本月整体预算上限，不等同于临时余额调整。</p><div class="form-grid compact"><label class="form-field"><span>修正后本月有效额度（元）</span><input name="effective_amount" type="number" min="0" step="0.01" value="${(Number(quota.effective_quota_cents || 0) / 100).toFixed(2)}" required /></label><label class="form-field"><span>修正原因 *</span><input name="reason" maxlength="300" required /></label></div><p id="currentQuotaCorrectionError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelCurrentQuotaCorrection" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">保存修正</button></div></form>`);
+    $("cancelCurrentQuotaCorrection").addEventListener("click", dialog.close);
+    $("currentQuotaCorrectionForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "保存修正"); try { await api(`/api/v1/admin/units/${unit.id}/quota/current-month-correction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ effective_quota_cents: quotaCents(new FormData(form).get("effective_amount")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-correction") }) }); dialog.close(); parentDialog.close(); toast("本月额度已修正"); await loadUnits(); } catch (error) { $("currentQuotaCorrectionError").textContent = error.message || "本月额度修正失败"; $("currentQuotaCorrectionError").hidden = false; formButtonBusy(submit, false, "保存修正"); } });
+  }
+
+  function openCurrentBalanceAdjustmentDialog(unit, quota, parentDialog) {
+    const dialog = openOrgDialog(`${unit.unit_name} · 调整当前可用额度`, `<form id="currentBalanceAdjustmentForm"><p class="row-sub">当前可用额度 ${money(quota.available_cents)}。此操作仅临时增减当前可用余额，不改变本月整体预算上限。</p><div class="form-grid compact"><label class="form-field"><span>调整金额（元，可为负）</span><input name="delta" type="number" step="0.01" required /></label><label class="form-field"><span>调整原因 *</span><input name="reason" maxlength="300" required /></label></div><p id="currentBalanceAdjustmentError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelCurrentBalanceAdjustment" class="secondary-button" type="button">取消</button><button class="primary-link" type="submit">提交调整</button></div></form>`);
+    $("cancelCurrentBalanceAdjustment").addEventListener("click", dialog.close);
+    $("currentBalanceAdjustmentForm").addEventListener("submit", async (event) => { event.preventDefault(); const form = event.currentTarget; const submit = form.querySelector('[type="submit"]'); formButtonBusy(submit, true, "提交调整"); try { await api(`/api/v1/admin/units/${unit.id}/quota/adjustments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ delta_cents: quotaCents(new FormData(form).get("delta")), reason: new FormData(form).get("reason"), expected_version: quota.version, client_request_id: requestId("web-quota-balance") }) }); dialog.close(); parentDialog.close(); toast("当前可用额度已调整"); await loadUnits(); } catch (error) { $("currentBalanceAdjustmentError").textContent = error.message || "调整失败"; $("currentBalanceAdjustmentError").hidden = false; formButtonBusy(submit, false, "提交调整"); } });
   }
 
   async function loadUnits() {
@@ -2922,6 +2985,19 @@
   }, { passive: true });
 
   document.addEventListener("click", (event) => {
+    const fastCompleteButton = event.target.closest?.("[data-fast-complete]");
+    if (fastCompleteButton) {
+      event.preventDefault();
+      if (fastCompleteButton.dataset.fastCompleteOpening === "1") return;
+      fastCompleteButton.dataset.fastCompleteOpening = "1";
+      openFastCompleteReview(fastCompleteButton)
+        .catch((error) => {
+          reportClientError(error.message || "完成订单交互失败", "/api/v1/admin/orders/complete", { action: "fast_complete" });
+          toast(error.message || "完成订单失败，请刷新后重试");
+        })
+        .finally(() => { delete fastCompleteButton.dataset.fastCompleteOpening; });
+      return;
+    }
     const button = event.target.closest?.("[data-delete-order]");
     if (button) deleteOrder(button);
     const batchAction = event.target.closest?.("[data-batch-v2-action]");
