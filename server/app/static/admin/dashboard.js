@@ -37,6 +37,7 @@
     download: '<path d="M12 3v12M8 11l4 4 4-4M4 20h16"></path>',
     help: '<circle cx="12" cy="12" r="9"></circle><path d="M9.5 9a2.7 2.7 0 1 1 4.2 2.2c-1.1.8-1.7 1.3-1.7 2.8M12 17.5h.01"></path>',
     sessions: '<rect x="3" y="4" width="18" height="14" rx="2"></rect><path d="M8 21h8M12 18v3M8 9h.01M12 9h5"></path>',
+    announcements: '<path d="M5 5h14v11H9l-4 3V5Z"></path><path d="M8 9h8M8 12h5"></path>',
     system: '<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.3 2.3-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-3.2v-.2a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L6 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H4.6v-3.2h.2a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L6 7.8 8.3 5.5l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.6v-.2h3.2v.2a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1 2.3 2.3-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2V14h-.2a1.7 1.7 0 0 0-1.6 1Z"></path>',
     status: '<circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l2.5 2.5"></path>',
     logout: '<path d="M10 5H5v14h5M14 8l4 4-4 4M9 12h9"></path>',
@@ -48,7 +49,7 @@
     ["食材管理", [["食材列表", "/admin/products", "products"], ["Excel 智能导入", "/admin/price-imports", "spreadsheet"], ["库存记录", "/admin/inventory", "inventory"]]],
     ["组织管理", [["子单位管理", "/admin/units", "units"], ["账号管理", "/admin/accounts", "accounts"]]],
     ["统计报表", [["数据分析", "/admin/analytics", "analytics"], ["采购台账", "/admin/ledger", "ledger"]]],
-    ["系统", [["下载 App", "/download", "download"], ["帮助中心", "/help/admin", "help"], ["网页登录记录", "/admin/web-sessions", "sessions"], ["系统日志", "/admin/system-logs", "system"], ["系统状态", "/admin/system", "status"], ["退出登录", "#logout", "logout"]]],
+    ["系统", [["公告管理", "/admin/announcements", "announcements"], ["下载 App", "/download", "download"], ["帮助中心", "/help/admin", "help"], ["网页登录记录", "/admin/web-sessions", "sessions"], ["系统日志", "/admin/system-logs", "system"], ["系统状态", "/admin/system", "status"], ["退出登录", "#logout", "logout"]]],
   ];
 
   const quickActions = [
@@ -450,7 +451,9 @@
   function dashboardTemplate() {
     return `
       <div id="globalError" class="error-banner" hidden>工作台数据加载失败 <button id="retryButton" type="button">重新加载</button></div>
+      <a id="urgentAnnouncementBanner" class="announcement-urgent-banner" href="/admin/announcements" hidden></a>
       <section id="metricGrid" class="metric-grid" aria-label="关键指标"></section>
+      <section class="dashboard-grid"><article class="panel"><div class="panel-header"><div><h2>公告通知</h2><p>当前有效公告</p></div><a href="/admin/announcements">查看全部</a></div><div id="dashboardAnnouncements" class="simple-list"></div></article></section>
       <section class="dashboard-grid first">
         <article class="panel todo-panel"><div class="panel-header"><div><h2>待办中心</h2><p>优先处理异常、超时和发货任务</p></div></div><div id="taskList" class="task-list"></div></article>
         <article class="panel trend-panel"><div class="panel-header"><div><h2>近 7 日采购趋势</h2><p id="trendSummary">--</p></div><select id="rangeSelect" aria-label="趋势范围"><option value="7">近 7 日</option><option value="14">近 14 日</option><option value="30">近 30 日</option></select></div><div id="trendChart" class="trend-chart"></div></article>
@@ -709,7 +712,29 @@
     $("systemStatus").innerHTML = `<dt>服务状态</dt><dd>${item.service === "ok" ? "正常" : "异常"}</dd><dt>最近数据同步</dt><dd>${dateTime(item.last_data_sync)}</dd><dt>最近备份</dt><dd>${item.last_backup_at ? dateTime(item.last_backup_at) : "暂无备份记录"}</dd><dt>磁盘使用</dt><dd>${num(item.disk_usage_percent)}%</dd><dt>当前版本</dt><dd>${item.version || "Web 1.1.0"}</dd>`;
   }
 
-  function renderDashboard(data) {
+  function announcementLevelLabel(level) {
+    return ({ normal: "通知", important: "重要", urgent: "紧急" })[level] || "通知";
+  }
+
+  function renderDashboardAnnouncements(items) {
+    const target = $("dashboardAnnouncements");
+    const announcements = items || [];
+    target.innerHTML = announcements.length ? announcements.map((item) => `
+      <button class="announcement-row" type="button" data-announcement-detail="${html(item.id)}">
+        <span class="announcement-level ${html(item.level)}">${item.is_pinned ? "置顶 · " : ""}${html(announcementLevelLabel(item.level))}</span>
+        <strong>${html(item.title)}</strong><time>${html((item.display_publish_at || item.display_created_at || "").slice(5, 16))}</time>
+      </button>
+    `).join("") : empty("暂无公告");
+    target.querySelectorAll("[data-announcement-detail]").forEach((button) => button.addEventListener("click", () => {
+      openAnnouncementDetail(button.dataset.announcementDetail).catch((error) => toast(error.message || "加载公告失败"));
+    }));
+    const urgent = announcements.find((item) => item.level === "urgent");
+    const banner = $("urgentAnnouncementBanner");
+    banner.hidden = !urgent;
+    banner.textContent = urgent ? `紧急公告：${urgent.title} · 点击查看` : "";
+  }
+
+  function renderDashboard(data, announcements) {
     setTitle("工作台", `${data.business_date} 业务日`);
     $("refreshTime").textContent = "更新于 " + dateTime(data.refreshed_at).slice(11);
     renderMetrics(data);
@@ -720,6 +745,7 @@
     renderRanks(data);
     renderQuickActions();
     renderSystem(data);
+    renderDashboardAnnouncements(announcements);
     document.querySelectorAll("[data-target]").forEach((button) => button.addEventListener("click", () => target(button.dataset.target)));
   }
 
@@ -737,9 +763,12 @@
       loadDashboard(true);
     });
     try {
-      const data = await api(`/api/v1/admin/dashboard/overview?range_days=${state.rangeDays}&unit_sort=${state.unitSort}`);
+      const [data, announcements] = await Promise.all([
+        api(`/api/v1/admin/dashboard/overview?range_days=${state.rangeDays}&unit_sort=${state.unitSort}`),
+        api("/api/v1/announcements?limit=5"),
+      ]);
       state.lastData = data;
-      renderDashboard(data);
+      renderDashboard(data, announcements.items || []);
       if (!silent) toast("工作台已刷新");
     } catch (error) {
       $("globalError").hidden = false;
@@ -2881,6 +2910,142 @@
     setTitle("库存记录", "当前库存快照");
   }
 
+  function announcementDateInput(value) {
+    return String(value || "").replace(" ", "T").slice(0, 16);
+  }
+
+  function announcementAudienceLabel(value) {
+    return ({ all: "全部", admins: "管理员", units: "全部子单位", specific_units: "指定子单位" })[value] || "全部";
+  }
+
+  function announcementStatusLabel(value) {
+    return ({ draft: "草稿", published: "已发布", offline: "已下线" })[value] || "--";
+  }
+
+  function announcementFormPayload(form) {
+    const data = new FormData(form);
+    return {
+      title: String(data.get("title") || "").trim(),
+      content: String(data.get("content") || "").trim(),
+      level: String(data.get("level") || "normal"),
+      audience_type: String(data.get("audience_type") || "all"),
+      unit_ids: data.getAll("unit_ids").map((value) => String(value)).filter(Boolean),
+      is_pinned: Boolean(data.get("is_pinned")),
+      publish_at: String(data.get("publish_at") || ""),
+      expire_at: String(data.get("expire_at") || ""),
+    };
+  }
+
+  function announcementReview(item) {
+    const units = (item.units || []).map((unit) => `${unit.unit_code || "--"} · ${unit.unit_name}`).join("、") || announcementAudienceLabel(item.audience_type);
+    const dialog = openOrgDialog("确认发布公告", `
+      <div class="batch-review"><dl class="status-list detail-list">
+        <dt>标题</dt><dd>${html(item.title)}</dd><dt>等级</dt><dd>${html(announcementLevelLabel(item.level))}</dd>
+        <dt>范围</dt><dd>${html(units)}</dd><dt>发布时间</dt><dd>${html(item.display_publish_at || "立即发布")}</dd>
+        <dt>失效时间</dt><dd>${html(item.display_expire_at || "长期有效")}</dd>
+      </dl><p class="announcement-content">${html(item.content).replaceAll("\n", "<br>")}</p>
+      <div class="page-toolbar dialog-actions"><button id="cancelAnnouncementPublish" class="secondary-button" type="button">返回修改</button><button id="confirmAnnouncementPublish" class="primary-link" type="button">确认发布</button></div></div>
+    `);
+    $("cancelAnnouncementPublish").addEventListener("click", dialog.close);
+    $("confirmAnnouncementPublish").addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      formButtonBusy(button, true, "确认发布");
+      try {
+        await api(`/api/v1/admin/announcements/${item.id}/publish`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_version: item.version, client_request_id: requestId("web-announcement-publish") }) });
+        dialog.close();
+        toast("公告已发布");
+        await loadCurrent(true, "write");
+      } catch (error) {
+        toast(error.message || "发布公告失败");
+        formButtonBusy(button, false, "确认发布");
+      }
+    });
+  }
+
+  async function openAnnouncementEditor(existing = null) {
+    const units = await api("/api/v1/admin/units");
+    const selected = new Set((existing?.units || []).map((unit) => unit.id));
+    const editing = Boolean(existing);
+    const dialog = openOrgDialog(editing ? "编辑公告" : "新建公告", `
+      <form id="announcementForm"><div class="form-grid compact">
+        <label class="form-field span-2"><span>标题 *</span><input name="title" maxlength="160" required value="${html(existing?.title || "")}" /></label>
+        <label class="form-field span-2"><span>正文 *</span><textarea name="content" maxlength="4000" rows="7" required>${html(existing?.content || "")}</textarea></label>
+        <label class="form-field"><span>公告等级</span><select name="level"><option value="normal">普通</option><option value="important">重要</option><option value="urgent">紧急</option></select></label>
+        <label class="form-field"><span>公告范围</span><select name="audience_type"><option value="all">全部</option><option value="admins">管理员</option><option value="units">全部子单位</option><option value="specific_units">指定子单位</option></select></label>
+        <label class="switch-field"><input name="is_pinned" type="checkbox" ${existing?.is_pinned ? "checked" : ""} /><span>置顶公告</span></label>
+        <label class="form-field"><span>发布时间</span><input name="publish_at" type="datetime-local" value="${html(announcementDateInput(existing?.display_publish_at))}" /><small>留空则在发布时立即生效</small></label>
+        <label class="form-field span-2"><span>失效时间</span><input name="expire_at" type="datetime-local" value="${html(announcementDateInput(existing?.display_expire_at))}" /><small>留空表示长期有效</small></label>
+      </div><fieldset id="announcementUnitPicker" class="announcement-unit-picker" hidden><legend>指定子单位 *</legend>${units.map((unit) => `<label><input type="checkbox" name="unit_ids" value="${html(unit.id)}" ${selected.has(unit.id) ? "checked" : ""} />${html(unit.unit_code || "--")} · ${html(unit.unit_name)}</label>`).join("")}</fieldset>
+      <p id="announcementFormError" class="error-inline" hidden></p><div class="page-toolbar dialog-actions"><button id="cancelAnnouncementEdit" class="secondary-button" type="button">取消</button><button class="secondary-button" type="submit" data-announcement-save="draft">保存草稿</button><button class="primary-link" type="submit" data-announcement-save="publish">发布</button></div></form>
+    `);
+    const form = $("announcementForm");
+    form.level.value = existing?.level || "normal";
+    form.audience_type.value = existing?.audience_type || "all";
+    const syncAudience = () => { $("announcementUnitPicker").hidden = form.audience_type.value !== "specific_units"; };
+    syncAudience();
+    form.audience_type.addEventListener("change", syncAudience);
+    $("cancelAnnouncementEdit").addEventListener("click", dialog.close);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const submit = event.submitter;
+      const intent = submit?.dataset.announcementSave || "draft";
+      const error = $("announcementFormError");
+      const payload = announcementFormPayload(form);
+      formButtonBusy(submit, true, intent === "publish" ? "发布" : "保存草稿");
+      try {
+        let item;
+        if (editing) {
+          item = await api(`/api/v1/admin/announcements/${existing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, expected_version: existing.version, client_request_id: requestId("web-announcement-update") }) });
+        } else {
+          item = await api("/api/v1/admin/announcements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, client_request_id: requestId("web-announcement-create") }) });
+        }
+        dialog.close();
+        if (intent === "publish" && item.status !== "published") announcementReview(item);
+        else {
+          toast(intent === "publish" ? "公告已更新" : "公告草稿已保存");
+          await loadCurrent(true, "write");
+        }
+      } catch (requestError) {
+        error.textContent = requestError.message || "保存公告失败";
+        error.hidden = false;
+        formButtonBusy(submit, false, intent === "publish" ? "发布" : "保存草稿");
+      }
+    });
+  }
+
+  async function openAnnouncementDetail(announcementId) {
+    const item = await api(`/api/v1/admin/announcements/${announcementId}`);
+    openOrgDialog("公告详情", `<div class="batch-review"><dl class="status-list detail-list"><dt>等级</dt><dd>${html(announcementLevelLabel(item.level))}</dd><dt>状态</dt><dd>${html(announcementStatusLabel(item.status))}</dd><dt>发布人</dt><dd>${html(item.created_by_name || "--")}</dd><dt>发布时间</dt><dd>${html(item.display_publish_at || "--")}</dd><dt>有效期</dt><dd>${html(item.display_expire_at || "长期有效")}</dd></dl><h3>${html(item.title)}</h3><p class="announcement-content">${html(item.content).replaceAll("\n", "<br>")}</p></div>`);
+  }
+
+  async function offlineAnnouncement(item) {
+    if (!confirm(`确认下线公告“${item.title}”吗？已发布历史将被保留。`)) return;
+    await api(`/api/v1/admin/announcements/${item.id}/offline`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expected_version: item.version, client_request_id: requestId("web-announcement-offline") }) });
+    toast("公告已下线");
+    await loadCurrent(true, "write");
+  }
+
+  async function loadAnnouncements() {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status") || "";
+    const level = params.get("level") || "";
+    const q = params.get("q") || "";
+    pageShell("公告管理", "新建、发布、下线和查看历史公告", `<section class="panel section-panel"><div class="panel-header"><div><h2>公告管理</h2><p>已发布公告只可下线，不会物理删除。</p></div><button id="createAnnouncementButton" class="primary-link" type="button">新建公告</button></div><form id="announcementFilterForm" class="filter-bar"><select name="status"><option value="">全部状态</option><option value="draft">草稿</option><option value="published">已发布</option><option value="offline">已下线</option></select><select name="level"><option value="">全部等级</option><option value="normal">普通</option><option value="important">重要</option><option value="urgent">紧急</option></select><input name="q" placeholder="搜索标题或正文" value="${html(q)}" /><button class="secondary-button" type="submit">筛选</button></form><div id="announcementList" class="simple-list"></div></section>`);
+    const form = $("announcementFilterForm");
+    form.status.value = status;
+    form.level.value = level;
+    form.addEventListener("submit", (event) => { event.preventDefault(); const data = new FormData(form); applyOrgFilters("/admin/announcements", { status: data.get("status"), level: data.get("level"), q: data.get("q") }); loadCurrent(true); });
+    $("createAnnouncementButton").addEventListener("click", () => openAnnouncementEditor().catch((error) => toast(error.message || "加载公告表单失败")));
+    const data = await api(`/api/v1/admin/announcements?${new URLSearchParams({ ...(status ? { status } : {}), ...(level ? { level } : {}), ...(q ? { q } : {}) })}`);
+    const items = data.items || [];
+    $("announcementList").innerHTML = items.length ? items.map((item) => `<div class="announcement-admin-row"><div><div class="row-head"><strong>${html(item.title)}</strong><span class="announcement-level ${html(item.level)}">${item.is_pinned ? "置顶 · " : ""}${html(announcementLevelLabel(item.level))}</span></div><div class="row-sub">${html(announcementStatusLabel(item.status))} · ${html(announcementAudienceLabel(item.audience_type))} · ${html(item.display_publish_at || "未发布")} · 更新 ${html(item.display_updated_at || "--")}</div></div><div class="page-toolbar"><button class="table-action" type="button" data-announcement-view="${item.id}">查看</button>${item.status !== "offline" ? `<button class="table-action" type="button" data-announcement-edit="${item.id}">编辑</button>` : ""}${item.status !== "published" ? `<button class="table-action primary" type="button" data-announcement-publish="${item.id}">发布</button>` : `<button class="table-action danger" type="button" data-announcement-offline="${item.id}">下线</button>`}</div></div>`).join("") : empty("暂无公告");
+    const byId = new Map(items.map((item) => [item.id, item]));
+    document.querySelectorAll("[data-announcement-view]").forEach((button) => button.addEventListener("click", () => openAnnouncementDetail(button.dataset.announcementView).catch((error) => toast(error.message || "加载公告失败"))));
+    document.querySelectorAll("[data-announcement-edit]").forEach((button) => button.addEventListener("click", () => openAnnouncementEditor(byId.get(button.dataset.announcementEdit)).catch((error) => toast(error.message || "加载公告表单失败"))));
+    document.querySelectorAll("[data-announcement-publish]").forEach((button) => button.addEventListener("click", () => announcementReview(byId.get(button.dataset.announcementPublish))));
+    document.querySelectorAll("[data-announcement-offline]").forEach((button) => button.addEventListener("click", () => offlineAnnouncement(byId.get(button.dataset.announcementOffline)).catch((error) => toast(error.message || "下线公告失败"))));
+  }
+
   async function loadPlaceholder(title, message) {
     pageShell(title, "页面正在接入");
     content().innerHTML += empty(message);
@@ -2931,6 +3096,7 @@
       else if (route === "/admin/system") await loadSystem();
       else if (route === "/admin/system-logs") await loadSystemLogs();
       else if (route === "/admin/web-sessions") await loadWebSessions();
+      else if (route === "/admin/announcements") await loadAnnouncements();
       else await loadPlaceholder("管理后台", "该页面暂未接入，请从左侧菜单选择可用功能。");
       if (sequence !== state.refreshSequence) return;
       state.lastSuccessfulSyncAt = Date.now();

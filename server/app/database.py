@@ -1332,6 +1332,38 @@ def apply_unit_monthly_quota_migration(conn: sqlite3.Connection):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_order_quota_allocations_unit ON order_quota_allocations(unit_id, status)")
 
 
+def apply_announcements_migration(conn: sqlite3.Connection):
+    """Add the isolated announcement domain without changing business records."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS announcements (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          level TEXT NOT NULL DEFAULT 'normal' CHECK(level IN ('normal', 'important', 'urgent')),
+          status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'published', 'offline')),
+          is_pinned INTEGER NOT NULL DEFAULT 0,
+          audience_type TEXT NOT NULL DEFAULT 'all' CHECK(audience_type IN ('all', 'admins', 'units', 'specific_units')),
+          publish_at TEXT,
+          expire_at TEXT,
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          version INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS announcement_units (
+          announcement_id TEXT NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          PRIMARY KEY(announcement_id, unit_id)
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_announcements_active ON announcements(status, is_pinned DESC, level, publish_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_announcements_schedule ON announcements(status, publish_at, expire_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_announcement_units_unit ON announcement_units(unit_id, announcement_id)")
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1366,6 +1398,7 @@ def migrate() -> list[str]:
             ("0022_accept_immediately_preparing", apply_accept_immediately_preparing_migration),
             ("0023_outbound_orders", apply_outbound_orders_migration),
             ("0024_unit_monthly_quota", apply_unit_monthly_quota_migration),
+            ("0025_announcements", apply_announcements_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1406,6 +1439,7 @@ def migration_status() -> dict:
         "0022_accept_immediately_preparing",
         "0023_outbound_orders",
         "0024_unit_monthly_quota",
+        "0025_announcements",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

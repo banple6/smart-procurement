@@ -376,6 +376,42 @@ class DeliveryBatchStatusPatch(BaseModel):
     expected_version: Optional[int] = Field(default=None, ge=1)
 
 
+class AnnouncementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=4000)
+    level: str = Field(default="normal", pattern="^(normal|important|urgent)$")
+    audience_type: str = Field(default="all", pattern="^(all|admins|units|specific_units)$")
+    unit_ids: list[str] = Field(default_factory=list, max_length=100)
+    is_pinned: bool = False
+    publish_at: Optional[str] = Field(default=None, max_length=40)
+    expire_at: Optional[str] = Field(default=None, max_length=40)
+    client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+
+
+class AnnouncementUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=4000)
+    level: str = Field(pattern="^(normal|important|urgent)$")
+    audience_type: str = Field(pattern="^(all|admins|units|specific_units)$")
+    unit_ids: list[str] = Field(default_factory=list, max_length=100)
+    is_pinned: bool = False
+    publish_at: Optional[str] = Field(default=None, max_length=40)
+    expire_at: Optional[str] = Field(default=None, max_length=40)
+    expected_version: int = Field(ge=1)
+    client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
+
+
+class AnnouncementAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=1)
+    client_request_id: str = Field(min_length=1, max_length=120)
+
+
 class OrderSoftDeleteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
