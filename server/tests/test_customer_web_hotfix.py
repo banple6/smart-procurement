@@ -127,14 +127,14 @@ def _single_unit_aggregation(code: str, name: str):
     ("code", "name"),
     [("001", "三河市公安局"), ("004", "三河特巡警大队"), ("021", "行宫东派出所")],
 )
-def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_number(code, name):
+def test_unit_picking_sheets_use_date_unit_name_and_keep_internal_batch_number(code, name):
     aggregation = _single_unit_aggregation(code, name)
     workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
     sheet = workbook[f"{code}-蔬菜"]
     total = workbook["总计"]
 
     assert workbook.sheetnames == [f"{code}-蔬菜", "总计"]
-    assert sheet["A1"].value == f"蔬菜备货单（20260831/{code}）"
+    assert sheet["A1"].value == f"蔬菜备货单（20260831/{name}）"
     assert total["A1"].value == f"三公鲜配备货单（20260831/{code}）"
     assert total["A2"].value is None
     assert total["D2"].value == "系统备货单号：PS20260831-0016"
@@ -148,3 +148,23 @@ def test_unit_picking_sheets_use_date_code_snapshot_and_keep_internal_batch_numb
     bulk_workbook = load_workbook(BytesIO(batch_picking_workbook_multi([aggregation])), data_only=True)
     assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜", "总计-PS20260831-0016"]
     assert bulk_workbook["总计-PS20260831-0016"]["A1"].value == f"三公鲜配备货单（20260831/{code}）"
+
+
+def test_multi_unit_picking_sheets_use_own_unit_names_and_summary_keeps_batch_title():
+    first = _single_unit_aggregation("001", "三河市公安局")
+    second = _single_unit_aggregation("004", "三河特巡警大队")
+    aggregation = {
+        "batch": first["batch"],
+        "by_unit": [first["by_unit"][0], second["by_unit"][0]],
+        "document_lines": [*first["document_lines"], *second["document_lines"]],
+    }
+
+    workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
+
+    assert workbook["001-蔬菜"]["A1"].value == "蔬菜备货单（20260831/三河市公安局）"
+    assert workbook["004-蔬菜"]["A1"].value == "蔬菜备货单（20260831/三河特巡警大队）"
+    assert workbook["总计"]["A1"].value == "三公鲜配备货单（PS20260831-0016）"
+    assert workbook["蔬菜"]["A1"].value == "蔬菜备货单（PS20260831-0016）"
+    assert workbook["001-蔬菜"]["D2"].value == "系统备货单号：PS20260831-0016"
+    assert workbook["004-蔬菜"]["D2"].value == "系统备货单号：PS20260831-0016"
+    assert workbook.sheetnames[:2] == ["001-蔬菜", "004-蔬菜"]

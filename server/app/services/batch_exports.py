@@ -174,12 +174,13 @@ def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = ""):
     date = business_document_date(batch)
     for unit in aggregation["by_unit"]:
         code = unit.get("unit_code") or "未编码"
+        unit_name = unit.get("unit_name") or "未命名单位"
         for category, lines in _report_category_lines(unit["items"]).items():
             sheet_name = f"{name_prefix}{code}-{category}"
             ws = wb.create_sheet(_unique_sheet_title(wb, sheet_name))
             _picking_sheet(
                 ws,
-                f"{category}备货单（{date}/{code}）",
+                f"{category}备货单（{date}/{unit_name}）",
                 lines,
                 batch_no=batch["batch_no"],
             )
