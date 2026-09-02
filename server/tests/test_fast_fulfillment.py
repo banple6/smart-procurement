@@ -76,6 +76,42 @@ def test_fast_complete_is_idempotent_and_rejects_stale_order_version(tmp_path):
         assert one(conn, "SELECT COUNT(*) AS count FROM outbound_orders", ())["count"] == 1
 
 
+def test_fast_complete_rejects_existing_outbound_without_creating_another(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    product = create_product(client, admin_headers, code="FAST-EXISTING", name="已有出库单白菜", unit="斤")
+    order = advance_order_to_preparing(client, admin_headers, create_unit_order(client, admin_headers, product["id"], "FAST-E", "2"))
+    batch = client.post(
+        "/api/v1/admin/batches",
+        headers=admin_headers,
+        json={"name": "已有出库单备货单", "order_ids": [order["id"]]},
+    )
+    assert batch.status_code == 200, batch.text
+    closed = client.patch(
+        f"/api/v1/admin/batches/{batch.json()['id']}/status",
+        headers=admin_headers,
+        json={"status": "closed", "expected_version": batch.json()["version"]},
+    )
+    assert closed.status_code == 200, closed.text
+    generated = client.post(f"/api/v1/admin/outbounds/from-batch/{batch.json()['id']}", headers=admin_headers)
+    assert generated.status_code == 200, generated.text
+
+    from app.database import connect, one
+
+    with connect() as conn:
+        before_links = one(conn, "SELECT COUNT(*) AS count FROM outbound_order_orders WHERE order_id = ?", (order["id"],))["count"]
+        before_ledger = one(conn, "SELECT COUNT(*) AS count FROM unit_quota_ledger", ())["count"]
+
+    blocked = _fast_complete(client, admin_headers, order, "fast-existing-outbound-request")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "该订单已经进入出库流程，请使用现有出库单继续处理"
+
+    with connect() as conn:
+        assert one(conn, "SELECT status FROM orders WHERE id = ?", (order["id"],))["status"] == "preparing"
+        assert one(conn, "SELECT COUNT(*) AS count FROM outbound_order_orders WHERE order_id = ?", (order["id"],))["count"] == before_links
+        assert one(conn, "SELECT COUNT(*) AS count FROM unit_quota_ledger", ())["count"] == before_ledger
+
+
 def test_fast_complete_detaches_only_target_from_shared_mixed_unit_open_batch(tmp_path):
     client = make_client(tmp_path)
     admin_headers = login(client, "root_admin", "StrongPassword123")

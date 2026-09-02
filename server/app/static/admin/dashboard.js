@@ -821,6 +821,20 @@
     }
   }
 
+  function fastCompleteConflict(error) {
+    const detail = String(error?.message || "").trim();
+    const stale = !detail
+      || detail.includes("订单已被其他管理员修改")
+      || detail.includes("订单状态已被其他操作员更新");
+    if (stale) {
+      return {
+        message: detail ? "订单状态已更新，请重新确认。" : "订单状态已更新，请刷新后重新确认。",
+        refresh: true,
+      };
+    }
+    return { message: detail, refresh: false };
+  }
+
   async function openFastCompleteReview(button) {
     const original = button.textContent;
     button.disabled = true;
@@ -859,9 +873,10 @@
           await loadCurrent(true);
         } catch (error) {
           if (error.status === 409) {
+            const conflict = fastCompleteConflict(error);
             dialog.close();
-            await loadCurrent(true, "conflict");
-            toast("订单已被其他管理员修改，已加载最新状态，请重新确认。");
+            if (conflict.refresh) await loadCurrent(true, "conflict");
+            toast(conflict.message);
             return;
           }
           toast(error.message || "完成订单失败，请刷新后重试");
