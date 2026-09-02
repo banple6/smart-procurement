@@ -20,9 +20,10 @@ from ..schemas import (
     ProductUpdate,
 )
 from ..services.dashboard_cache import invalidate_dashboard_cache
-from ..services.exports import product_import_template_workbook
+from ..services.exports import product_import_template_workbook, product_menu_workbook
 from ..services.images import save_upload
 from ..services.inventory import as_decimal, decimal_text, log_inventory
+from ..services.local_time import local_now
 
 router = APIRouter(tags=["products"])
 
@@ -213,6 +214,28 @@ def download_product_import_template(admin=Depends(require_admin_user)):
         product_import_template_workbook(),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote('三公鲜配_食材导入模板.xlsx')}"},
+    )
+
+
+@router.get("/admin/products/export.xlsx")
+def export_product_menu(admin=Depends(require_admin_user)):
+    with connect() as conn:
+        rows = all_rows(
+            conn,
+            """
+            SELECT name, spec, price_cents
+            FROM products
+            WHERE is_deleted = 0
+              AND active = 1
+              AND supply_status IN ('normal', 'tight')
+            ORDER BY created_at DESC
+            """,
+        )
+    filename_date = local_now().strftime("%Y%m%d")
+    return Response(
+        product_menu_workbook(rows),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(f'三公鲜配商品菜单_{filename_date}.xlsx')}"},
     )
 
 

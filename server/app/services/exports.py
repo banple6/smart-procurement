@@ -1,5 +1,6 @@
 from io import BytesIO
 from collections import defaultdict
+from decimal import Decimal
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
@@ -23,6 +24,41 @@ LEDGER_HEADERS = [
     "下单时间",
     "单位名称",
 ]
+
+
+def _excel_text(value: object) -> str:
+    """Keep catalog text from being interpreted as an Excel formula."""
+    text = str(value or "")
+    return f"'{text}" if text.startswith(("=", "+", "-", "@")) else text
+
+
+def product_menu_workbook(rows: list[dict]) -> bytes:
+    wb = Workbook()
+    wb.properties.title = "三公鲜配商品菜单"
+    ws = wb.active
+    ws.title = "三公鲜配商品菜单"
+    ws.append(["序号", "商品名称", "规格", "当前价格"])
+    for index, row in enumerate(rows, start=1):
+        ws.append(
+            [
+                index,
+                _excel_text(row["name"]),
+                _excel_text(row.get("spec")),
+                Decimal(int(row["price_cents"])) / Decimal(100),
+            ]
+        )
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F5A94")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.freeze_panes = "A2"
+    for column, width in zip(("A", "B", "C", "D"), (8, 30, 20, 16)):
+        ws.column_dimensions[column].width = width
+    for cell in ws["D"][1:]:
+        cell.number_format = "0.00"
+    stream = BytesIO()
+    wb.save(stream)
+    return stream.getvalue()
 
 
 def ledger_workbook(rows: list[dict]) -> bytes:

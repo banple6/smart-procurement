@@ -1413,6 +1413,7 @@
     content().innerHTML += `
       <div class="page-toolbar">
         <button class="primary-link" data-create-product type="button">添加食材</button>
+        <button class="secondary-button" id="exportProductMenu" type="button">导出商品菜单</button>
         <a class="secondary-button as-link" href="/api/v1/admin/products/import-template.xlsx">下载标准模板</a>
         <a class="secondary-button as-link" href="/admin/price-imports">上传 Excel</a>
         <button class="secondary-button" id="productSelectionToggle" type="button">${state.productSelectionMode ? "退出批量管理" : "批量管理"}</button>
@@ -1426,6 +1427,7 @@
     content().innerHTML += table(productHeaders, rows.map((item) => `
       <tr>${state.productSelectionMode ? `<td><input class="row-check" type="checkbox" data-product-select="${item.id}" ${state.selectedProductIds.has(item.id) ? "checked" : ""} aria-label="选择${html(item.name)}" /></td>` : ""}<td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
     `), "暂无食材");
+    $("exportProductMenu").addEventListener("click", () => downloadProductMenu($("exportProductMenu")));
     const form = $("productCreateForm");
     document.querySelectorAll("[data-create-product]").forEach((button) => button.addEventListener("click", () => {
       state.productFormOpen = true;
@@ -1534,6 +1536,41 @@
       if (value === null) return;
       await mutate(`/api/v1/admin/products/${button.dataset.stock}/stock`, { stock_quantity: value, detail: "Web 后台调整库存" });
     }));
+  }
+
+  async function downloadProductMenu(button) {
+    if (button.dataset.exporting === "1") return;
+    button.dataset.exporting = "1";
+    button.disabled = true;
+    button.textContent = "正在导出...";
+    try {
+      const response = await fetch("/api/v1/admin/products/export.xlsx", {
+        credentials: "same-origin",
+        headers: { "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      });
+      if (response.status === 401) {
+        window.location.replace("/login?expired=1");
+        throw Object.assign(new Error("登录已过期，请重新登录"), { status: 401 });
+      }
+      if (!response.ok) {
+        let detail = "";
+        try { detail = (await response.json()).detail || ""; } catch (_) {}
+        throw new Error(window.AdminRefreshPolicy.apiErrorMessage(response.status, detail));
+      }
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(await response.blob());
+      link.download = decodeURIComponent(response.headers.get("Content-Disposition")?.split("filename*=UTF-8''")[1] || "三公鲜配商品菜单.xlsx");
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+    } catch (error) {
+      toast(error.message || "导出商品菜单失败，请稍后重试");
+    } finally {
+      delete button.dataset.exporting;
+      button.disabled = false;
+      button.textContent = "导出商品菜单";
+    }
   }
 
   function priceImportStatus(status) {
