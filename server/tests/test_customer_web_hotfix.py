@@ -168,3 +168,18 @@ def test_multi_unit_picking_sheets_use_own_unit_names_and_summary_keeps_batch_ti
     assert workbook["001-蔬菜"]["D2"].value == "系统备货单号：PS20260831-0016"
     assert workbook["004-蔬菜"]["D2"].value == "系统备货单号：PS20260831-0016"
     assert workbook.sheetnames[:2] == ["001-蔬菜", "004-蔬菜"]
+
+
+def test_picking_sheets_keep_egg_dairy_and_aquatic_categories_separate():
+    aggregation = _single_unit_aggregation("002", "三河市公安局燕郊分局")
+    base = aggregation["document_lines"][0]
+    egg_dairy = {**base, "product_id": "egg", "product_name": "鸡蛋", "category": "蛋奶"}
+    aquatic = {**base, "product_id": "fish", "product_name": "鲈鱼", "category": "水产"}
+    aggregation["by_unit"][0]["items"] = [egg_dairy, aquatic]
+    aggregation["document_lines"] = [egg_dairy, aquatic]
+
+    workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
+
+    assert workbook.sheetnames == ["蛋奶", "水产", "总计"]
+    assert workbook["蛋奶"]["A1"].value == "蛋奶备货单（20260831/三河市公安局燕郊分局）"
+    assert workbook["水产"]["A1"].value == "水产备货单（20260831/三河市公安局燕郊分局）"

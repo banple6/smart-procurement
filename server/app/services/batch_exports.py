@@ -62,10 +62,12 @@ REPORT_CATEGORY_MAP = {
     "粮油": "米面粮油",
     "米面粮油": "米面粮油",
     "调料": "调料",
+    "蛋奶": "蛋奶",
+    "水产": "水产",
 }
 
 # Fixed sheet order for customer-facing reports.
-REPORT_CATEGORY_ORDER = ["蔬菜", "水果", "肉", "米面粮油", "调料"]
+REPORT_CATEGORY_ORDER = ["蔬菜", "水果", "肉", "米面粮油", "调料", "蛋奶", "水产"]
 
 
 def _report_category(db_category: str) -> str:
