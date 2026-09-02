@@ -1193,32 +1193,40 @@
     return `<details class="order-month-group" data-order-month="${html(month)}" ${open ? "open" : ""}><summary><span>${html(orderMonthLabel(month))}</span><small data-order-month-count>${rows.length} 笔订单</small></summary>${orderMonthTable(month, rows)}</details>`;
   }
 
-  function bindOrderRowControls(root) {
-    root.querySelectorAll?.("[data-order-select]").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      if (checkbox.checked) {
-        state.selectedOrderIds.add(checkbox.dataset.orderSelect);
-        const order = state.orderItems.find((item) => item.id === checkbox.dataset.orderSelect);
-        state.selectedOrderVersions.set(checkbox.dataset.orderSelect, Number(order?.version || 1));
-      } else {
-        state.selectedOrderIds.delete(checkbox.dataset.orderSelect);
-        state.selectedOrderVersions.delete(checkbox.dataset.orderSelect);
+  function bindOrderListEvents(target) {
+    if (!target || target.dataset.orderEventsBound === "1") return;
+    target.dataset.orderEventsBound = "1";
+    target.addEventListener("change", (event) => {
+      const rowCheckbox = event.target.closest?.("[data-order-select]");
+      if (rowCheckbox) {
+        if (rowCheckbox.checked) {
+          state.selectedOrderIds.add(rowCheckbox.dataset.orderSelect);
+          const order = state.orderItems.find((item) => item.id === rowCheckbox.dataset.orderSelect);
+          state.selectedOrderVersions.set(rowCheckbox.dataset.orderSelect, Number(order?.version || 1));
+        } else {
+          state.selectedOrderIds.delete(rowCheckbox.dataset.orderSelect);
+          state.selectedOrderVersions.delete(rowCheckbox.dataset.orderSelect);
+        }
+        renderOrderSelection();
+        return;
       }
-      renderOrderSelection();
-    }));
-    root.querySelectorAll?.("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
-    root.querySelectorAll?.("[data-ship]").forEach((button) => button.addEventListener("click", () => chooseShipPhotos(button)));
-    root.querySelectorAll?.("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
-  }
-
-  function bindOrderMonthControls(root) {
-    root.querySelectorAll?.(".select-all-orders").forEach((checkbox) => checkbox.addEventListener("change", () => {
-      state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, checkbox.checked);
-      state.selectedOrderVersions = new Map(checkbox.checked
+      const selectAll = event.target.closest?.(".select-all-orders");
+      if (!selectAll) return;
+      state.selectedOrderIds = window.AdminOrderSelectionPolicy.nextSelection(state.orderItems, state.selectedOrderIds, selectAll.checked);
+      state.selectedOrderVersions = new Map(selectAll.checked
         ? state.orderItems.map((order) => [order.id, Number(order.version || 1)])
         : []);
-      document.querySelectorAll("[data-order-select]").forEach((rowCheckbox) => { rowCheckbox.checked = checkbox.checked; });
+      target.querySelectorAll("[data-order-select]").forEach((checkbox) => { checkbox.checked = selectAll.checked; });
       renderOrderSelection();
-    }));
+    });
+    target.addEventListener("click", (event) => {
+      const statusButton = event.target.closest?.("[data-order][data-status]");
+      if (statusButton) return updateOrderStatus(statusButton);
+      const shipButton = event.target.closest?.("[data-ship]");
+      if (shipButton) return chooseShipPhotos(shipButton);
+      const lifecycleButton = event.target.closest?.("[data-lifecycle]");
+      if (lifecycleButton) return lifecycleOrder(lifecycleButton, lifecycleButton.dataset.lifecycle);
+    });
   }
 
   function patchOrdersRealtime(data) {
@@ -1246,7 +1254,6 @@
         wrapper.innerHTML = orderMonthGroup(month, [], list.children.length === 0);
         group = wrapper.firstElementChild;
         list.append(group);
-        bindOrderMonthControls(group);
       }
       const body = group.querySelector(`[data-order-month-rows="${CSS.escape(month)}"]`);
       orders.forEach((order, index) => {
@@ -1259,7 +1266,6 @@
           if (row) row.replaceWith(replacement);
           else row = replacement;
           row = replacement;
-          bindOrderRowControls(row);
         }
         const next = orders.slice(index + 1).map((item) => body.querySelector(`tr[data-order-id="${CSS.escape(item.id)}"]`)).find(Boolean);
         if (next) body.insertBefore(row, next);
@@ -1320,8 +1326,7 @@
       <div class="order-month-list">
         ${Array.from(groups.entries()).map(([month, rows], index) => orderMonthGroup(month, rows, index === 0)).join("")}
       </div>` : empty("没有符合条件的订单");
-    bindOrderRowControls(content());
-    bindOrderMonthControls(content());
+    bindOrderListEvents(document.querySelector(".order-month-list"));
     $("clearOrderSelection")?.addEventListener("click", clearOrderSelection);
     $("bulkAcceptOrders")?.addEventListener("click", bulkAcceptOrders);
     $("bulkCreateBatchOrders")?.addEventListener("click", bulkCreatePreparationOrder);

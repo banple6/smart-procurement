@@ -130,10 +130,10 @@ def _single_unit_aggregation(code: str, name: str):
 def test_unit_picking_sheets_use_date_unit_name_and_keep_internal_batch_number(code, name):
     aggregation = _single_unit_aggregation(code, name)
     workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
-    sheet = workbook[f"{code}-蔬菜"]
+    sheet = workbook["蔬菜"]
     total = workbook["总计"]
 
-    assert workbook.sheetnames == [f"{code}-蔬菜", "总计"]
+    assert workbook.sheetnames == ["蔬菜", "总计"]
     assert sheet["A1"].value == f"蔬菜备货单（20260831/{name}）"
     assert total["A1"].value == f"三公鲜配备货单（20260831/{code}）"
     assert total["A2"].value is None

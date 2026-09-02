@@ -169,14 +169,14 @@ def _picking_sheet(
     ws.print_area = f"A1:E{end_row + 2}"
 
 
-def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = ""):
+def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = "", use_category_sheet_names: bool = False):
     batch = aggregation["batch"]
     date = business_document_date(batch)
     for unit in aggregation["by_unit"]:
         code = unit.get("unit_code") or "未编码"
         unit_name = unit.get("unit_name") or "未命名单位"
         for category, lines in _report_category_lines(unit["items"]).items():
-            sheet_name = f"{name_prefix}{code}-{category}"
+            sheet_name = f"{name_prefix}{category}" if use_category_sheet_names else f"{name_prefix}{code}-{category}"
             ws = wb.create_sheet(_unique_sheet_title(wb, sheet_name))
             _picking_sheet(
                 ws,
@@ -200,7 +200,7 @@ def batch_picking_workbook(aggregation: dict) -> bytes:
     wb = Workbook()
     wb.properties.title = f"三公鲜配备货单 {aggregation['batch']['batch_no']}"
     wb.remove(wb.active)
-    _append_unit_picking_sheets(wb, aggregation)
+    _append_unit_picking_sheets(wb, aggregation, use_category_sheet_names=len(aggregation["by_unit"]) == 1)
     total = wb.create_sheet("总计")
     _picking_sheet(total, _picking_summary_title(aggregation), lines, batch_no=aggregation["batch"]["batch_no"])
     if len(aggregation["by_unit"]) > 1:
