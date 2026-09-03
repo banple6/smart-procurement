@@ -112,14 +112,114 @@ def test_realtime_revisions_follow_order_accept_and_fast_complete_transaction(tm
     assert after_complete["quota"] == 2
 
 
-def test_realtime_bump_rolls_back_with_business_transaction(tmp_path):
-    make_client(tmp_path)
+def test_realtime_revisions_follow_legacy_outbound_complete_transaction(tmp_path):
+    client = make_client(tmp_path)
+    admin = login(client, "root_admin", "StrongPassword123")
+    product = create_product(client, admin, code="RT-LEGACY")
+    order = create_unit_order(client, admin, product["id"], "RT-LEGACY", "2")
+    preparing = advance_order_to_preparing(client, admin, order)
+    batch = client.post(
+        "/api/v1/admin/batches",
+        headers=admin,
+        json={"name": "Realtime legacy outbound", "order_ids": [preparing["id"]]},
+    ).json()
+    closed = client.patch(
+        f"/api/v1/admin/batches/{batch['id']}/status",
+        headers=admin,
+        json={"status": "closed", "expected_version": batch["version"]},
+    )
+    assert closed.status_code == 200, closed.text
+    generated = client.post(f"/api/v1/admin/outbounds/from-batch/{batch['id']}", headers=admin)
+    assert generated.status_code == 200, generated.text
+    outbound = generated.json()["items"][0]
     before = _revisions()
+
+    completed = client.post(
+        f"/api/v1/admin/outbounds/{outbound['id']}/complete",
+        headers=admin,
+        json={"expected_version": outbound["version"], "client_request_id": "realtime-legacy-outbound"},
+    )
+    assert completed.status_code == 200, completed.text
+    body = completed.json()
+    assert body["status"] == "shipped"
+    assert body["version"] == outbound["version"] + 1
+    assert body["orders"][0]["status"] == "completed"
+
+    after = _revisions()
+    for resource in ("orders", "outbounds", "dashboard", "quota"):
+        assert after[resource] == before[resource] + 1
+    with connect() as conn:
+        order_row = conn.execute("SELECT status, version FROM orders WHERE id = ?", (order["id"],)).fetchone()
+        outbound_row = conn.execute("SELECT status, version FROM outbound_orders WHERE id = ?", (outbound["id"],)).fetchone()
+    assert dict(order_row) == {"status": "completed", "version": preparing["version"] + 1}
+    assert dict(outbound_row) == {"status": "shipped", "version": outbound["version"] + 1}
+
+
+def test_legacy_outbound_complete_streams_orders_revision_to_remote_sse_client(tmp_path):
+    client = make_client(tmp_path)
+    admin = login(client, "root_admin", "StrongPassword123")
+    product = create_product(client, admin, code="RT-LEGACY-SSE")
+    order = create_unit_order(client, admin, product["id"], "RT-LEGACY-SSE", "2")
+    preparing = advance_order_to_preparing(client, admin, order)
+    batch = client.post(
+        "/api/v1/admin/batches",
+        headers=admin,
+        json={"name": "Realtime remote legacy outbound", "order_ids": [preparing["id"]]},
+    ).json()
+    closed = client.patch(
+        f"/api/v1/admin/batches/{batch['id']}/status",
+        headers=admin,
+        json={"status": "closed", "expected_version": batch["version"]},
+    )
+    assert closed.status_code == 200, closed.text
+    generated = client.post(f"/api/v1/admin/outbounds/from-batch/{batch['id']}", headers=admin)
+    assert generated.status_code == 200, generated.text
+    outbound = generated.json()["items"][0]
+    before = _revisions()
+    server, thread, base_url = _start_http_server()
+    connection = None
+    try:
+        connection, response = _open_sse(base_url, admin)
+        assert response.status == 200
+        completed = client.post(
+            f"/api/v1/admin/outbounds/{outbound['id']}/complete",
+            headers=admin,
+            json={"expected_version": outbound["version"], "client_request_id": "realtime-legacy-remote-sse"},
+        )
+        assert completed.status_code == 200, completed.text
+
+        received = {}
+        while {"orders", "outbounds", "dashboard", "quota"} - received.keys():
+            event_type, event = _read_sse_event(response)
+            if event_type == "resource_changed":
+                received[event["resource"]] = event["revision"]
+        for resource in ("orders", "outbounds", "dashboard", "quota"):
+            assert received[resource] == before[resource] + 1
+    finally:
+        if connection:
+            connection.close()
+        server.should_exit = True
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+
+def test_realtime_bump_rolls_back_with_business_transaction(tmp_path):
+    client = make_client(tmp_path)
+    admin = login(client, "root_admin", "StrongPassword123")
+    product = create_product(client, admin, code="RT-ROLLBACK")
+    order = create_unit_order(client, admin, product["id"], "RT-ROLLBACK", "2")
+    before = _revisions()
+    with connect() as conn:
+        before_order = dict(conn.execute("SELECT status, version FROM orders WHERE id = ?", (order["id"],)).fetchone())
     with pytest.raises(RuntimeError):
         with transaction() as conn:
-            bump_resources(conn, "announcements", "dashboard")
+            conn.execute("UPDATE orders SET status = 'cancelled', version = version + 1 WHERE id = ?", (order["id"],))
+            bump_resources(conn, "orders", "dashboard")
             raise RuntimeError("rollback")
     assert _revisions() == before
+    with connect() as conn:
+        after_order = dict(conn.execute("SELECT status, version FROM orders WHERE id = ?", (order["id"],)).fetchone())
+    assert after_order == before_order
 
 
 def test_realtime_revision_api_detects_isolated_business_mutation(tmp_path):

@@ -2850,6 +2850,21 @@
     return `<span class="status-tag status-${html(status || "unknown")}">${html(outboundStatus(status))}</span>`;
   }
 
+  function patchOutboundDetailAfterComplete(outbound) {
+    const route = currentRoute();
+    if (!route.startsWith("/admin/outbounds/") || route.split("/").pop() !== outbound.id) return false;
+    const status = document.querySelector("[data-outbound-detail-status]");
+    if (!status) return false;
+    status.innerHTML = outboundStatusTag(outbound.status);
+    document.querySelector("[data-outbound-complete-section]")?.remove();
+    (outbound.orders || []).forEach((order) => {
+      const row = document.querySelector(`[data-outbound-detail-order-id="${CSS.escape(order.id)}"]`);
+      const orderStatus = row?.querySelector("[data-outbound-detail-order-status]");
+      if (orderStatus) orderStatus.innerHTML = statusTag(order.status);
+    });
+    return true;
+  }
+
   async function openOutboundCompleteReview(button) {
     const label = button.textContent;
     button.disabled = true;
@@ -2886,7 +2901,9 @@
           });
           dialog.close();
           toast(`出库单 ${result.outbound_no || ""} 已完成，无需上传照片`.trim());
-          await loadCurrent(true);
+          if (!patchOutboundDetailAfterComplete(result)) {
+            await reconcileAffectedResources(["outbounds", "orders", "dashboard", "quota"]);
+          }
         } catch (error) {
           if (error.status === 409) {
             dialog.close();
@@ -3021,13 +3038,13 @@
     const status = outboundStatus(outbound.status);
     content().innerHTML += `
       <article class="panel section-panel">
-        <div class="panel-header"><div><h2>三公鲜配出库单</h2><p>${html(outbound.unit_code || "--")} · ${html(outbound.unit_name_snapshot)} · ${html(outbound.outbound_no)}</p></div>${outboundStatusTag(outbound.status)}</div>
+        <div class="panel-header"><div><h2>三公鲜配出库单</h2><p>${html(outbound.unit_code || "--")} · ${html(outbound.unit_name_snapshot)} · ${html(outbound.outbound_no)}</p></div><div data-outbound-detail-status>${outboundStatusTag(outbound.status)}</div></div>
         <dl class="status-list detail-list"><dt>单位编码</dt><dd>${html(outbound.unit_code || "--")}</dd><dt>单位</dt><dd>${html(outbound.unit_name_snapshot)}</dd><dt>配送点</dt><dd>${html(outbound.delivery_point_snapshot || "未填写")}</dd><dt>来源备货单</dt><dd><a href="/admin/batches/${outbound.preparation_batch_id}">${html(outbound.batch_no)}</a></dd><dt>生成时间</dt><dd>${dateTime(outbound.created_at)}</dd></dl>
         <div class="page-toolbar"><a class="primary-link secondary" href="/api/v1/admin/outbounds/${outbound.id}/export.xlsx">导出出库单</a>${outbound.status === "pending" ? `<button class="danger-button" id="archiveOutboundButton" type="button">归档出库单</button>` : ""}<a class="table-action" href="/admin/outbounds">返回出库单列表</a></div>
       </article>
       <article class="panel table-panel"><div class="panel-header"><div><h2>配送食材</h2><p>只包含该单位在来源备货单中的订单明细。</p></div></div>${table(["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"], (outbound.lines || []).map((item, index) => `<tr><td>${index + 1}</td><td>${html(item.category || "其他")}</td><td>${html(item.product_name)}</td><td>${html(item.spec || "--")}</td><td>${html(item.unit)}</td><td><strong>${qty(item.quantity)}</strong></td></tr>`), "暂无配送食材")}</article>
-      <article class="panel table-panel"><div class="panel-header"><div><h2>关联订单</h2><p>完成出库只会更新以下订单；已有历史发货照片仍可保留查看。</p></div></div>${table(["订单编号", "状态", "下单时间", "历史照片"], (outbound.orders || []).map((order) => `<tr><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${Number(order.shipping_photo_count || 0) ? `<a class="table-action" href="/admin/orders/${order.id}">查看 ${num(order.shipping_photo_count)} 张</a>` : "无"}</td></tr>`), "暂无订单")}</article>
-      ${outbound.status === "pending" ? `<article class="panel section-panel"><div class="panel-header"><div><h2>完成出库</h2><p>完成后本出库单及其关联订单将更新为已完成，无需上传发货照片。</p></div></div><div class="page-toolbar"><button class="primary-link" data-outbound-complete="${outbound.id}" type="button">完成</button></div></article>` : ""}`;
+      <article class="panel table-panel"><div class="panel-header"><div><h2>关联订单</h2><p>完成出库只会更新以下订单；已有历史发货照片仍可保留查看。</p></div></div>${table(["订单编号", "状态", "下单时间", "历史照片"], (outbound.orders || []).map((order) => `<tr data-outbound-detail-order-id="${order.id}"><td><a href="/admin/orders/${order.id}">${html(order.order_no)}</a></td><td data-outbound-detail-order-status>${statusTag(order.status)}</td><td>${dateTime(order.created_at)}</td><td>${Number(order.shipping_photo_count || 0) ? `<a class="table-action" href="/admin/orders/${order.id}">查看 ${num(order.shipping_photo_count)} 张</a>` : "无"}</td></tr>`), "暂无订单")}</article>
+      ${outbound.status === "pending" ? `<article class="panel section-panel" data-outbound-complete-section><div class="panel-header"><div><h2>完成出库</h2><p>完成后本出库单及其关联订单将更新为已完成，无需上传发货照片。</p></div></div><div class="page-toolbar"><button class="primary-link" data-outbound-complete="${outbound.id}" type="button">完成</button></div></article>` : ""}`;
     $("archiveOutboundButton")?.addEventListener("click", async () => {
       if (!confirm("确认归档这张待发货出库单吗？订单、备货单和历史记录不会删除。")) return;
       try { await api(`/api/v1/admin/outbounds/${outbound.id}`, { method: "DELETE" }); toast("出库单已归档"); window.location.assign("/admin/outbounds"); }
@@ -3368,11 +3385,7 @@
       showNewDataBanner(resource === "quota" ? "额度数据已更新，请刷新后继续编辑。" : "当前内容已有更新，完成当前操作后可刷新。");
       return false;
     }
-    if (resource === "orders" && currentRoute() === "/admin/orders") {
-      const data = await fetchRealtime(`/api/v1/admin/orders?limit=30&${orderListQuery().toString()}`, resource);
-      if (data) patchOrdersRealtime(data);
-      return Boolean(data);
-    }
+    if (resource === "orders" && currentRoute() === "/admin/orders") return refreshOrdersIncrementally();
     if (resource === "announcements" && currentRoute() === "/admin/announcements") {
       const params = new URLSearchParams(window.location.search);
       const data = await fetchRealtime(`/api/v1/admin/announcements?${new URLSearchParams({ ...(params.get("status") ? { status: params.get("status") } : {}), ...(params.get("level") ? { level: params.get("level") } : {}), ...(params.get("q") ? { q: params.get("q") } : {}) })}`, resource);
@@ -3382,25 +3395,45 @@
     if (resource === "batches" && currentRoute() === "/admin/batches") return refreshBatchListIncrementally();
     if (resource === "outbounds" && currentRoute() === "/admin/outbounds") return refreshOutboundListIncrementally();
     if (resource === "quota" && currentRoute() === "/admin/units") return refreshQuotaSummary();
-    if (currentRoute() === "/admin/dashboard") {
-      const [overview, announcements] = await Promise.all([
-        fetchRealtime(`/api/v1/admin/dashboard/overview?range_days=${state.rangeDays}&unit_sort=${state.unitSort}`, "dashboard"),
-        resource === "announcements" || resource === "dashboard" ? fetchRealtime("/api/v1/announcements?limit=5", "announcements") : Promise.resolve(null),
-      ]);
-      if (overview) {
-        state.lastData = overview;
-        if (announcements) state.dashboardAnnouncements = announcements.items || [];
-        renderDashboard(overview, state.dashboardAnnouncements);
-        setSyncStatus(`已同步 · ${formatSyncTime()}`);
-      } else if (announcements) {
-        renderDashboardAnnouncements(announcements.items || []);
-      }
-      return Boolean(overview || announcements);
-    }
+    if (currentRoute() === "/admin/dashboard") return refreshDashboardScoped(resource);
     // Detail pages retain their open dialog/page context until the user refreshes.
     state.realtime.dirtyResources.add(resource);
     showNewDataBanner("当前列表已有更新，点击刷新获取最新数据。");
     return false;
+  }
+
+  async function refreshOrdersIncrementally() {
+    const data = await fetchRealtime(`/api/v1/admin/orders?limit=30&${orderListQuery().toString()}`, "orders");
+    if (data) patchOrdersRealtime(data);
+    return Boolean(data);
+  }
+
+  async function refreshDashboardScoped(resource) {
+    const [overview, announcements] = await Promise.all([
+      fetchRealtime(`/api/v1/admin/dashboard/overview?range_days=${state.rangeDays}&unit_sort=${state.unitSort}`, "dashboard"),
+      resource === "announcements" || resource === "dashboard" ? fetchRealtime("/api/v1/announcements?limit=5", "announcements") : Promise.resolve(null),
+    ]);
+    if (overview) {
+      state.lastData = overview;
+      if (announcements) state.dashboardAnnouncements = announcements.items || [];
+      renderDashboard(overview, state.dashboardAnnouncements);
+      setSyncStatus(`已同步 · ${formatSyncTime()}`);
+    } else if (announcements) {
+      renderDashboardAnnouncements(announcements.items || []);
+    }
+    return Boolean(overview || announcements);
+  }
+
+  async function reconcileAffectedResources(resources) {
+    const relevant = [...new Set(resources)].filter(realtimeRouteUses);
+    if (!relevant.length) return false;
+    if (document.hidden) {
+      relevant.forEach((resource) => state.realtime.dirtyResources.add(resource));
+      return false;
+    }
+    const applied = await refreshRealtimeResource(relevant[0]);
+    if (applied) relevant.forEach((resource) => state.realtime.dirtyResources.delete(resource));
+    return Boolean(applied);
   }
 
   function queueRealtimeRefresh(resource) {
@@ -3453,7 +3486,10 @@
       try {
         const change = JSON.parse(event.data || "{}");
         if (!change.resource) return;
-        state.realtime.revisions[change.resource] = Number(change.revision || 0);
+        const revision = Number(change.revision || 0);
+        const hasPrevious = Object.hasOwn(state.realtime.revisions, change.resource);
+        if (!Number.isFinite(revision) || (hasPrevious && revision <= Number(state.realtime.revisions[change.resource] || 0))) return;
+        state.realtime.revisions[change.resource] = revision;
         queueRealtimeRefresh(change.resource);
       } catch (_) {
         // Ignore a malformed non-authoritative invalidation and keep the fallback alive.

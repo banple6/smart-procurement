@@ -128,8 +128,12 @@ async function waitFor(predicate) {
   await runTimers(300);
   assert.deepEqual(refreshes, ["orders"]);
 
+  source.emit("resource_changed", { resource: "orders", revision: 2 });
+  assert.equal([...timers.values()].filter((timer) => timer.delay === 300).length, 0);
+
   refreshes.length = 0;
   source.emit("resource_changed", { resource: "orders", revision: 3 });
+  source.emit("resource_changed", { resource: "orders", revision: 4 });
   source.emit("resource_changed", { resource: "orders", revision: 4 });
   await runTimers(300);
   assert.deepEqual(refreshes, ["orders"]);
