@@ -135,7 +135,7 @@ def test_unit_picking_sheets_use_date_unit_name_and_keep_internal_batch_number(c
 
     assert workbook.sheetnames == ["蔬菜", "总计"]
     assert sheet["A1"].value == f"蔬菜备货单（20260831/{name}）"
-    assert total["A1"].value == f"三公鲜配备货单（20260831/{code}）"
+    assert total["A1"].value == f"三公鲜配备货单（20260831/{name}）"
     assert total["A2"].value is None
     assert total["D2"].value == "系统备货单号：PS20260831-0016"
     assert sheet["A2"].value is None
@@ -147,7 +147,32 @@ def test_unit_picking_sheets_use_date_unit_name_and_keep_internal_batch_number(c
 
     bulk_workbook = load_workbook(BytesIO(batch_picking_workbook_multi([aggregation])), data_only=True)
     assert bulk_workbook.sheetnames == [f"0016-{code}-蔬菜", "总计-PS20260831-0016"]
-    assert bulk_workbook["总计-PS20260831-0016"]["A1"].value == f"三公鲜配备货单（20260831/{code}）"
+    assert bulk_workbook["总计-PS20260831-0016"]["A1"].value == f"三公鲜配备货单（20260831/{name}）"
+
+
+def test_single_unit_picking_total_title_uses_authoritative_name_and_keeps_system_number():
+    aggregation = _single_unit_aggregation("001", "三河市公安局")
+    aggregation["batch"].update(
+        batch_no="PS20260903-0003",
+        created_at="2026-09-03 08:00:00",
+        business_date="2026-09-03",
+    )
+
+    workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
+
+    assert workbook.sheetnames == ["蔬菜", "总计"]
+    assert workbook["蔬菜"]["A1"].value == "蔬菜备货单（20260903/三河市公安局）"
+    assert workbook["总计"]["A1"].value == "三公鲜配备货单（20260903/三河市公安局）"
+    assert workbook["总计"]["D2"].value == "系统备货单号：PS20260903-0003"
+
+
+def test_single_unit_picking_title_falls_back_to_unit_code_when_name_is_blank():
+    aggregation = _single_unit_aggregation("001", "")
+
+    workbook = load_workbook(BytesIO(batch_picking_workbook(aggregation)), data_only=True)
+
+    assert workbook["蔬菜"]["A1"].value == "蔬菜备货单（20260831/001）"
+    assert workbook["总计"]["A1"].value == "三公鲜配备货单（20260831/001）"
 
 
 def test_multi_unit_picking_sheets_use_own_unit_names_and_summary_keeps_batch_title():
@@ -183,3 +208,4 @@ def test_picking_sheets_keep_egg_dairy_and_aquatic_categories_separate():
     assert workbook.sheetnames == ["蛋奶", "水产", "总计"]
     assert workbook["蛋奶"]["A1"].value == "蛋奶备货单（20260831/三河市公安局燕郊分局）"
     assert workbook["水产"]["A1"].value == "水产备货单（20260831/三河市公安局燕郊分局）"
+    assert workbook["总计"]["A1"].value == "三公鲜配备货单（20260831/三河市公安局燕郊分局）"

@@ -134,6 +134,10 @@ def _category_lines(lines: list[dict]) -> OrderedDict[str, list[dict]]:
     return categories
 
 
+def _picking_title_unit(unit: dict) -> str:
+    return str(unit.get("unit_name") or "").strip() or str(unit.get("unit_code") or "未编码")
+
+
 def _append_signatures(ws, row: int, outbound: bool = False):
     row += 2
     if outbound:
@@ -176,13 +180,13 @@ def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = "", us
     date = business_document_date(batch)
     for unit in aggregation["by_unit"]:
         code = unit.get("unit_code") or "未编码"
-        unit_name = unit.get("unit_name") or "未命名单位"
+        title_unit = _picking_title_unit(unit)
         for category, lines in _report_category_lines(unit["items"]).items():
             sheet_name = f"{name_prefix}{category}" if use_category_sheet_names else f"{name_prefix}{code}-{category}"
             ws = wb.create_sheet(_unique_sheet_title(wb, sheet_name))
             _picking_sheet(
                 ws,
-                f"{category}备货单（{date}/{unit_name}）",
+                f"{category}备货单（{date}/{title_unit}）",
                 lines,
                 batch_no=batch["batch_no"],
             )
@@ -191,8 +195,7 @@ def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = "", us
 def _picking_summary_title(aggregation: dict) -> str:
     batch = aggregation["batch"]
     if len(aggregation["by_unit"]) == 1:
-        code = aggregation["by_unit"][0].get("unit_code") or "未编码"
-        return f"三公鲜配备货单（{business_document_date(batch)}/{code}）"
+        return f"三公鲜配备货单（{business_document_date(batch)}/{_picking_title_unit(aggregation['by_unit'][0])}）"
     return f"三公鲜配备货单（{batch['batch_no']}）"
 
 
