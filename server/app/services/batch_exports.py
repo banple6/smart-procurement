@@ -301,14 +301,16 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
     ws.title = "出库单"
     headers = ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
     code = outbound.get("unit_code") or "未编码"
+    unit_name = str(outbound.get("unit_name_snapshot") or "").strip()
+    title_unit = unit_name or code
     date = business_document_date(outbound)
-    _setup_sheet(ws, f"三公鲜配出库单（{date}/{code}）", headers, [8, 16, 24, 20, 14, 16])
+    _setup_sheet(ws, f"三公鲜配出库单（{date}/{title_unit}）", headers, [8, 16, 24, 20, 14, 16])
 
     # Keep the document metadata readable without relying on a manual column resize.
     ws.merge_cells("A2:B2")
     ws.merge_cells("C2:D2")
     ws.merge_cells("E2:F2")
-    ws.cell(2, 1, f"单位：{code} · {outbound['unit_name_snapshot']}")
+    ws.cell(2, 1, f"单位：{code} · {unit_name or '未命名单位'}")
     ws.cell(2, 3, f"系统出库单号：{outbound['outbound_no']}")
     ws.cell(2, 5, f"日期：{outbound.get('created_at') or ''}")
     for column in (1, 3, 5):

@@ -75,12 +75,12 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
         BytesIO(
             outbound_order_workbook(
                     {
-                        "unit_code": "004",
-                        "unit_name_snapshot": "测试单位01",
-                        "outbound_no": "CK20260827-0001",
-                        "created_at": "2026-08-27 16:56:00",
-                        "business_date": "2026-08-27",
-                    "batch_no": "PS20260827-0001",
+                        "unit_code": "006",
+                        "unit_name_snapshot": "新集派出所",
+                        "outbound_no": "CK20260903-0018",
+                        "created_at": "2026-09-03 16:56:00",
+                        "business_date": "2026-09-03",
+                        "batch_no": "PS20260903-0001",
                 },
                 [
                     {"category": "水果", "product_name": "苹果", "spec": "散装", "unit": "公斤", "quantity": "5", "subtotal_cents": 10000},
@@ -92,10 +92,10 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
     )
     sheet = workbook["出库单"]
 
-    assert sheet["A1"].value == "三公鲜配出库单（20260827/004）"
-    assert sheet["A2"].value == "单位：004 · 测试单位01"
-    assert sheet["C2"].value == "系统出库单号：CK20260827-0001"
-    assert sheet["E2"].value == "日期：2026-08-27 16:56:00"
+    assert sheet["A1"].value == "三公鲜配出库单（20260903/新集派出所）"
+    assert sheet["A2"].value == "单位：006 · 新集派出所"
+    assert sheet["C2"].value == "系统出库单号：CK20260903-0018"
+    assert sheet["E2"].value == "日期：2026-09-03 16:56:00"
     assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} >= {"A2:B2", "C2:D2", "E2:F2"}
     assert sheet.column_dimensions["E"].width + sheet.column_dimensions["F"].width >= 30
     assert [sheet.cell(3, column).value for column in range(1, 7)] == ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
@@ -137,6 +137,34 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
     assert zero_workbook["出库单"]["F4"].value == 0
     assert zero_workbook["出库单"]["F4"].number_format == '¥0.00'
 
+    long_name_workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {
+                    "unit_code": "002",
+                    "unit_name_snapshot": "三河市公安局燕郊分局",
+                    "outbound_no": "CK20260903-0019",
+                    "business_date": "2026-09-03",
+                },
+                [],
+            )
+        ),
+        data_only=True,
+    )
+    assert long_name_workbook["出库单"]["A1"].value == "三公鲜配出库单（20260903/三河市公安局燕郊分局）"
+
+    fallback_workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {"unit_code": "006", "outbound_no": "CK20260903-0020", "business_date": "2026-09-03"},
+                [],
+            )
+        ),
+        data_only=True,
+    )
+    assert fallback_workbook["出库单"]["A1"].value == "三公鲜配出库单（20260903/006）"
+    assert fallback_workbook["出库单"]["A2"].value == "单位：006 · 未命名单位"
+
 
 def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     client = make_client(tmp_path)
@@ -173,7 +201,8 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     workbook = load_workbook(BytesIO(exported.content), data_only=True)
     sheet = workbook["出库单"]
     assert sheet.cell(1, 1).value.startswith(f"三公鲜配出库单（")
-    assert sheet.cell(1, 1).value.endswith(f"/{body['unit_code']}）")
+    assert sheet.cell(1, 1).value.endswith(f"/{unit_a['unit_name_snapshot']}）")
+    assert sheet["A2"].value.startswith(f"单位：{body['unit_code']} · ")
     assert unit_a["outbound_no"] in " ".join(str(cell.value or "") for cell in sheet[2])
     assert sheet["F5"].value == 5
     assert sheet["F5"].number_format == '¥0.00'
