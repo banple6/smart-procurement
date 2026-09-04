@@ -302,26 +302,28 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
     wb.properties.title = f"三公鲜配出库单 {outbound['outbound_no']}"
     ws = wb.active
     ws.title = "出库单"
-    headers = ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
+    headers = ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量", "单价", "小计金额"]
     code = outbound.get("unit_code") or "未编码"
     unit_name = str(outbound.get("unit_name_snapshot") or "").strip()
     title_unit = unit_name or code
     date = business_document_date(outbound)
-    _setup_sheet(ws, f"三公鲜配出库单（{date}/{title_unit}）", headers, [8, 16, 24, 20, 14, 16])
+    _setup_sheet(ws, f"三公鲜配出库单（{date}/{title_unit}）", headers, [8, 16, 24, 20, 14, 16, 16, 18])
 
     # Keep the document metadata readable without relying on a manual column resize.
-    ws.merge_cells("A2:B2")
-    ws.merge_cells("C2:D2")
-    ws.merge_cells("E2:F2")
+    ws.merge_cells("A2:C2")
+    ws.merge_cells("D2:F2")
+    ws.merge_cells("G2:H2")
     ws.cell(2, 1, f"单位：{code} · {unit_name or '未命名单位'}")
-    ws.cell(2, 3, f"系统出库单号：{outbound['outbound_no']}")
-    ws.cell(2, 5, f"日期：{outbound.get('created_at') or ''}")
-    for column in (1, 3, 5):
+    ws.cell(2, 4, f"系统出库单号：{outbound['outbound_no']}")
+    ws.cell(2, 7, f"日期：{outbound.get('created_at') or ''}")
+    for column in (1, 4, 7):
         ws.cell(2, column).alignment = Alignment(vertical="center", wrap_text=False)
     ws.row_dimensions[2].height = 22
 
     total_cents = sum(int(line.get("subtotal_cents") or 0) for line in lines)
     for index, line in enumerate(lines, start=1):
+        price_cents = line.get("price_cents_snapshot")
+        subtotal_cents = line.get("subtotal_cents")
         ws.append([
             index,
             _report_category(line.get("category") or ""),
@@ -329,16 +331,21 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
             line.get("spec") or "",
             line["unit"],
             line["quantity"],
+            Decimal(int(price_cents)) / Decimal(100) if price_cents is not None else None,
+            Decimal(int(subtotal_cents)) / Decimal(100) if subtotal_cents is not None else None,
         ])
     end_row = 3 + len(lines)
     if lines:
         _style_data_rows(ws, 4, end_row, len(headers))
         for cell in ws["F"][3:end_row]:
             cell.number_format = "0.###"
+        for column in ("G", "H"):
+            for cell in ws[column][3:end_row]:
+                cell.number_format = '¥0.00'
 
     total_row = end_row + 1
-    total_label = ws.cell(total_row, 5, "总金额：")
-    total_value = ws.cell(total_row, 6, Decimal(total_cents) / Decimal(100))
+    total_label = ws.cell(total_row, 7, "总金额：")
+    total_value = ws.cell(total_row, 8, Decimal(total_cents) / Decimal(100))
     total_border = Border(top=Side(style="thin", color="6D7B88"))
     for cell in (total_label, total_value):
         cell.font = Font(bold=True)
@@ -348,12 +355,12 @@ def outbound_order_workbook(outbound: dict, lines: list[dict]) -> bytes:
     total_value.number_format = '¥0.00'
 
     signature_row = total_row + 2
-    ws.merge_cells(start_row=signature_row, start_column=1, end_row=signature_row, end_column=3)
-    ws.merge_cells(start_row=signature_row, start_column=4, end_row=signature_row, end_column=6)
+    ws.merge_cells(start_row=signature_row, start_column=1, end_row=signature_row, end_column=4)
+    ws.merge_cells(start_row=signature_row, start_column=5, end_row=signature_row, end_column=8)
     ws.cell(signature_row, 1, "配送人：________________")
-    ws.cell(signature_row, 4, "收货人：________________")
+    ws.cell(signature_row, 5, "收货人：________________")
     ws.row_dimensions[signature_row].height = 28
-    ws.print_area = f"A1:F{signature_row}"
+    ws.print_area = f"A1:H{signature_row}"
     stream = BytesIO()
     wb.save(stream)
     return stream.getvalue()

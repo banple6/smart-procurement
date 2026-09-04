@@ -83,8 +83,8 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
                         "batch_no": "PS20260903-0001",
                 },
                 [
-                    {"category": "水果", "product_name": "苹果", "spec": "散装", "unit": "公斤", "quantity": "5", "subtotal_cents": 10000},
-                    {"category": "蔬菜", "product_name": "西红柿", "spec": "散装", "unit": "公斤", "quantity": "4", "subtotal_cents": 6000},
+                    {"category": "水果", "product_name": "苹果", "spec": "散装", "unit": "公斤", "quantity": "5", "price_cents_snapshot": 2000, "subtotal_cents": 10000},
+                    {"category": "蔬菜", "product_name": "西红柿", "spec": "散装", "unit": "公斤", "quantity": "4", "price_cents_snapshot": 1500, "subtotal_cents": 6000},
                 ],
             )
         ),
@@ -94,18 +94,23 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
 
     assert sheet["A1"].value == "三公鲜配出库单（20260903/新集派出所）"
     assert sheet["A2"].value == "单位：006 · 新集派出所"
-    assert sheet["C2"].value == "系统出库单号：CK20260903-0018"
-    assert sheet["E2"].value == "日期：2026-09-03 16:56:00"
-    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} >= {"A2:B2", "C2:D2", "E2:F2"}
-    assert sheet.column_dimensions["E"].width + sheet.column_dimensions["F"].width >= 30
-    assert [sheet.cell(3, column).value for column in range(1, 7)] == ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量"]
-    assert [sheet.cell(4, column).value for column in range(1, 7)] == [1, "水果", "苹果", "散装", "公斤", "5"]
-    assert [sheet.cell(5, column).value for column in range(1, 7)] == [2, "蔬菜", "西红柿", "散装", "公斤", "4"]
-    assert sheet["E6"].value == "总金额："
-    assert sheet["F6"].value == 160
-    assert sheet["F6"].number_format == '¥0.00'
+    assert sheet["D2"].value == "系统出库单号：CK20260903-0018"
+    assert sheet["G2"].value == "日期：2026-09-03 16:56:00"
+    assert {str(cell_range) for cell_range in sheet.merged_cells.ranges} >= {"A2:C2", "D2:F2", "G2:H2"}
+    assert sheet.column_dimensions["G"].width + sheet.column_dimensions["H"].width >= 30
+    assert [sheet.cell(3, column).value for column in range(1, 9)] == ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量", "单价", "小计金额"]
+    assert [sheet.cell(4, column).value for column in range(1, 9)] == [1, "水果", "苹果", "散装", "公斤", "5", 20, 100]
+    assert [sheet.cell(5, column).value for column in range(1, 9)] == [2, "蔬菜", "西红柿", "散装", "公斤", "4", 15, 60]
+    assert sheet["G4"].data_type == "n"
+    assert sheet["H4"].data_type == "n"
+    assert sheet["G6"].value == "总金额："
+    assert sheet["H6"].value == 160
+    assert sheet["G4"].number_format == '¥0.00'
+    assert sheet["H4"].number_format == '¥0.00'
+    assert sheet["H6"].number_format == '¥0.00'
     assert sheet["A8"].value == "配送人：________________"
-    assert sheet["D8"].value == "收货人：________________"
+    assert sheet["E8"].value == "收货人：________________"
+    assert str(sheet.print_area).endswith("!$A$1:$H$8")
     _assert_final_outbound_layout(sheet)
 
     precision_workbook = load_workbook(
@@ -113,17 +118,18 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
             outbound_order_workbook(
                 {"unit_name_snapshot": "测试单位02", "outbound_no": "CK20260827-0002", "created_at": "2026-08-27 16:56:00"},
                 [
-                    {"category": "蔬菜", "product_name": "A", "spec": "", "unit": "公斤", "quantity": "1.5", "subtotal_cents": 321},
-                    {"category": "蔬菜", "product_name": "B", "spec": "", "unit": "公斤", "quantity": "1", "subtotal_cents": 107},
-                    {"category": "其他", "product_name": "C", "spec": "", "unit": "公斤", "quantity": "1", "subtotal_cents": 999},
+                    {"category": "蔬菜", "product_name": "A", "spec": "", "unit": "公斤", "quantity": "1.5", "price_cents_snapshot": 214, "subtotal_cents": 321},
+                    {"category": "蔬菜", "product_name": "B", "spec": "", "unit": "公斤", "quantity": "1", "price_cents_snapshot": 107, "subtotal_cents": 107},
+                    {"category": "其他", "product_name": "C", "spec": "", "unit": "公斤", "quantity": "1", "price_cents_snapshot": 999, "subtotal_cents": 999},
                 ],
             )
         ),
         data_only=True,
     )
     precision_sheet = precision_workbook["出库单"]
-    assert precision_sheet["F7"].value == 14.27
-    assert precision_sheet["F7"].number_format == '¥0.00'
+    assert precision_sheet["G4"].value == 2.14
+    assert precision_sheet["H7"].value == 14.27
+    assert precision_sheet["H7"].number_format == '¥0.00'
 
     zero_workbook = load_workbook(
         BytesIO(
@@ -134,8 +140,8 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
         ),
         data_only=True,
     )
-    assert zero_workbook["出库单"]["F4"].value == 0
-    assert zero_workbook["出库单"]["F4"].number_format == '¥0.00'
+    assert zero_workbook["出库单"]["H4"].value == 0
+    assert zero_workbook["出库单"]["H4"].number_format == '¥0.00'
 
     long_name_workbook = load_workbook(
         BytesIO(
@@ -164,6 +170,59 @@ def test_outbound_workbook_final_layout_uses_snapshot_cents_and_keeps_metadata_r
     )
     assert fallback_workbook["出库单"]["A1"].value == "三公鲜配出库单（20260903/006）"
     assert fallback_workbook["出库单"]["A2"].value == "单位：006 · 未命名单位"
+
+
+def test_outbound_workbook_amount_columns_keep_historical_prices_and_blank_missing_prices():
+    workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {
+                    "unit_code": "016",
+                    "unit_name_snapshot": "高楼派出所",
+                    "outbound_no": "CK20260904-0006",
+                    "business_date": "2026-09-04",
+                    "batch_no": "PS20260904-0003",
+                },
+                [
+                    {"category": "调料", "product_name": "八角", "spec": "散装", "unit": "斤", "quantity": "2", "price_cents_snapshot": 3159, "subtotal_cents": 6318, "current_product_price_cents": 9999},
+                    {"category": "调料", "product_name": "孜然(粒)", "spec": "预包装500G", "unit": "袋", "quantity": "1", "price_cents_snapshot": 2106, "subtotal_cents": 2106},
+                    {"category": "调料", "product_name": "特级云南花椒", "spec": "原装特级长规格包装", "unit": "袋", "quantity": "1", "price_cents_snapshot": 18396, "subtotal_cents": 18396},
+                ],
+            )
+        ),
+        data_only=True,
+    )
+    sheet = workbook["出库单"]
+
+    assert sheet["A1"].value == "三公鲜配出库单（20260904/高楼派出所）"
+    assert sheet["A2"].value == "单位：016 · 高楼派出所"
+    assert sheet["D2"].value == "系统出库单号：CK20260904-0006"
+    assert [sheet.cell(3, column).value for column in range(1, 9)] == ["序号", "食品分类", "食材名称", "规格", "计量单位", "需求数量", "单价", "小计金额"]
+    assert [sheet.cell(4, column).value for column in range(1, 9)] == [1, "调料", "八角", "散装", "斤", "2", 31.59, 63.18]
+    assert [sheet.cell(5, column).value for column in range(1, 9)] == [2, "调料", "孜然(粒)", "预包装500G", "袋", "1", 21.06, 21.06]
+    assert sheet["G4"].data_type == "n"
+    assert sheet["H4"].data_type == "n"
+    assert sheet["G4"].number_format == '¥0.00'
+    assert sheet["H4"].number_format == '¥0.00'
+    assert sheet["G7"].value == "总金额："
+    assert sheet["H7"].value == 268.2
+    assert sum(sheet.cell(row, 8).value for row in range(4, 7)) == sheet["H7"].value
+    assert str(sheet.print_area).endswith("!$A$1:$H$9")
+    assert sheet["A9"].value == "配送人：________________"
+    assert sheet["E9"].value == "收货人：________________"
+
+    missing_price_workbook = load_workbook(
+        BytesIO(
+            outbound_order_workbook(
+                {"unit_code": "016", "unit_name_snapshot": "高楼派出所", "outbound_no": "CK20260904-0007", "business_date": "2026-09-04"},
+                [{"category": "调料", "product_name": "历史缺价食材", "spec": "散装", "unit": "斤", "quantity": "2", "subtotal_cents": 6318}],
+            )
+        ),
+        data_only=True,
+    )
+    missing_price_sheet = missing_price_workbook["出库单"]
+    assert missing_price_sheet["G4"].value is None
+    assert missing_price_sheet["H4"].value == 63.18
 
 
 def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
@@ -204,8 +263,12 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     assert sheet.cell(1, 1).value.endswith(f"/{unit_a['unit_name_snapshot']}）")
     assert sheet["A2"].value.startswith(f"单位：{body['unit_code']} · ")
     assert unit_a["outbound_no"] in " ".join(str(cell.value or "") for cell in sheet[2])
-    assert sheet["F5"].value == 5
-    assert sheet["F5"].number_format == '¥0.00'
+    assert sheet["F4"].value == "5"
+    assert sheet["F4"].number_format == "0.###"
+    assert sheet["G4"].value == 1
+    assert sheet["G4"].value != 9.99
+    assert sheet["H4"].value == 5
+    assert sheet["H4"].number_format == '¥0.00'
     _assert_final_outbound_layout(sheet)
 
     bulk = client.get("/api/v1/admin/outbounds/bulk.zip?" + "&".join(f"outbound_ids={item['id']}" for item in generated["items"]), headers=admin_headers)
@@ -222,6 +285,54 @@ def test_phase4_outbounds_split_units_export_and_keep_snapshot(tmp_path):
     assert repeated["created_count"] == 0
     assert {item["id"] for item in repeated["items"]} == {item["id"] for item in generated["items"]}
     assert by_name
+
+
+def test_outbound_export_keeps_same_product_lines_separate_by_historical_unit_price(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    product_id = _create_product(client, admin_headers, "PH4-HISTORICAL-PRICE", "历史单价食材", "斤")
+    unit_headers = _create_unit_user(client, admin_headers, "HISTORICAL-PRICE")
+    first = _create_preparing_order(client, admin_headers, unit_headers, product_id, 2)
+
+    current = client.get(f"/api/v1/products/{product_id}", headers=admin_headers).json()
+    changed = client.patch(
+        f"/api/v1/admin/products/{product_id}/price",
+        headers=admin_headers,
+        json={"price_cents": 3159, "expected_version": current["version"]},
+    )
+    assert changed.status_code == 200, changed.text
+    second = _create_preparing_order(client, admin_headers, unit_headers, product_id, 1)
+    batch = client.post(
+        "/api/v1/admin/batches",
+        headers=admin_headers,
+        json={"name": "历史单价导出", "order_ids": [first["id"], second["id"]]},
+    )
+    assert batch.status_code == 200, batch.text
+    closed = client.patch(
+        f"/api/v1/admin/batches/{batch.json()['id']}/status",
+        headers=admin_headers,
+        json={"status": "closed", "expected_version": batch.json()["version"]},
+    )
+    assert closed.status_code == 200, closed.text
+    outbound = _generate(client, admin_headers, batch.json()["id"])["items"][0]
+
+    detail = client.get(f"/api/v1/admin/outbounds/{outbound['id']}", headers=admin_headers)
+    assert detail.status_code == 200, detail.text
+    lines = detail.json()["lines"]
+    assert [(line["quantity"], line["price_cents_snapshot"], line["subtotal_cents"]) for line in lines] == [
+        ("2", 100, 200),
+        ("1", 3159, 3159),
+    ]
+    assert detail.json()["total_cents"] == 3359
+
+    exported = client.get(f"/api/v1/admin/outbounds/{outbound['id']}/export.xlsx", headers=admin_headers)
+    assert exported.status_code == 200, exported.text
+    sheet = load_workbook(BytesIO(exported.content), data_only=True)["出库单"]
+    assert [(sheet.cell(row, 6).value, sheet.cell(row, 7).value, sheet.cell(row, 8).value) for row in (4, 5)] == [
+        ("2", 1, 2),
+        ("1", 31.59, 31.59),
+    ]
+    assert sheet["H6"].value == 33.59
 
 
 def test_phase4_rejects_open_batch_and_is_concurrent_safe(tmp_path):

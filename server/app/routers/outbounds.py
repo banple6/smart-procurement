@@ -66,13 +66,15 @@ def _outbound_lines(conn, outbound_id: str) -> list[dict]:
         FROM outbound_order_orders
         JOIN order_items ON order_items.order_id = outbound_order_orders.order_id
         WHERE outbound_order_orders.outbound_order_id = ?
-        ORDER BY order_items.category_snapshot, order_items.product_name_snapshot, order_items.spec_snapshot, order_items.unit_snapshot
+        ORDER BY order_items.category_snapshot, order_items.product_name_snapshot, order_items.spec_snapshot,
+                 order_items.unit_snapshot, order_items.price_cents_snapshot
         """,
         (outbound_id,),
     )
-    grouped: dict[tuple[str, str, str, str, str], dict] = {}
+    grouped: dict[tuple[str, str, str, str, str, int], dict] = {}
     for row in rows:
-        key = (row["product_id"], row["category"], row["product_name"], row["spec"], row["unit"])
+        price_cents = int(row["price_cents_snapshot"])
+        key = (row["product_id"], row["category"], row["product_name"], row["spec"], row["unit"], price_cents)
         line = grouped.setdefault(
             key,
             {
@@ -83,7 +85,7 @@ def _outbound_lines(conn, outbound_id: str) -> list[dict]:
                 "unit": row["unit"],
                 "quantity": "0",
                 "subtotal_cents": 0,
-                "price_cents_snapshot": int(row["price_cents_snapshot"] or 0),
+                "price_cents_snapshot": price_cents,
             },
         )
         from decimal import Decimal
