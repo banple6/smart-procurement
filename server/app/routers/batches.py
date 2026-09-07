@@ -17,6 +17,7 @@ from ..services.batch_exports import (
     batch_summary_workbook,
 )
 from ..services.local_time import display_local_time, local_now
+from ..services.product_categories import category_sort_orders
 from ..services.realtime import bump_resources
 
 
@@ -399,9 +400,10 @@ def export_delivery_batches_picking_list(batch_ids: list[str] = Query(default=[]
         if len(batches) != len(ids):
             raise HTTPException(status_code=404, detail="部分备货单不存在，请刷新后重试")
         aggregations = [aggregate_batch(conn, batch["id"], "all") for batch in batches]
+        categories = category_sort_orders(conn)
         for batch in batches:
             write_audit(conn, admin["id"], admin["role"], "DELIVERY_BATCH_PICKING_LIST_EXPORTED", "delivery_batch", batch["id"])
-    return _document_response(batch_picking_workbook_multi(aggregations), "三公鲜配_备货单批量导出.xlsx")
+    return _document_response(batch_picking_workbook_multi(aggregations, categories), "三公鲜配_备货单批量导出.xlsx")
 
 
 @router.get("/{batch_id}")
@@ -743,10 +745,11 @@ def export_delivery_batch_picking_list(batch_id: str, admin=Depends(require_admi
     with transaction() as conn:
         _batch(conn, batch_id)
         result = aggregate_batch(conn, batch_id, "picking")
+        categories = category_sort_orders(conn)
         if not result["document_lines"]:
             raise HTTPException(status_code=409, detail="该批次暂无已接单或备货中的订单")
         _audit_download(conn, admin, batch_id, "DELIVERY_BATCH_PICKING_LIST_EXPORTED")
-    return _document_response(batch_picking_workbook(result), batch_picking_filename(result))
+    return _document_response(batch_picking_workbook(result, categories), batch_picking_filename(result))
 
 
 @router.get("/{batch_id}/outbound.xlsx")

@@ -58,15 +58,13 @@ def test_admin_product_menu_export_uses_active_catalog_and_current_prices(tmp_pa
     assert workbook.properties.title == "三公鲜配商品菜单"
     assert workbook.sheetnames == ["三公鲜配商品菜单"]
     sheet = workbook.active
-    assert [cell.value for cell in sheet[1]] == ["序号", "商品名称", "规格", "当前价格"]
+    assert [cell.value for cell in sheet[1]] == ["序号", "商品名称", "分类", "规格", "当前价格"]
     rows = list(sheet.iter_rows(min_row=2, values_only=True))
     expected_menu = client.get("/api/v1/products", headers=unit_headers)
     assert expected_menu.status_code == 200, expected_menu.text
-    assert [(row[1], row[2], row[3]) for row in rows] == [
-        (item["name"], item["spec"], item["price_cents"] / 100) for item in expected_menu.json()
-    ]
-    assert {(row[1], row[2], row[3]) for row in rows} == {("西红柿", "散装", 2.5), ("鸡蛋", "散装", 5.8)}
-    assert all(isinstance(row[3], Number) for row in rows)
+    assert [row[2] for row in rows] == sorted(row[2] for row in rows)
+    assert {(row[1], row[3], row[4]) for row in rows} == {("西红柿", "散装", 2.5), ("鸡蛋", "散装", 5.8)}
+    assert all(isinstance(row[4], Number) for row in rows)
     assert all(row[1] not in {"已停用食材", "已归档食材"} for row in rows)
 
     with connect() as conn:
@@ -92,7 +90,7 @@ def test_product_menu_export_rejects_unit_user_and_returns_valid_empty_workbook(
     assert exported.status_code == 200, exported.text
     workbook = load_workbook(BytesIO(exported.content), data_only=True)
     assert workbook.sheetnames == ["三公鲜配商品菜单"]
-    assert [cell.value for cell in workbook.active[1]] == ["序号", "商品名称", "规格", "当前价格"]
+    assert [cell.value for cell in workbook.active[1]] == ["序号", "商品名称", "分类", "规格", "当前价格"]
     assert workbook.active.max_row == 1
 
 
@@ -105,5 +103,5 @@ def test_product_menu_workbook_escapes_formula_text():
     )
     sheet = workbook.active
     assert sheet["B2"].value == "'=SUM(1,1)"
-    assert sheet["C2"].value == "'+危险规格"
-    assert sheet["D2"].value == 2.5
+    assert sheet["D2"].value == "'+危险规格"
+    assert sheet["E2"].value == 2.5

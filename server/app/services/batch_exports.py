@@ -51,9 +51,7 @@ def _safe_filename_part(value: str) -> str:
 
 
 
-# ── Report category mapping ──────────────────────────────────────
-# Maps database categories to the customer-facing report categories.
-# Categories not listed here are collected under "其他".
+# Legacy titles remain stable for historical sheets; all other snapshots stay literal.
 REPORT_CATEGORY_MAP = {
     "蔬菜": "蔬菜",
     "水果": "水果",
@@ -66,33 +64,25 @@ REPORT_CATEGORY_MAP = {
     "水产": "水产",
 }
 
-# Fixed sheet order for customer-facing reports.
-REPORT_CATEGORY_ORDER = ["蔬菜", "水果", "肉", "米面粮油", "调料", "蛋奶", "水产"]
-
-
 def _report_category(db_category: str) -> str:
-    """Map a database category to the customer report category."""
-    return REPORT_CATEGORY_MAP.get(db_category or "", "其他")
+    return REPORT_CATEGORY_MAP.get(db_category or "", db_category or "其他")
 
 
-def _report_category_lines(lines: list[dict]) -> OrderedDict[str, list[dict]]:
-    """Group lines by report category in fixed sheet order."""
+def _report_category_lines(lines: list[dict], category_sort_orders: dict[str, int] | None = None) -> OrderedDict[str, list[dict]]:
+    """Group historical categories without collapsing unknown future categories."""
     buckets: dict[str, list[dict]] = {}
     for line in sorted(lines, key=lambda item: (item.get("category") or "其他", item.get("product_name") or "", item.get("unit") or "", item.get("price_cents") or 0)):
         report_cat = _report_category(line.get("category"))
         buckets.setdefault(report_cat, []).append(line)
-    result: OrderedDict[str, list[dict]] = OrderedDict()
-    for cat in REPORT_CATEGORY_ORDER:
-        if cat in buckets:
-            result[cat] = buckets.pop(cat)
-    # Merge remaining into "其他"
-    other: list[dict] = []
-    for remaining_lines in buckets.values():
-        other.extend(remaining_lines)
-    if other:
-        other.sort(key=lambda item: (item.get("category") or "其他", item.get("product_name") or ""))
-        result["其他"] = other
-    return result
+    # Direct service callers retain the established legacy sheet order. Production
+    # routes provide the catalog order, which also admits future categories.
+    orders = category_sort_orders if category_sort_orders is not None else {
+        "蔬菜": 10, "水果": 20, "肉": 30, "米面粮油": 40, "调料": 50, "蛋奶": 60, "水产": 70,
+    }
+    return OrderedDict(
+        (category, buckets[category])
+        for category in sorted(buckets, key=lambda category: (0 if category in orders else 1, orders.get(category, 0), category))
+    )
 
 
 def _setup_sheet(ws, title: str, headers: list[str], widths: list[int]):
@@ -175,13 +165,13 @@ def _picking_sheet(
     ws.print_area = f"A1:E{end_row + 2}"
 
 
-def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = "", use_category_sheet_names: bool = False):
+def _append_unit_picking_sheets(wb, aggregation: dict, name_prefix: str = "", use_category_sheet_names: bool = False, category_sort_orders: dict[str, int] | None = None):
     batch = aggregation["batch"]
     date = business_document_date(batch)
     for unit in aggregation["by_unit"]:
         code = unit.get("unit_code") or "未编码"
         title_unit = _picking_title_unit(unit)
-        for category, lines in _report_category_lines(unit["items"]).items():
+        for category, lines in _report_category_lines(unit["items"], category_sort_orders).items():
             sheet_name = f"{name_prefix}{category}" if use_category_sheet_names else f"{name_prefix}{code}-{category}"
             ws = wb.create_sheet(_unique_sheet_title(wb, sheet_name))
             _picking_sheet(
@@ -199,13 +189,13 @@ def _picking_summary_title(aggregation: dict) -> str:
     return f"三公鲜配备货单（{batch['batch_no']}）"
 
 
-def batch_picking_workbook(aggregation: dict) -> bytes:
+def batch_picking_workbook(aggregation: dict, category_sort_orders: dict[str, int] | None = None) -> bytes:
     lines = aggregation["document_lines"]
-    categories = _report_category_lines(lines)
+    categories = _report_category_lines(lines, category_sort_orders)
     wb = Workbook()
     wb.properties.title = f"三公鲜配备货单 {aggregation['batch']['batch_no']}"
     wb.remove(wb.active)
-    _append_unit_picking_sheets(wb, aggregation, use_category_sheet_names=len(aggregation["by_unit"]) == 1)
+    _append_unit_picking_sheets(wb, aggregation, use_category_sheet_names=len(aggregation["by_unit"]) == 1, category_sort_orders=category_sort_orders)
     total = wb.create_sheet("总计")
     _picking_sheet(total, _picking_summary_title(aggregation), lines, batch_no=aggregation["batch"]["batch_no"])
     if len(aggregation["by_unit"]) > 1:
@@ -217,18 +207,18 @@ def batch_picking_workbook(aggregation: dict) -> bytes:
     return stream.getvalue()
 
 
-def batch_picking_workbook_multi(aggregations: list[dict]) -> bytes:
+def batch_picking_workbook_multi(aggregations: list[dict], category_sort_orders: dict[str, int] | None = None) -> bytes:
     """Export selected preparation orders into one workbook for easy saving."""
     wb = Workbook()
     wb.remove(wb.active)
     for aggregation in aggregations:
         batch_no = aggregation["batch"]["batch_no"]
         short_batch = batch_no[-4:]
-        _append_unit_picking_sheets(wb, aggregation, name_prefix=f"{short_batch}-")
+        _append_unit_picking_sheets(wb, aggregation, name_prefix=f"{short_batch}-", category_sort_orders=category_sort_orders)
         total = wb.create_sheet(_unique_sheet_title(wb, f"总计-{batch_no}"))
         _picking_sheet(total, _picking_summary_title(aggregation), aggregation["document_lines"], batch_no=batch_no)
         if len(aggregation["by_unit"]) > 1:
-            for category, category_lines in _report_category_lines(aggregation["document_lines"]).items():
+            for category, category_lines in _report_category_lines(aggregation["document_lines"], category_sort_orders).items():
                 ws = wb.create_sheet(_unique_sheet_title(wb, f"{batch_no}-{category}"))
                 _picking_sheet(ws, f"{category}备货单（{batch_no}）", category_lines, batch_no=batch_no)
     stream = BytesIO()

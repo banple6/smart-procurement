@@ -37,12 +37,13 @@ def product_menu_workbook(rows: list[dict]) -> bytes:
     wb.properties.title = "三公鲜配商品菜单"
     ws = wb.active
     ws.title = "三公鲜配商品菜单"
-    ws.append(["序号", "商品名称", "规格", "当前价格"])
+    ws.append(["序号", "商品名称", "分类", "规格", "当前价格"])
     for index, row in enumerate(rows, start=1):
         ws.append(
             [
                 index,
                 _excel_text(row["name"]),
+                _excel_text(row.get("category")),
                 _excel_text(row.get("spec")),
                 Decimal(int(row["price_cents"])) / Decimal(100),
             ]
@@ -52,9 +53,9 @@ def product_menu_workbook(rows: list[dict]) -> bytes:
         cell.fill = PatternFill("solid", fgColor="1F5A94")
         cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.freeze_panes = "A2"
-    for column, width in zip(("A", "B", "C", "D"), (8, 30, 20, 16)):
+    for column, width in zip(("A", "B", "C", "D", "E"), (8, 30, 16, 20, 16)):
         ws.column_dimensions[column].width = width
-    for cell in ws["D"][1:]:
+    for cell in ws["E"][1:]:
         cell.number_format = "0.00"
     stream = BytesIO()
     wb.save(stream)
