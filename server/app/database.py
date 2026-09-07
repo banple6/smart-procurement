@@ -1378,6 +1378,23 @@ def apply_realtime_revisions_migration(conn: sqlite3.Connection):
     )
 
 
+def apply_product_categories_migration(conn: sqlite3.Connection):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS product_categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            sort_order INTEGER NOT NULL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )"""
+    )
+    defaults = ["蔬菜", "水果", "肉禽", "肉类", "水产", "冻货", "粮油", "蛋奶", "鸡蛋", "牛奶", "调料", "其他"]
+    existing = [row["category"] for row in conn.execute("SELECT DISTINCT TRIM(category) AS category FROM products WHERE TRIM(category) <> '' ORDER BY category")]
+    for index, name in enumerate(dict.fromkeys([*defaults, *existing]), start=1):
+        conn.execute("INSERT OR IGNORE INTO product_categories(id, name, sort_order, is_active) VALUES (?, ?, ?, 1)", (str(uuid4()), name, index * 10))
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1414,6 +1431,7 @@ def migrate() -> list[str]:
             ("0024_unit_monthly_quota", apply_unit_monthly_quota_migration),
             ("0025_announcements", apply_announcements_migration),
             ("0026_realtime_revisions", apply_realtime_revisions_migration),
+            ("0027_product_categories", apply_product_categories_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1456,6 +1474,7 @@ def migration_status() -> dict:
         "0024_unit_monthly_quota",
         "0025_announcements",
         "0026_realtime_revisions",
+        "0027_product_categories",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

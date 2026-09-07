@@ -307,6 +307,19 @@ class UnitQuotaSettings(BaseModel):
     client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=120)
 
 
+class ProductCategoryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=40)
+    sort_order: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
+class ProductCategoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: Optional[str] = Field(default=None, min_length=1, max_length=40)
+    sort_order: Optional[int] = Field(default=None, ge=0, le=1000000)
+    is_active: Optional[bool] = None
+
+
 class UnitQuotaAdjustment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

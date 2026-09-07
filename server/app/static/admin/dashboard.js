@@ -16,7 +16,7 @@
     off_shelf: "已下架",
   };
 
-  const productCategories = ["蔬菜", "水果", "肉禽", "水产", "粮油", "蛋奶", "调料", "其他"];
+  let productCategories = [];
   const productUnits = ["公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包"];
   const productStorageMethods = ["常温", "冷藏", "冷冻", "阴凉干燥"];
   const productSupplyStatuses = [["normal", "正常供应"], ["tight", "库存紧张"], ["paused", "暂停供应"]];
@@ -614,6 +614,38 @@
         </form>
       </article>
     `;
+  }
+
+  async function openProductCategoryDialog() {
+    const categories = await api("/api/v1/admin/product-categories");
+    const dialog = openOrgDialog("分类管理", `
+      <form id="productCategoryCreateForm" class="page-toolbar"><input name="name" maxlength="40" placeholder="新增分类" required /><input name="sort_order" type="number" min="0" placeholder="排序" /><button class="primary-link" type="submit">新增分类</button></form>
+      <p class="muted">当前分类仍需兼容旧版 App，暂不可修改名称或停用。</p>
+      ${table(["分类名称", "排序", "状态", "操作"], categories.map((category) => `<tr><td>${html(category.name)}</td><td>${num(category.sort_order)}</td><td>${category.is_active ? "启用" : "停用"}</td><td>${category.legacy_protected ? "旧版 App 兼容中" : `<button class="table-action" data-category-edit="${html(category.id)}" data-category-name="${html(category.name)}" data-category-sort="${num(category.sort_order)}">编辑</button><button class="table-action" data-category-toggle="${html(category.id)}" data-active="${category.is_active ? "0" : "1"}">${category.is_active ? "停用" : "启用"}</button>`}</td></tr>`), "暂无分类")}
+    `);
+    $("productCategoryCreateForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(event.currentTarget);
+      await api("/api/v1/admin/product-categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: data.get("name"), ...(data.get("sort_order") ? { sort_order: Number(data.get("sort_order")) } : {}) }) });
+      dialog.close();
+      await loadProducts();
+      openProductCategoryDialog().catch((error) => toast(error.message || "分类管理加载失败"));
+    });
+    dialog.root.querySelectorAll("[data-category-toggle]").forEach((button) => button.addEventListener("click", async () => {
+      await api(`/api/v1/admin/product-categories/${button.dataset.categoryToggle}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: button.dataset.active === "1" }) });
+      dialog.close();
+      await loadProducts();
+    }));
+    dialog.root.querySelectorAll("[data-category-edit]").forEach((button) => button.addEventListener("click", async () => {
+      const name = window.prompt("分类名称", button.dataset.categoryName);
+      if (name === null) return;
+      const sort = window.prompt("排序", button.dataset.categorySort);
+      if (sort === null) return;
+      await api(`/api/v1/admin/product-categories/${button.dataset.categoryEdit}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, sort_order: Number(sort) }) });
+      dialog.close();
+      await loadProducts();
+      openProductCategoryDialog().catch((error) => toast(error.message || "分类管理加载失败"));
+    }));
   }
 
   function bindProductOptionButtons(root) {
@@ -1475,7 +1507,8 @@
   async function loadProducts() {
     const params = new URLSearchParams(window.location.search);
     pageShell("食材列表", "价格、库存和供应状态");
-    const products = await api("/api/v1/admin/products");
+    const [products, categories] = await Promise.all([api("/api/v1/admin/products"), api("/api/v1/admin/product-categories")]);
+    productCategories = categories.filter((item) => item.is_active).map((item) => item.name);
     let rows = products;
     if (params.get("status") === "tight") {
       rows = products.filter((item) => item.supply_status === "tight" || Number(item.available_quantity || 0) <= Number(item.warning_quantity || 0));
@@ -1485,6 +1518,7 @@
     content().innerHTML += `
       <div class="page-toolbar">
         <button class="primary-link" data-create-product type="button">添加食材</button>
+        <button class="secondary-button" id="manageProductCategories" type="button">分类管理</button>
         <button class="secondary-button" id="exportProductMenu" type="button">导出商品菜单</button>
         <a class="secondary-button as-link" href="/api/v1/admin/products/import-template.xlsx">下载标准模板</a>
         <a class="secondary-button as-link" href="/admin/price-imports">上传 Excel</a>
@@ -1500,6 +1534,7 @@
       <tr>${state.productSelectionMode ? `<td><input class="row-check" type="checkbox" data-product-select="${item.id}" ${state.selectedProductIds.has(item.id) ? "checked" : ""} aria-label="选择${html(item.name)}" /></td>` : ""}<td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
     `), "暂无食材");
     $("exportProductMenu").addEventListener("click", () => downloadProductMenu($("exportProductMenu")));
+    $("manageProductCategories").addEventListener("click", () => openProductCategoryDialog().catch((error) => toast(error.message || "分类管理加载失败")));
     const form = $("productCreateForm");
     document.querySelectorAll("[data-create-product]").forEach((button) => button.addEventListener("click", () => {
       state.productFormOpen = true;
@@ -1820,7 +1855,8 @@
 
   async function loadPriceImportDetail(batchId, selectedFilter = "ALL") {
     pageShell("Excel 智能导入与价格同步", "核对新增食材、价格和异常项后，再确认应用");
-    const batch = await api(`/api/v1/admin/price-imports/${batchId}`);
+    const [batch, categories] = await Promise.all([api(`/api/v1/admin/price-imports/${batchId}`), api("/api/v1/admin/product-categories")]);
+    productCategories = categories.filter((item) => item.is_active).map((item) => item.name);
     const blockers = (batch.rows || []).filter((row) => !["READY", "IGNORED"].includes(row.validation_status));
     const mapping = priceImportMapping(batch.column_mapping_json);
     const products = await api("/api/v1/admin/products");

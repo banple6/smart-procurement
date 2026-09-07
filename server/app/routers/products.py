@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response, UploadF
 
 from ..database import all_rows, connect, one, transaction, write_audit
 from ..dependencies import current_user, require_admin_user
-from ..models import EDITABLE_SUPPLY_STATUSES, PRODUCT_CATEGORIES, PRODUCT_STORAGE_METHODS, PRODUCT_UNITS, resolve_product_spec
+from ..models import EDITABLE_SUPPLY_STATUSES, PRODUCT_STORAGE_METHODS, PRODUCT_UNITS, resolve_product_spec
 from ..schemas import (
     ProductBatchDelete,
     ProductCreate,
@@ -24,6 +24,7 @@ from ..services.exports import product_import_template_workbook, product_menu_wo
 from ..services.images import save_upload
 from ..services.inventory import as_decimal, decimal_text, log_inventory
 from ..services.local_time import local_now
+from ..services.product_categories import ensure_product_category
 
 router = APIRouter(tags=["products"])
 
@@ -130,11 +131,11 @@ def parse_quantity(value: str, field_name: str) -> Decimal:
         raise HTTPException(status_code=400, detail=f"{field_name}格式不正确")
 
 
-def validate_product_payload(fields: dict, existing: dict | None = None):
+def validate_product_payload(conn, fields: dict, existing: dict | None = None):
     if "name" in fields and not str(fields["name"]).strip():
         raise HTTPException(status_code=400, detail="食材名称不能为空")
-    if "category" in fields and fields["category"] not in PRODUCT_CATEGORIES:
-        raise HTTPException(status_code=400, detail="食材分类不正确")
+    if "category" in fields:
+        fields["category"] = ensure_product_category(conn, fields["category"], existing.get("category") if existing else None)
     if "unit" in fields and fields["unit"] not in PRODUCT_UNITS:
         raise HTTPException(status_code=400, detail="计量单位不正确")
     if "spec" in fields and not str(fields["spec"]).strip():
@@ -223,12 +224,14 @@ def export_product_menu(admin=Depends(require_admin_user)):
         rows = all_rows(
             conn,
             """
-            SELECT name, spec, price_cents
+            SELECT products.name, products.category, products.spec, products.price_cents
             FROM products
+            LEFT JOIN product_categories ON product_categories.name = products.category
             WHERE is_deleted = 0
               AND active = 1
               AND supply_status IN ('normal', 'tight')
-            ORDER BY created_at DESC
+            ORDER BY CASE WHEN product_categories.sort_order IS NULL THEN 1 ELSE 0 END,
+                     product_categories.sort_order, products.category, products.created_at DESC, products.id
             """,
         )
     filename_date = local_now().strftime("%Y%m%d")
@@ -252,9 +255,9 @@ def product_detail(product_id: str, user=Depends(current_user)):
 def create_product(body: ProductCreate, admin=Depends(require_admin_user)):
     fields = body.model_dump()
     fields["spec"] = resolve_product_spec(fields["unit"], fields.get("spec"))
-    validate_product_payload(fields)
     product_id = str(uuid4())
     with transaction() as conn:
+        validate_product_payload(conn, fields)
         conn.execute(
             """
             INSERT INTO products(id, product_code, name, category, spec, unit, price_cents, stock_quantity,
@@ -289,7 +292,7 @@ def update_product(product_id: str, body: ProductUpdate, admin=Depends(require_a
         if "unit" in fields or "spec" in fields:
             next_unit = fields.get("unit", existing["unit"])
             fields["spec"] = resolve_product_spec(next_unit, fields.get("spec"), existing.get("spec"))
-        validate_product_payload(fields, existing)
+        validate_product_payload(conn, fields, existing)
         if fields:
             assignments = ", ".join(f"{key} = ?" for key in fields)
             values = [int(v) if isinstance(v, bool) else v for v in fields.values()]

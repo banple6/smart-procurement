@@ -1522,7 +1522,7 @@ def test_admin_static_assets_avoid_cdn_storage_and_repeated_stale_label():
     assert "http://" not in combined_dashboard_source
     assert "https://" not in combined_dashboard_source
     assert '/admin-assets/dashboard.css?v=0.3.9.0' in dashboard_html
-    assert '/admin-assets/dashboard.js?v=0.3.23.0' in dashboard_html
+    assert '/admin-assets/dashboard.js?v=0.3.25.0' in dashboard_html
     assert '/admin-assets/refresh-policy.js?v=1.0.1' in dashboard_html
     assert 'const SIDEBAR_STORAGE_KEY = "adminSidebarCollapsed";' in dashboard_js
     assert 'window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"' in dashboard_js
@@ -2145,7 +2145,7 @@ def test_product_fast_entry_server_validation_matches_frontend_options(tmp_path)
         json={**base_payload, "product_code": "BAD-CATEGORY", "category": "办公用品"},
     )
     assert invalid_category.status_code == 400
-    assert invalid_category.json()["detail"] == "食材分类不正确"
+    assert invalid_category.json()["detail"] == "食材分类不存在或已停用，请先在分类管理中启用"
 
     invalid_unit = client.post(
         "/api/v1/admin/products",

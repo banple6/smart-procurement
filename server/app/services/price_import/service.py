@@ -12,7 +12,8 @@ from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 
 from ...database import connect, decimal_text, private_upload_dir, transaction, one, write_audit
-from ...models import EDITABLE_SUPPLY_STATUSES, PRODUCT_CATEGORIES, PRODUCT_UNITS, resolve_product_spec
+from ...models import EDITABLE_SUPPLY_STATUSES, PRODUCT_UNITS, resolve_product_spec
+from ...services.product_categories import active_category_names, ensure_product_category
 from ...services.dashboard_cache import invalidate_dashboard_cache
 from .matcher import load_product_indexes, match_product
 from ..local_time import display_local_time
@@ -125,14 +126,13 @@ def _valid_stock_quantity(value: str) -> str | None:
     return decimal_text(quantity) if quantity >= 0 else None
 
 
-def _validate_new_product_defaults(fields: dict) -> dict:
+def _validate_new_product_defaults(conn, fields: dict) -> dict:
     category = str(fields.get("category") or "").strip()
     spec = str(fields.get("spec") or "").strip()
     stock_quantity = _valid_stock_quantity(str(fields.get("stock_quantity") or ""))
     supply_status = str(fields.get("supply_status") or "").strip()
     fallback_unit = _canonical_product_unit(str(fields.get("fallback_unit") or "")) if fields.get("fallback_unit") else ""
-    if category not in PRODUCT_CATEGORIES:
-        raise HTTPException(status_code=400, detail="新增商品默认分类不正确")
+    category = ensure_product_category(conn, category)
     if not spec:
         raise HTTPException(status_code=400, detail="新增商品默认规格不能为空")
     if stock_quantity is None:
@@ -142,7 +142,7 @@ def _validate_new_product_defaults(fields: dict) -> dict:
     return {"category": category, "spec": spec, "stock_quantity": stock_quantity, "supply_status": supply_status, "fallback_unit": fallback_unit, "active": bool(fields.get("active", True))}
 
 
-def _batch_new_product_defaults(batch: dict) -> dict:
+def _batch_new_product_defaults(conn, batch: dict) -> dict:
     try:
         stored = json.loads(batch.get("new_product_defaults_json") or "{}")
     except (TypeError, ValueError, json.JSONDecodeError):
@@ -150,14 +150,14 @@ def _batch_new_product_defaults(batch: dict) -> dict:
     values = dict(DEFAULT_NEW_PRODUCT_FIELDS)
     if isinstance(stored, dict):
         values.update({key: value for key, value in stored.items() if key in values})
-    return _validate_new_product_defaults(values)
+    return _validate_new_product_defaults(conn, values)
 
 
 def _generated_product_code(batch_id: str, source_row: int) -> str:
     return f"IMP-{batch_id.replace('-', '')[:12].upper()}-{source_row}"
 
 
-def _new_product_values(batch_id: str, source_row: int, source: dict, defaults: dict) -> tuple[dict, str, str]:
+def _new_product_values(conn, batch_id: str, source_row: int, source: dict, defaults: dict) -> tuple[dict, str, str]:
     category = source["category"].strip() or defaults["category"]
     unit = _canonical_product_unit(source["unit"]) or defaults["fallback_unit"]
     source_spec = source["spec"].strip()
@@ -173,7 +173,7 @@ def _new_product_values(batch_id: str, source_row: int, source: dict, defaults: 
         "supply_status": defaults["supply_status"],
         "active": defaults["active"],
     }
-    if source["category"].strip() and category not in PRODUCT_CATEGORIES:
+    if source["category"].strip() and category not in active_category_names(conn):
         return values, "NEEDS_REVIEW", "Excel 分类无法映射到系统分类，请确认后导入"
     if not unit:
         return values, "NEEDS_REVIEW", "缺少可用计量单位，请在批量默认设置中选择"
@@ -221,7 +221,7 @@ def _build_rows(conn, batch_id: str, sheet_name: str, rows: list[list[str]], hea
                 operation_type, status = "NEEDS_REVIEW", "NEEDS_REVIEW"
                 warning = result.get("warning", "系统中存在多个同名商品，请确认")
             else:
-                new_values, status, warning = _new_product_values(batch_id, index, source, defaults)
+                new_values, status, warning = _new_product_values(conn, batch_id, index, source, defaults)
                 normalized_unit, normalized_cents, factor = new_values["unit"] or source_unit, cents, "1"
         if product and status == "READY":
             seen_existing.setdefault(product["id"], []).append((source["spec"], normalized_cents))
@@ -291,7 +291,7 @@ def analyze_batch(batch_id: str, admin: dict, sheet_name: str | None = None, map
                     raise HTTPException(status_code=400, detail="自动字段识别未完成，请手动确认 Excel 字段") from exc
             if "product_name" not in effective_mapping or "price" not in effective_mapping:
                 raise HTTPException(status_code=400, detail="未能确定商品名称或执行价格列，请手动确认字段")
-            defaults = _batch_new_product_defaults(_batch(conn, batch_id))
+            defaults = _batch_new_product_defaults(conn, _batch(conn, batch_id))
             matching_started = time.monotonic()
             mapping_names, built, product_count = _build_rows(conn, batch_id, selected.name, selected.rows, effective_header_row, effective_mapping, defaults)
             matching_duration_ms = int((time.monotonic() - matching_started) * 1000)
@@ -363,8 +363,7 @@ def _update_new_product_row(conn, row: dict, values: dict, reviewer_note: str = 
     stock_quantity = _valid_stock_quantity(str(values.get("stock_quantity") or ""))
     supply_status = str(values.get("supply_status") or "").strip()
     product_code = str(values.get("product_code") or "").strip()
-    if category not in PRODUCT_CATEGORIES:
-        raise HTTPException(status_code=400, detail="新增商品分类不正确")
+    category = ensure_product_category(conn, category)
     if not spec:
         raise HTTPException(status_code=400, detail="新增商品规格不能为空")
     if unit not in PRODUCT_UNITS:
@@ -385,15 +384,15 @@ def _update_new_product_row(conn, row: dict, values: dict, reviewer_note: str = 
 
 
 def patch_new_product_defaults(batch_id: str, admin: dict, fields: dict) -> dict:
-    defaults = _validate_new_product_defaults(fields)
     with transaction() as conn:
+        defaults = _validate_new_product_defaults(conn, fields)
         batch = _batch(conn, batch_id)
         if batch["status"] not in {"UPLOADED", "READY_FOR_REVIEW", "FAILED"}:
             raise HTTPException(status_code=409, detail="该调价批次当前不能修改新增商品默认设置")
         rows = [dict(row) for row in conn.execute("SELECT * FROM price_import_rows WHERE batch_id=? AND operation_type='NEW_PRODUCT'", (batch_id,))]
         for row in rows:
             source = {"code": row["source_product_code"], "name": row["source_product_name"], "category": row["source_category"], "spec": row["source_spec"], "unit": row["source_unit"], "stock": row["source_stock"]}
-            values, status, warning = _new_product_values(batch_id, int(row["source_row"]), source, defaults)
+            values, status, warning = _new_product_values(conn, batch_id, int(row["source_row"]), source, defaults)
             conn.execute(
                 """UPDATE price_import_rows SET proposed_product_code=?, proposed_category=?, proposed_spec=?, proposed_unit=?,
                 proposed_stock_quantity=?, proposed_supply_status=?, proposed_active=?, validation_status=?, warning=?, updated_at=CURRENT_TIMESTAMP WHERE id=?""",
@@ -530,7 +529,7 @@ def batch_out(batch_id: str) -> dict:
         summary = {}
     batch["llm_called"] = bool(batch["llm_called"])
     batch["summary"] = summary
-    batch["new_product_defaults"] = _batch_new_product_defaults(batch)
+    batch["new_product_defaults"] = _batch_new_product_defaults(conn, batch)
     for row in rows:
         row["excel_price_cents"] = parse_price_cents(row["source_price"])
         if row["operation_type"] == "NEW_PRODUCT":
