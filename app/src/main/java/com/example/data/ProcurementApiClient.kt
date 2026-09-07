@@ -1815,7 +1815,7 @@ class ProcurementApiClient(
         mustChangePassword = json.optBoolean("must_change_password", false)
     )
 
-    private fun parseProduct(json: JSONObject): ProductEntity {
+    internal fun parseProduct(json: JSONObject): ProductEntity {
         val status = json.optString("supply_status", "normal")
         val active = json.optBoolean("active", true)
         return ProductEntity(

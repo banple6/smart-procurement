@@ -34,7 +34,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.ProductEntity
+import com.smartprocurement.internal.domain.product.ALL_PRODUCT_CATEGORIES
 import com.smartprocurement.internal.domain.product.ProductOptions
+import com.smartprocurement.internal.domain.product.matchesProductCategory
+import com.smartprocurement.internal.domain.product.productCategoryFilters
+import com.smartprocurement.internal.domain.product.selectedProductCategory
 import com.smartprocurement.internal.domain.money.Money
 import com.smartprocurement.internal.domain.quantity.QuantityFormatter
 import com.smartprocurement.internal.ui.designsystem.PoliceBrandHeader
@@ -57,7 +61,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val IngredientCategories = listOf("全部", "蔬菜", "水果", "肉禽", "水产", "蛋奶", "粮油", "调料", "其他")
 private val SupplyStatuses = listOf("全部", "正常供应", "库存紧张", "库存不足", "暂停供应", "已下架")
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,7 +71,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
     val products by viewModel.allProducts.collectAsState()
     val cartList by viewModel.cartItems.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("全部") }
+    var selectedCategory by remember { mutableStateOf(ALL_PRODUCT_CATEGORIES) }
     var selectedStatus by remember { mutableStateOf("全部") }
     var selectedProductIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
@@ -104,9 +107,14 @@ fun HomeScreen(viewModel: SupplyViewModel) {
         selectedProductIds = selectedProductIds.intersect(products.mapTo(mutableSetOf()) { it.id })
     }
 
+    val categoryFilters = remember(products) { productCategoryFilters(products.map { it.category }) }
+    LaunchedEffect(categoryFilters) {
+        selectedCategory = selectedProductCategory(selectedCategory, categoryFilters)
+    }
+
     val filteredProducts = products.filter { product ->
         val matchQuery = product.name.contains(searchQuery, ignoreCase = true) || product.code.contains(searchQuery, ignoreCase = true)
-        val matchCategory = selectedCategory == "全部" || product.category == selectedCategory
+        val matchCategory = matchesProductCategory(product.category, selectedCategory)
         val matchStatus = selectedStatus == "全部" || product.displayStatus() == selectedStatus
         matchQuery && matchCategory && matchStatus
     }
@@ -274,7 +282,7 @@ fun HomeScreen(viewModel: SupplyViewModel) {
                 )
             }
             item {
-                FilterRow(IngredientCategories, selectedCategory) { selectedCategory = it }
+                FilterRow(categoryFilters, selectedCategory) { selectedCategory = it }
             }
             item {
                 FilterRow(SupplyStatuses, selectedStatus) { selectedStatus = it }
