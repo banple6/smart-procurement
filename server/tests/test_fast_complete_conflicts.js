@@ -49,7 +49,7 @@ assert.deepEqual(
 
 async function confirmWith(error) {
   const toasts = [];
-  const loads = [];
+  const reconciles = [];
   const elements = {
     cancelFastComplete: { addEventListener() {} },
     confirmFastComplete: {
@@ -69,7 +69,7 @@ async function confirmWith(error) {
     html: (value) => value,
     num: (value) => value,
     toast: (message) => toasts.push(message),
-    loadCurrent: async (...args) => loads.push(args),
+    reconcileOrderMutation: async () => reconciles.push(true),
   };
   vm.runInNewContext(
     `${extractFunction("fastCompleteConflict")}\n${extractFunction("openFastCompleteReview")}\nglobalThis.openFastCompleteReview = openFastCompleteReview;`,
@@ -77,30 +77,30 @@ async function confirmWith(error) {
   );
   await runtime.openFastCompleteReview({ textContent: "完成", disabled: false, dataset: { fastComplete: "order-1" } });
   await elements.confirmFastComplete.callback();
-  return { dialog, loads, toasts };
+  return { dialog, reconciles, toasts };
 }
 
 async function main() {
   const existing = await confirmWith(Object.assign(new Error("该订单已经进入出库流程，请使用现有出库单继续处理"), { status: 409 }));
   assert.equal(existing.dialog.closed, true);
   assert.deepEqual(existing.toasts, ["该订单已经进入出库流程，请使用现有出库单继续处理"]);
-  assert.deepEqual(existing.loads, []);
+  assert.deepEqual(existing.reconciles, []);
 
   const stale = await confirmWith(Object.assign(new Error("订单已被其他管理员修改，请刷新后重试"), { status: 409 }));
   assert.deepEqual(stale.toasts, ["订单状态已更新，请重新确认。"]);
-  assert.deepEqual(stale.loads, [[true, "conflict"]]);
+  assert.deepEqual(stale.reconciles, [true]);
 
   const generic = await confirmWith(Object.assign(new Error("当前订单状态不允许完成"), { status: 409 }));
   assert.deepEqual(generic.toasts, ["当前订单状态不允许完成"]);
-  assert.deepEqual(generic.loads, []);
+  assert.deepEqual(generic.reconciles, []);
 
   const missing = await confirmWith(Object.assign(new Error(""), { status: 409 }));
   assert.deepEqual(missing.toasts, ["订单状态已更新，请刷新后重新确认。"]);
-  assert.deepEqual(missing.loads, [[true, "conflict"]]);
+  assert.deepEqual(missing.reconciles, [true]);
 
   const server = await confirmWith(Object.assign(new Error("服务器异常，请稍后重试"), { status: 500 }));
   assert.deepEqual(server.toasts, ["服务器异常，请稍后重试"]);
-  assert.deepEqual(server.loads, []);
+  assert.deepEqual(server.reconciles, []);
 }
 
 main().catch((error) => {

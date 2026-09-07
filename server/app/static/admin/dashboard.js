@@ -86,6 +86,7 @@
     outboundItems: [],
     unitItems: [],
     orderItems: [],
+    openOrderDetailId: "",
     orderBulkBusy: false,
     mutationInFlight: 0,
     lastScrollInteractionAt: 0,
@@ -809,11 +810,10 @@
       });
       if (isAccept) {
         toast("接单成功，可直接完成订单");
-        await loadCurrent(true);
       } else {
         toast("操作已完成");
-        await loadCurrent(true);
       }
+      await reconcileOrderMutation();
     } catch (error) {
       toast(error.message || "操作失败，请刷新后重试");
       button.disabled = false;
@@ -870,12 +870,12 @@
           });
           dialog.close();
           toast(`订单已完成，出库单 ${result.outbound?.outbound_no || ""} 已自动生成并完成`.trim());
-          await loadCurrent(true);
+          await reconcileOrderMutation();
         } catch (error) {
           if (error.status === 409) {
             const conflict = fastCompleteConflict(error);
             dialog.close();
-            if (conflict.refresh) await loadCurrent(true, "conflict");
+            if (conflict.refresh) await reconcileOrderMutation();
             toast(conflict.message);
             return;
           }
@@ -915,7 +915,7 @@
         body: (action === "cancel" || action === "void") ? JSON.stringify({ reason }) : undefined,
       });
       toast(`订单已${label}`);
-      await loadCurrent(true);
+      await reconcileOrderMutation();
     } catch (error) {
       toast(error.message || "操作失败，请刷新后重试");
       button.disabled = false;
@@ -942,8 +942,12 @@
         body: JSON.stringify({ reason: reason.trim() }),
       });
       toast("订单已删除");
-      if (currentRoute().startsWith("/admin/orders/")) window.location.assign("/admin/orders");
-      else await loadCurrent(true);
+      if (currentRoute().startsWith("/admin/orders/")) {
+        const detail = $("orderDetailContent");
+        if (detail) detail.innerHTML = '<article class="panel section-panel"><p>订单已删除，不再显示在订单管理列表。</p><a class="secondary-button as-link" href="/admin/orders">返回订单管理</a></article>';
+      } else {
+        await reconcileOrderMutation();
+      }
     } catch (error) {
       if (error.status === 409) showNewDataBanner("该订单已被其他管理员修改，请刷新后重试。");
       toast(error.message || "删除失败，请刷新后重试");
@@ -992,7 +996,7 @@
         throw new Error(detail || "发货失败，请刷新后重试");
       }
       toast("已确认发货");
-      await loadCurrent(true);
+      await reconcileOrderMutation();
     } catch (error) {
       toast(error.message || "发货失败，请刷新后重试");
       button.disabled = false;
@@ -1098,7 +1102,7 @@
     state.selectedOrderIds.clear();
     state.selectedOrderVersions.clear();
     toast(failures.length ? `成功接单 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已成功接单 ${successCount} 笔订单`);
-    await loadCurrent(true);
+    await reconcileOrderMutation();
   }
 
   async function bulkCreatePreparationOrder() {
@@ -1149,7 +1153,7 @@
     state.selectedOrderIds.clear();
     state.selectedOrderVersions.clear();
     toast(failures.length ? `成功删除 ${successCount} 笔，失败 ${failures.length} 笔：${failures[0]}` : `已删除 ${successCount} 笔订单`);
-    await loadCurrent(true);
+    await reconcileOrderMutation();
   }
 
   function orderListQuery() {
@@ -1182,13 +1186,37 @@
     window.history.replaceState({}, "", `/admin/orders${next.toString() ? `?${next.toString()}` : ""}`);
   }
 
+  function orderRemark(order) {
+    return String(order?.note || "").trim();
+  }
+
+  function orderRemarkMarkup(order, compact = false) {
+    const note = orderRemark(order);
+    if (!note) return "";
+    return `<div class="order-remark${compact ? " compact" : ""}"><strong>备注</strong><span>${html(note)}</span></div>`;
+  }
+
+  function orderRowRenderKey(order) {
+    return JSON.stringify([
+      order.version || 1,
+      order.status || "",
+      order.note || "",
+      order.total_cents || 0,
+      order.can_cancel,
+      order.can_void,
+      order.can_archive,
+      order.can_unarchive,
+      order.can_delete,
+    ]);
+  }
+
   function orderRow(order) {
     const action = primaryAction(order);
     const button = action[1] === "fast_complete"
       ? `<button class="table-action primary" data-fast-complete="${order.id}" type="button">${action[0]}</button>`
       : action[1] === "ship"
       ? `<button class="table-action primary" data-ship="${order.id}" data-order="${order.id}">${action[0]}</button>`
-      : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : `<a class="table-action" href="/admin/orders/${order.id}">查看</a>`;
+      : action[1] ? `<button class="table-action primary" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : "";
     const lifecycle = order.can_cancel ? `<button class="table-action" data-lifecycle="cancel" data-order="${order.id}">取消</button>`
       : order.can_void ? `<button class="table-action" data-lifecycle="void" data-order="${order.id}">作废</button>`
       : order.can_archive ? `<button class="table-action" data-lifecycle="archive" data-order="${order.id}">归档</button>`
@@ -1196,7 +1224,7 @@
     const deleteButton = order.can_delete
       ? `<button class="table-action danger" data-delete-order="${order.id}">删除</button>`
       : `<button class="table-action danger" type="button" data-delete-order="${order.id}" data-delete-blocked="${html(order.delete_reason || "当前状态不能删除")}">删除</button>`;
-    return `<tr data-order-id="${html(order.id)}" data-order-version="${html(order.version || 1)}"><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td>${html(order.order_no)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td><a class="table-action" href="/admin/orders/${order.id}">查看明细</a> ${button} ${lifecycle} ${deleteButton}</td></tr>`;
+    return `<tr data-order-id="${html(order.id)}" data-order-version="${html(order.version || 1)}" data-order-render-key="${html(orderRowRenderKey(order))}"><td><input class="order-row-check" type="checkbox" data-order-select="${order.id}" aria-label="选择订单 ${html(order.order_no)}" ${state.selectedOrderIds.has(order.id) ? "checked" : ""} /></td><td><div>${html(order.order_no)}</div>${orderRemarkMarkup(order, true)}</td><td>${html(order.unit_code || "--")}</td><td>${html(order.unit_name_snapshot || order.unit_name || "--")}</td><td>${dateTime(order.created_at)}</td><td>${money(order.total_cents)}</td><td>${statusTag(order.status)}</td><td><button class="table-action" data-order-detail="${order.id}" type="button">查看明细</button> ${button} ${lifecycle} ${deleteButton}</td></tr>`;
   }
 
   function orderMonthTable(month, rows) {
@@ -1235,6 +1263,8 @@
       renderOrderSelection();
     });
     target.addEventListener("click", (event) => {
+      const detailButton = event.target.closest?.("[data-order-detail]");
+      if (detailButton) return openOrderDetailDialog(detailButton.dataset.orderDetail).catch((error) => toast(error.message || "加载订单明细失败"));
       const statusButton = event.target.closest?.("[data-order][data-status]");
       if (statusButton) return updateOrderStatus(statusButton);
       const shipButton = event.target.closest?.("[data-ship]");
@@ -1247,7 +1277,7 @@
   function patchOrdersRealtime(data) {
     const items = data.items || [];
     const list = document.querySelector(".order-month-list");
-    if (!list) return loadOrders();
+    if (!list) return false;
     const reconciliation = window.AdminOrderSelectionPolicy.reconcileSelection(items, state.selectedOrderIds, state.selectedOrderVersions);
     state.selectedOrderIds = reconciliation.selectedIds;
     state.selectedOrderVersions = reconciliation.selectedVersions;
@@ -1274,7 +1304,7 @@
       orders.forEach((order, index) => {
         const current = list.querySelector(`tr[data-order-id="${CSS.escape(order.id)}"]`);
         let row = current;
-        if (!row || row.dataset.orderVersion !== String(order.version || 1)) {
+        if (!row || row.dataset.orderRenderKey !== orderRowRenderKey(order)) {
           const wrapper = document.createElement("tbody");
           wrapper.innerHTML = orderRow(order);
           const replacement = wrapper.firstElementChild;
@@ -1382,9 +1412,8 @@
     });
   }
 
-  async function loadOrderDetail(orderId) {
-    pageShell("订单详情", "订单状态和食材明细");
-    const order = await api(`/api/v1/admin/orders/${orderId}`);
+  function renderOrderDetail(order, target = $("orderDetailContent")) {
+    if (!target) return;
     const action = primaryAction(order);
     const lifecycle = order.can_cancel ? `<button class="secondary-button" data-lifecycle="cancel" data-order="${order.id}">取消订单</button>`
       : order.can_void ? `<button class="secondary-button" data-lifecycle="void" data-order="${order.id}">作废订单</button>`
@@ -1393,31 +1422,48 @@
     const deleteButton = order.can_delete
       ? `<button class="danger-button" data-delete-order="${order.id}">删除订单</button>`
       : `<button class="danger-button" type="button" data-delete-order="${order.id}" data-delete-blocked="${html(order.delete_reason || "当前状态不能删除")}">删除订单</button>`;
-    content().innerHTML += `
+    target.innerHTML = `
       <article class="panel section-panel">
         <div class="panel-header"><div><h2>${html(order.order_no)}</h2><p>${html(order.unit_code || "--")} · ${html(order.unit_name_snapshot || "--")} · ${dateTime(order.created_at)}</p></div><div>${statusTag(order.status)}</div></div>
         <dl class="status-list detail-list">
           <dt>单位编码</dt><dd>${html(order.unit_code || "--")}</dd>
           <dt>配送点</dt><dd>${html(order.delivery_point || "--")}</dd>
-          <dt>备注</dt><dd>${html(order.remark || "无")}</dd>
+          <dt>订单备注</dt><dd class="order-detail-remark">${html(orderRemark(order) || "无")}</dd>
           <dt>订单金额</dt><dd>${money(order.total_cents)}</dd>
         </dl>
         <div class="page-toolbar">${action[1] === "fast_complete" ? `<button class="primary-link" data-fast-complete="${order.id}" type="button">完成</button>` : action[1] && action[1] !== "ship" ? `<button class="primary-link" data-order="${order.id}" data-status="${action[1]}" data-current-status="${order.status}" data-version="${order.version || 1}">${action[0]}</button>` : ""}${lifecycle}${deleteButton}</div>
       </article>
     `;
     if ((order.shipping_photos || []).length) {
-      content().innerHTML += `
+      target.innerHTML += `
         <article class="panel section-panel">
           <div class="panel-header"><div><h2>发货照片</h2><p>${html(order.shipping_note || "无备注")}</p></div></div>
           <div class="photo-grid">${order.shipping_photos.map((photo) => `<a href="${photo.full_url}" target="_blank" rel="noreferrer"><img src="${photo.thumbnail_url}" alt="发货照片" /></a>`).join("")}</div>
         </article>
       `;
     }
-    content().innerHTML += table(["食材", "规格", "数量", "单价", "小计"], (order.items || []).map((item) => `
+    target.innerHTML += table(["食材", "规格", "数量", "单价", "小计"], (order.items || []).map((item) => `
       <tr><td>${html(item.product_name_snapshot || item.product_name)}</td><td>${html(item.spec_snapshot || item.spec || "--")}</td><td>${qty(item.quantity)}</td><td>${money(item.price_cents_snapshot)}</td><td>${money(item.subtotal_cents)}</td></tr>
     `), "暂无食材明细");
-    document.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
-    document.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
+    target.querySelectorAll("[data-order][data-status]").forEach((button) => button.addEventListener("click", () => updateOrderStatus(button)));
+    target.querySelectorAll("[data-lifecycle]").forEach((button) => button.addEventListener("click", () => lifecycleOrder(button, button.dataset.lifecycle)));
+  }
+
+  async function openOrderDetailDialog(orderId) {
+    const dialog = openOrgDialog("订单详情", '<div id="orderDialogDetailContent"></div>');
+    state.openOrderDetailId = orderId;
+    const order = await api(`/api/v1/admin/orders/${orderId}`);
+    if (!$("orderDialogDetailContent")) return;
+    renderOrderDetail(order, $("orderDialogDetailContent"));
+    dialog.root.addEventListener("click", (event) => {
+      if (event.target === dialog.root || event.target.id === "closeOrgDialog") state.openOrderDetailId = "";
+    });
+  }
+
+  async function loadOrderDetail(orderId) {
+    pageShell("订单详情", "订单状态和食材明细", '<div id="orderDetailContent"></div>');
+    const order = await api(`/api/v1/admin/orders/${orderId}`);
+    renderOrderDetail(order);
   }
 
   async function loadProducts() {
@@ -3386,6 +3432,7 @@
       return false;
     }
     if (resource === "orders" && currentRoute() === "/admin/orders") return refreshOrdersIncrementally();
+    if (resource === "orders" && currentRoute().startsWith("/admin/orders/")) return refreshOrderDetailScoped();
     if (resource === "announcements" && currentRoute() === "/admin/announcements") {
       const params = new URLSearchParams(window.location.search);
       const data = await fetchRealtime(`/api/v1/admin/announcements?${new URLSearchParams({ ...(params.get("status") ? { status: params.get("status") } : {}), ...(params.get("level") ? { level: params.get("level") } : {}), ...(params.get("q") ? { q: params.get("q") } : {}) })}`, resource);
@@ -3396,7 +3443,7 @@
     if (resource === "outbounds" && currentRoute() === "/admin/outbounds") return refreshOutboundListIncrementally();
     if (resource === "quota" && currentRoute() === "/admin/units") return refreshQuotaSummary();
     if (currentRoute() === "/admin/dashboard") return refreshDashboardScoped(resource);
-    // Detail pages retain their open dialog/page context until the user refreshes.
+    // Other detail pages retain their open dialog/page context until the user refreshes.
     state.realtime.dirtyResources.add(resource);
     showNewDataBanner("当前列表已有更新，点击刷新获取最新数据。");
     return false;
@@ -3406,6 +3453,38 @@
     const data = await fetchRealtime(`/api/v1/admin/orders?limit=30&${orderListQuery().toString()}`, "orders");
     if (data) patchOrdersRealtime(data);
     return Boolean(data);
+  }
+
+  async function refreshOrderDetailScoped() {
+    const orderId = currentRoute().split("/").pop();
+    const order = await fetchRealtime(`/api/v1/admin/orders/${orderId}`, "orders");
+    if (!order || !$("orderDetailContent")) return false;
+    renderOrderDetail(order);
+    setSyncStatus(`已同步 · ${formatSyncTime()}`);
+    return true;
+  }
+
+  async function refreshOpenOrderDetailDialog() {
+    const orderId = state.openOrderDetailId;
+    const target = $("orderDialogDetailContent");
+    if (!orderId || !target) {
+      state.openOrderDetailId = "";
+      return false;
+    }
+    const order = await fetchRealtime(`/api/v1/admin/orders/${orderId}`, "order-detail");
+    if (!order || !$("orderDialogDetailContent")) return false;
+    renderOrderDetail(order, $("orderDialogDetailContent"));
+    return true;
+  }
+
+  async function reconcileOrderMutation() {
+    if (currentRoute() === "/admin/orders") {
+      const applied = await refreshOrdersIncrementally();
+      await refreshOpenOrderDetailDialog();
+      return applied;
+    }
+    if (currentRoute().startsWith("/admin/orders/")) return refreshOrderDetailScoped();
+    return false;
   }
 
   async function refreshDashboardScoped(resource) {

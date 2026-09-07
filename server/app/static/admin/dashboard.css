@@ -927,6 +927,40 @@ tbody tr:hover {
   border-top: 1px solid var(--soft-divider);
 }
 
+.order-remark {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 3px solid #d49a27;
+  background: #fff8e8;
+  color: var(--ink-primary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.order-remark strong {
+  color: #895e12;
+  font-size: var(--font-size-label);
+}
+
+.order-remark.compact {
+  margin-top: 6px;
+  padding: 5px 7px;
+  font-size: var(--font-size-label);
+}
+
+.order-remark.compact span {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.order-detail-remark {
+  white-space: pre-wrap;
+}
+
 .primary-link {
   display: inline-flex;
   align-items: center;
