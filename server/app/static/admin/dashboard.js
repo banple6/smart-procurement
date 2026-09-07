@@ -1452,12 +1452,18 @@
   async function openOrderDetailDialog(orderId) {
     const dialog = openOrgDialog("订单详情", '<div id="orderDialogDetailContent"></div>');
     state.openOrderDetailId = orderId;
-    const order = await api(`/api/v1/admin/orders/${orderId}`);
-    if (!$("orderDialogDetailContent")) return;
-    renderOrderDetail(order, $("orderDialogDetailContent"));
-    dialog.root.addEventListener("click", (event) => {
-      if (event.target === dialog.root || event.target.id === "closeOrgDialog") state.openOrderDetailId = "";
-    });
+    try {
+      const order = await api(`/api/v1/admin/orders/${orderId}`);
+      if (!$("orderDialogDetailContent")) return;
+      renderOrderDetail(order, $("orderDialogDetailContent"));
+      dialog.root.addEventListener("click", (event) => {
+        if (event.target === dialog.root || event.target.id === "closeOrgDialog") state.openOrderDetailId = "";
+      });
+    } catch (error) {
+      if (state.openOrderDetailId === orderId) state.openOrderDetailId = "";
+      if (dialog.root?.isConnected) dialog.close();
+      throw error;
+    }
   }
 
   async function loadOrderDetail(orderId) {
