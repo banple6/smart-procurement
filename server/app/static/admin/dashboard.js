@@ -1378,7 +1378,7 @@
     $("bulkDeleteOrders")?.addEventListener("click", bulkDeleteOrders);
     renderOrderSelection();
     if (data.has_more && data.next_cursor) {
-      content().innerHTML += `<div class="page-toolbar"><button id="nextOrderPage" class="table-action" type="button">下一页</button></div>`;
+      content().insertAdjacentHTML("beforeend", `<div class="page-toolbar"><button id="nextOrderPage" class="table-action" type="button">下一页</button></div>`);
       $("nextOrderPage").addEventListener("click", () => {
         const next = new URLSearchParams(window.location.search);
         next.set("cursor", data.next_cursor);
