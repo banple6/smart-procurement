@@ -44,10 +44,13 @@ data class UnitQuota(
     val baseQuotaCents: Long = 0,
     val openingBalanceCents: Long = 0,
     val adjustmentCents: Long = 0,
+    val monthlyCorrectionCents: Long = 0,
+    val effectiveQuotaCents: Long = 0,
     val availableCents: Long = 0,
     val usedThisMonthCents: Long = 0,
     val version: Int = 0,
-    val updatedAt: String = ""
+    val updatedAt: String = "",
+    val futureMonths: List<UnitQuotaFutureMonth> = emptyList()
 ) {
     companion object {
         fun fromJson(json: JSONObject): UnitQuota = UnitQuota(
@@ -57,10 +60,31 @@ data class UnitQuota(
             baseQuotaCents = json.optLong("base_quota_cents", 0),
             openingBalanceCents = json.optLong("opening_balance_cents", 0),
             adjustmentCents = json.optLong("adjustment_cents", 0),
+            monthlyCorrectionCents = json.optLong("monthly_correction_cents", 0),
+            effectiveQuotaCents = json.optLong("effective_quota_cents", 0),
             availableCents = json.optLong("available_cents", 0),
             usedThisMonthCents = json.optLong("used_this_month_cents", 0),
             version = json.optInt("version", 0),
-            updatedAt = json.optString("display_updated_at").ifBlank { json.optString("updated_at") }
+            updatedAt = json.optString("display_updated_at").ifBlank { json.optString("updated_at") },
+            futureMonths = json.optJSONArray("future_months")?.let { array ->
+                List(array.length()) { index -> UnitQuotaFutureMonth.fromJson(array.getJSONObject(index)) }
+            }.orEmpty()
+        )
+    }
+}
+
+data class UnitQuotaFutureMonth(
+    val quotaMonth: String,
+    val plannedQuotaCents: Long,
+    val source: String,
+    val editable: Boolean
+) {
+    companion object {
+        fun fromJson(json: JSONObject) = UnitQuotaFutureMonth(
+            quotaMonth = json.optString("quota_month"),
+            plannedQuotaCents = json.optLong("planned_quota_cents", 0),
+            source = json.optString("source"),
+            editable = json.optBoolean("editable", false)
         )
     }
 }
@@ -1033,14 +1057,16 @@ class ProcurementApiClient(
         defaultMonthlyQuotaCents: Long,
         expectedVersion: Int
     ): UnitQuota {
+        val requestId = IdempotencyKeys.newKey()
         val body = JSONObject()
             .put("enabled", enabled)
             .put("default_monthly_quota_cents", defaultMonthlyQuotaCents)
             .put("expected_version", expectedVersion)
+            .put("client_request_id", requestId)
             .toString()
             .toRequestBody(JSON)
         return UnitQuota.fromJson(
-            request("admin/units/$unitId/quota", token = token, method = "PUT", body = body)
+            request("admin/units/$unitId/quota", token = token, method = "PUT", body = body, extraHeaders = IdempotencyKeys.header(requestId))
         )
     }
 
@@ -1051,15 +1077,50 @@ class ProcurementApiClient(
         reason: String,
         expectedVersion: Int
     ): UnitQuota {
+        val requestId = IdempotencyKeys.newKey()
         val body = JSONObject()
             .put("delta_cents", deltaCents)
             .put("reason", reason.trim())
             .put("expected_version", expectedVersion)
+            .put("client_request_id", requestId)
             .toString()
             .toRequestBody(JSON)
         return UnitQuota.fromJson(
-            request("admin/units/$unitId/quota/adjustments", token = token, method = "POST", body = body)
+            request("admin/units/$unitId/quota/adjustments", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId))
         )
+    }
+
+    fun correctCurrentMonthQuota(token: String, unitId: String, effectiveQuotaCents: Long, reason: String, expectedVersion: Int): UnitQuota {
+        val requestId = IdempotencyKeys.newKey()
+        val body = JSONObject()
+            .put("effective_quota_cents", effectiveQuotaCents)
+            .put("reason", reason.trim())
+            .put("expected_version", expectedVersion)
+            .put("client_request_id", requestId)
+            .toString()
+            .toRequestBody(JSON)
+        return UnitQuota.fromJson(request("admin/units/$unitId/quota/current-month-correction", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId)))
+    }
+
+    fun setFutureUnitQuota(token: String, unitId: String, quotaMonth: String, plannedQuotaCents: Long, expectedVersion: Int): UnitQuota {
+        val requestId = IdempotencyKeys.newKey()
+        val body = JSONObject()
+            .put("planned_quota_cents", plannedQuotaCents)
+            .put("expected_version", expectedVersion)
+            .put("client_request_id", requestId)
+            .toString()
+            .toRequestBody(JSON)
+        return UnitQuota.fromJson(request("admin/units/$unitId/quota/future-months/$quotaMonth", token = token, method = "PUT", body = body, extraHeaders = IdempotencyKeys.header(requestId)))
+    }
+
+    fun restoreFutureUnitQuotaDefault(token: String, unitId: String, quotaMonth: String, expectedVersion: Int): UnitQuota {
+        val requestId = IdempotencyKeys.newKey()
+        val body = JSONObject()
+            .put("expected_version", expectedVersion)
+            .put("client_request_id", requestId)
+            .toString()
+            .toRequestBody(JSON)
+        return UnitQuota.fromJson(request("admin/units/$unitId/quota/future-months/$quotaMonth/restore-default", token = token, method = "POST", body = body, extraHeaders = IdempotencyKeys.header(requestId)))
     }
 
     fun unitQuotaLedger(token: String, unitId: String): List<UnitQuotaLedgerRow> {

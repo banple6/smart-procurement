@@ -88,6 +88,18 @@ internal fun classifyOrderMutationFailure(error: Throwable): OrderMutationFailur
     }
 }
 
+internal enum class QuotaMutationFailure { STALE, NETWORK_RESULT_UNKNOWN, BUSINESS }
+
+internal fun classifyQuotaMutationFailure(error: Throwable): QuotaMutationFailure {
+    val apiError = error as? ApiRequestException
+    if (apiError?.statusCode == 409 && apiError.errorCode == "STALE_WRITE") return QuotaMutationFailure.STALE
+    return if (error is java.io.IOException || error.cause is java.io.IOException) {
+        QuotaMutationFailure.NETWORK_RESULT_UNKNOWN
+    } else {
+        QuotaMutationFailure.BUSINESS
+    }
+}
+
 private fun restoredExternalAction(savedStateHandle: SavedStateHandle): PendingExternalAction? {
     val typeName = savedStateHandle.get<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY) ?: return null
     val type = runCatching { ExternalActionType.valueOf(typeName) }.getOrNull() ?: return null
@@ -1543,12 +1555,7 @@ class SupplyViewModel(
                 replaceUnitQuota(unitId, quota)
                 snackbarMessage = if (enabled) "单位采购额度已启用" else "单位采购额度已关闭"
             }.onFailure { error ->
-                if (error is ApiRequestException && error.statusCode == 409 && error.errorCode == "STALE_WRITE") {
-                    snackbarMessage = "数据已被其他管理员更新，已刷新最新状态。"
-                    refreshAdminQuotaDetail(unitId)
-                } else {
-                    alertMessage = error.toUserMessage("额度设置保存失败")
-                }
+                handleQuotaMutationFailure(unitId, error, "额度设置保存失败")
             }
             isAdminQuotaWriting = false
         }
@@ -1575,12 +1582,7 @@ class SupplyViewModel(
                 replaceUnitQuota(unitId, quota)
                 snackbarMessage = if (deltaCents > 0) "额度已增加" else "额度已扣减"
             }.onFailure { error ->
-                if (error is ApiRequestException && error.statusCode == 409 && error.errorCode == "STALE_WRITE") {
-                    snackbarMessage = "数据已被其他管理员更新，已刷新最新状态。"
-                    refreshAdminQuotaDetail(unitId)
-                } else {
-                    alertMessage = error.toUserMessage("额度调整失败")
-                }
+                handleQuotaMutationFailure(unitId, error, "额度调整失败")
             }
             isAdminQuotaWriting = false
         }
@@ -1588,6 +1590,92 @@ class SupplyViewModel(
 
     private fun replaceUnitQuota(unitId: String, quota: UnitQuota) {
         adminUnits = adminUnits.map { unit -> if (unit.id == unitId) unit.copy(quota = quota) else unit }
+    }
+
+    fun correctAdminCurrentMonthQuota(unitId: String, effectiveQuotaCents: Long, reason: String, expectedVersion: Int) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaWriting) return
+        if (!requireNetworkForWrite()) return
+        if (effectiveQuotaCents < 0 || reason.isBlank()) {
+            alertMessage = if (effectiveQuotaCents < 0) "本月有效额度不能小于 0" else "请填写修正原因"
+            return
+        }
+        isAdminQuotaWriting = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.correctCurrentMonthQuota(authToken, unitId, effectiveQuotaCents, reason, expectedVersion)
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+                snackbarMessage = "本月额度已修正"
+            }.onFailure { error -> handleQuotaMutationFailure(unitId, error, "本月额度修正失败") }
+            isAdminQuotaWriting = false
+        }
+    }
+
+    fun saveAdminFutureQuotaPlan(unitId: String, quotaMonth: String, plannedQuotaCents: Long, expectedVersion: Int) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaWriting) return
+        if (!requireNetworkForWrite()) return
+        if (plannedQuotaCents <= 0) {
+            alertMessage = "未来计划额度必须大于 0"
+            return
+        }
+        isAdminQuotaWriting = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.setFutureUnitQuota(authToken, unitId, quotaMonth, plannedQuotaCents, expectedVersion)
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+                snackbarMessage = "未来月份计划已保存"
+            }.onFailure { error -> handleQuotaMutationFailure(unitId, error, "未来月份计划保存失败") }
+            isAdminQuotaWriting = false
+        }
+    }
+
+    fun restoreAdminFutureQuotaDefault(unitId: String, quotaMonth: String, expectedVersion: Int) {
+        if (authToken.isBlank() || !canManageIngredients() || isAdminQuotaWriting) return
+        if (!requireNetworkForWrite()) return
+        isAdminQuotaWriting = true
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.restoreFutureUnitQuotaDefault(authToken, unitId, quotaMonth, expectedVersion)
+                    apiClient.unitQuota(authToken, unitId) to apiClient.unitQuotaLedger(authToken, unitId)
+                }
+            }.onSuccess { (quota, ledger) ->
+                activeUnitQuota = quota
+                activeUnitQuotaUnitId = unitId
+                unitQuotaLedgerRows = ledger
+                replaceUnitQuota(unitId, quota)
+                snackbarMessage = "未来月份已恢复默认额度"
+            }.onFailure { error -> handleQuotaMutationFailure(unitId, error, "恢复默认额度失败") }
+            isAdminQuotaWriting = false
+        }
+    }
+
+    private fun handleQuotaMutationFailure(unitId: String, error: Throwable, fallback: String) {
+        when (classifyQuotaMutationFailure(error)) {
+            QuotaMutationFailure.STALE -> {
+                snackbarMessage = "额度信息已更新，请重新确认。"
+                refreshAdminQuotaDetail(unitId)
+            }
+            QuotaMutationFailure.BUSINESS -> alertMessage = error.toUserMessage(fallback)
+            QuotaMutationFailure.NETWORK_RESULT_UNKNOWN -> {
+                // A timeout may have committed on the server. Never retry a quota write automatically.
+                snackbarMessage = "请求结果未知，已刷新额度信息，请确认后再操作。"
+                refreshAdminQuotaDetail(unitId)
+            }
+        }
     }
 
     fun saveUnit(id: String, code: String, name: String, deliveryPoint: String) {

@@ -272,7 +272,8 @@ fun CartScreen(viewModel: SupplyViewModel) {
                     JrxpPrimaryButton(
                         text = "提交订单",
                         onClick = { showConfirm = true },
-                        enabled = !viewModel.isSubmittingOrder && !quotaExceeded && staleLines.isEmpty(),
+                        // Cached quota is advisory only; the order API makes the authoritative decision.
+                        enabled = !viewModel.isSubmittingOrder && staleLines.isEmpty(),
                         isLoading = viewModel.isSubmittingOrder
                     )
                 }

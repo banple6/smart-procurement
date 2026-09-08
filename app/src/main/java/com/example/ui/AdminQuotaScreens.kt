@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.smartprocurement.internal.data.RemoteUnit
 import com.smartprocurement.internal.data.UnitQuota
+import com.smartprocurement.internal.data.UnitQuotaFutureMonth
 import com.smartprocurement.internal.data.UnitQuotaLedgerRow
 import com.smartprocurement.internal.domain.money.Money
 import java.math.BigDecimal
@@ -157,6 +158,8 @@ fun UnitQuotaDetailScreen(unitId: String, viewModel: SupplyViewModel) {
     val quota = viewModel.activeUnitQuota?.takeIf { viewModel.activeUnitQuotaUnitId == unitId } ?: unit?.quota
     var showSettings by remember { mutableStateOf(false) }
     var showAdjustment by remember { mutableStateOf(false) }
+    var showCurrentCorrection by remember { mutableStateOf(false) }
+    var futurePlan by remember { mutableStateOf<UnitQuotaFutureMonth?>(null) }
     var pendingEnabled by remember { mutableStateOf<Boolean?>(null) }
 
     LaunchedEffect(unitId) { viewModel.refreshAdminQuotaDetail(unitId) }
@@ -209,8 +212,28 @@ fun UnitQuotaDetailScreen(unitId: String, viewModel: SupplyViewModel) {
                             Button(onClick = { showAdjustment = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), enabled = quota.enabled && !viewModel.isAdminQuotaWriting) {
                                 Text("调整当前余额")
                             }
+                            OutlinedButton(onClick = { showCurrentCorrection = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), enabled = quota.enabled && !viewModel.isAdminQuotaWriting) {
+                                Text("修正本月有效额度")
+                            }
                             if (!quota.enabled) {
                                 Text("请先启用额度控制，才可调整当前余额。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    if (quota.enabled && quota.futureMonths.isNotEmpty()) {
+                        item {
+                            AdminFormCard {
+                                Text("未来月份计划", fontWeight = FontWeight.Bold)
+                                Text("计划仅在未来月份生效；实际月份和已形成记录由服务端锁定。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                quota.futureMonths.forEach { plan ->
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(plan.quotaMonth, fontWeight = FontWeight.Medium)
+                                            Text("${futurePlanSourceLabel(plan.source)} · ${Money.formatCents(plan.plannedQuotaCents)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        OutlinedButton(onClick = { futurePlan = plan }, enabled = plan.editable && !viewModel.isAdminQuotaWriting) { Text("设置") }
+                                    }
+                                }
                             }
                         }
                     }
@@ -248,6 +271,33 @@ fun UnitQuotaDetailScreen(unitId: String, viewModel: SupplyViewModel) {
             }
         )
     }
+    if (showCurrentCorrection && quota != null) {
+        QuotaCurrentCorrectionDialog(
+            quota = quota,
+            saving = viewModel.isAdminQuotaWriting,
+            onDismiss = { showCurrentCorrection = false },
+            onConfirm = { cents, reason ->
+                showCurrentCorrection = false
+                viewModel.correctAdminCurrentMonthQuota(unitId, cents, reason, quota.version)
+            }
+        )
+    }
+    futurePlan?.let { plan ->
+        val expectedVersion = quota?.version ?: return@let
+        FutureQuotaPlanDialog(
+            plan = plan,
+            saving = viewModel.isAdminQuotaWriting,
+            onDismiss = { futurePlan = null },
+            onSave = { cents ->
+                futurePlan = null
+                viewModel.saveAdminFutureQuotaPlan(unitId, plan.quotaMonth, cents, expectedVersion)
+            },
+            onRestoreDefault = {
+                futurePlan = null
+                viewModel.restoreAdminFutureQuotaDefault(unitId, plan.quotaMonth, expectedVersion)
+            }
+        )
+    }
     pendingEnabled?.let { enabled ->
         AlertDialog(
             onDismissRequest = { pendingEnabled = null },
@@ -276,11 +326,61 @@ private fun UnitQuotaOverview(unit: RemoteUnit, quota: UnitQuota) {
         }
         Text("默认月额度：${Money.formatCents(quota.defaultMonthlyQuotaCents)}")
         Text("当前可用余额：${Money.formatCents(quota.availableCents)}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-        Text("本月发放：${Money.formatCents(quota.baseQuotaCents)} · 本月已使用：${Money.formatCents(quota.usedThisMonthCents)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("本月人工调整：${signedMoney(quota.adjustmentCents)} · 版本：${quota.version}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("本月基础额度：${Money.formatCents(quota.baseQuotaCents)} · 本月有效额度：${Money.formatCents(quota.effectiveQuotaCents)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("本月已使用：${Money.formatCents(quota.usedThisMonthCents)} · 人工余额调整：${signedMoney(quota.adjustmentCents)}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("本月额度修正：${signedMoney(quota.monthlyCorrectionCents)} · 版本：${quota.version}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("最近更新时间：${quota.updatedAt.ifBlank { "暂无记录" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("修改默认月额度后，将按系统现有规则作用于后续月份。", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+@Composable
+private fun QuotaCurrentCorrectionDialog(quota: UnitQuota, saving: Boolean, onDismiss: () -> Unit, onConfirm: (Long, String) -> Unit) {
+    var amount by remember(quota.version) { mutableStateOf(quotaAmountText(quota.effectiveQuotaCents)) }
+    var reason by remember { mutableStateOf("") }
+    val cents = quotaAmountToCents(amount)
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("修正本月有效额度") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("当前有效额度 ${Money.formatCents(quota.effectiveQuotaCents)}。这会调整本月预算上限，不等同于临时余额调整。", fontSize = 13.sp)
+                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("修正后本月有效额度（元）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = reason, onValueChange = { reason = it }, label = { Text("修正原因") }, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { Button(onClick = { cents?.let { onConfirm(it, reason.trim()) } }, enabled = cents != null && reason.isNotBlank() && !saving) { Text(if (saving) "保存中…" else "保存修正") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss, enabled = !saving) { Text("取消") } }
+    )
+}
+
+@Composable
+private fun FutureQuotaPlanDialog(plan: UnitQuotaFutureMonth, saving: Boolean, onDismiss: () -> Unit, onSave: (Long) -> Unit, onRestoreDefault: () -> Unit) {
+    var amount by remember(plan.quotaMonth) { mutableStateOf(quotaAmountText(plan.plannedQuotaCents)) }
+    val cents = quotaAmountToCents(amount)
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("${plan.quotaMonth} 计划额度") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("当前来源：${futurePlanSourceLabel(plan.source)}", fontSize = 13.sp)
+                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("计划额度（元）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = { Button(onClick = { cents?.let(onSave) }, enabled = cents != null && cents > 0 && !saving) { Text(if (saving) "保存中…" else "保存") } },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onRestoreDefault, enabled = !saving && plan.source != "default") { Text("恢复默认") }
+                OutlinedButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
+            }
+        }
+    )
+}
+
+private fun futurePlanSourceLabel(source: String): String = when (source) {
+    "active" -> "已生效"
+    "explicit" -> "单独设置"
+    else -> "默认额度"
 }
 
 @Composable
