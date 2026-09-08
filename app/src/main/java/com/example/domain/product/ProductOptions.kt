@@ -4,10 +4,6 @@ object ProductOptions {
     private val bulkUnits = setOf("公斤", "斤")
     private val automaticSpecs = setOf("散装", "预包装")
 
-    val primaryCategories = listOf("蔬菜", "水果", "肉禽", "水产", "粮油")
-    val extraCategories = listOf("蛋奶", "调料", "其他")
-    val allCategories = primaryCategories + extraCategories
-
     val primaryUnits = listOf("公斤", "斤", "箱", "袋", "个")
     val extraUnits = listOf("筐", "盒", "瓶", "份", "包")
     val allUnits = primaryUnits + extraUnits

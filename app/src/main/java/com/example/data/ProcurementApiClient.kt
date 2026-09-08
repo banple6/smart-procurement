@@ -594,6 +594,17 @@ class ProcurementApiClient(
         return List(array.length()) { index -> parseProduct(array.getJSONObject(index)) }
     }
 
+    fun productCategories(token: String): List<ProductCategoryDefinition> {
+        val items = request("product-categories", token = token).optJSONArray("items") ?: JSONArray()
+        return List(items.length()) { index ->
+            val item = items.getJSONObject(index)
+            ProductCategoryDefinition(
+                name = item.optString("name").trim(),
+                sortOrder = item.optInt("sort_order"),
+            )
+        }.filter { it.name.isNotBlank() }
+    }
+
     fun saveProduct(token: String, form: ProductEntity): ProductEntity {
         val json = JSONObject()
             .put("product_code", form.code.ifBlank { "P${System.currentTimeMillis()}" })

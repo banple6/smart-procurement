@@ -107,7 +107,8 @@ fun HomeScreen(viewModel: SupplyViewModel) {
         selectedProductIds = selectedProductIds.intersect(products.mapTo(mutableSetOf()) { it.id })
     }
 
-    val categoryFilters = remember(products) { productCategoryFilters(products.map { it.category }) }
+    val categoryCatalog by viewModel.productCategoryCatalog.collectAsState()
+    val categoryFilters = remember(products, categoryCatalog) { productCategoryFilters(products.map { it.category }, categoryCatalog) }
     LaunchedEffect(categoryFilters) {
         selectedCategory = selectedProductCategory(selectedCategory, categoryFilters)
     }
@@ -736,13 +737,13 @@ private fun DetailActions(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
+    val categoryCatalog by viewModel.productCategoryCatalog.collectAsState()
     var form by remember(productId) {
         mutableStateOf(viewModel.formStateFor(productId))
     }
     var leavingConfirm by remember { mutableStateOf(false) }
     var rulesSheet by remember { mutableStateOf(false) }
     var moreSheet by remember { mutableStateOf(false) }
-    var showMoreCategories by remember { mutableStateOf(false) }
     var showMoreUnits by remember { mutableStateOf(false) }
     fun resetForNext(saved: IngredientFormState): IngredientFormState = IngredientFormState(
         category = saved.category,
@@ -812,11 +813,14 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
             item {
                 PlainSection("食材分类") {
                     QuickOptionFlow(
-                        primary = ProductOptions.primaryCategories,
-                        extra = ProductOptions.extraCategories,
+                        primary = remember(categoryCatalog, form.category) { viewModel.productCategoryOptions(form.category) },
+                        extra = emptyList(),
                         selected = form.category,
-                        showExtra = showMoreCategories,
-                        onToggleExtra = { showMoreCategories = !showMoreCategories },
+                        showExtra = false,
+                        onToggleExtra = {},
+                        labelFor = { option ->
+                            if (option == form.category && viewModel.isInactiveProductCategory(option)) "$option（已停用）" else option
+                        },
                         onSelected = { form = form.copy(category = it) }
                     )
                     FieldError(viewModel.ingredientErrors["category"])
@@ -991,11 +995,12 @@ private fun QuickOptionFlow(
     selected: String,
     showExtra: Boolean,
     onToggleExtra: () -> Unit,
+    labelFor: (String) -> String = { it },
     onSelected: (String) -> Unit
 ) {
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         (primary + if (showExtra) extra else emptyList()).forEach { option ->
-            QuickOptionChip(option, selected == option) { onSelected(option) }
+            QuickOptionChip(labelFor(option), selected == option) { onSelected(option) }
         }
         if (extra.isNotEmpty()) {
             QuickOptionChip(if (showExtra) "收起" else "更多", false, onToggleExtra)

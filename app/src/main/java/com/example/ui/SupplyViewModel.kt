@@ -17,6 +17,8 @@ import androidx.lifecycle.viewModelScope
 import com.smartprocurement.internal.BuildConfig
 import com.smartprocurement.internal.data.*
 import com.smartprocurement.internal.domain.money.Money
+import com.smartprocurement.internal.domain.product.adminProductCategoryOptions
+import com.smartprocurement.internal.domain.product.productCategoryFilters
 import com.smartprocurement.internal.domain.validation.AuthValidator
 import com.smartprocurement.internal.domain.validation.CartProductSnapshot
 import com.smartprocurement.internal.domain.validation.CartValidator
@@ -151,6 +153,7 @@ class SupplyViewModel(
     private val sessionStore = SessionStore(application)
     private val appUpdateInstaller = AppUpdateInstaller(application)
     private val apiClient = ProcurementApiClient()
+    private val categoryCatalogRepository = CategoryCatalogRepository(apiClient)
     private val pushPreferences = PushPreferences(application)
     private val pushNotificationManager = PushNotificationManager(application)
     private var authToken by mutableStateOf("")
@@ -243,6 +246,8 @@ class SupplyViewModel(
 
     val allOrders: StateFlow<List<OrderEntity>> = repository.allOrders
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val productCategoryCatalog = categoryCatalogRepository.categories
 
     var orderListOrderIds by mutableStateOf<List<String>>(emptyList())
         private set
@@ -745,7 +750,20 @@ class SupplyViewModel(
     private suspend fun refreshProductsFromServer(): Result<Unit> = runCatching {
         val products = withContext(Dispatchers.IO) { apiClient.products(authToken) }
         repository.replaceProducts(products)
+        runCatching { withContext(Dispatchers.IO) { categoryCatalogRepository.refresh(authToken) } }
         lastSyncText = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+    }
+
+    fun productCategoryOptions(currentCategory: String = ""): List<String> =
+        adminProductCategoryOptions(productCategoryCatalog.value, allProducts.value.map { it.category }, currentCategory)
+
+    fun isInactiveProductCategory(category: String): Boolean =
+        productCategoryCatalog.value.isNotEmpty() && category.trim() !in productCategoryCatalog.value.map { it.name }
+
+    fun analyticsCategoryOptions(): List<String> {
+        val dataCategories = analyticsOverview.demandRank.map { it.category } +
+            analyticsPrices.map { it.category } + analyticsInventory.items.map { it.category }
+        return productCategoryFilters(dataCategories, productCategoryCatalog.value).drop(1)
     }
 
     fun refreshUnitQuota() {

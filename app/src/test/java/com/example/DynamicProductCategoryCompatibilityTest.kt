@@ -4,7 +4,9 @@ import com.smartprocurement.internal.data.CartItemEntity
 import com.smartprocurement.internal.data.CartReconciler
 import com.smartprocurement.internal.data.ProcurementApiClient
 import com.smartprocurement.internal.data.ProductEntity
+import com.smartprocurement.internal.data.ProductCategoryDefinition
 import com.smartprocurement.internal.domain.product.ALL_PRODUCT_CATEGORIES
+import com.smartprocurement.internal.domain.product.adminProductCategoryOptions
 import com.smartprocurement.internal.domain.product.matchesProductCategory
 import com.smartprocurement.internal.domain.product.productCategoryFilters
 import com.smartprocurement.internal.domain.product.selectedProductCategory
@@ -46,6 +48,28 @@ class DynamicProductCategoryCompatibilityTest {
         assertEquals(listOf(ALL_PRODUCT_CATEGORIES, "冻货", "肉类", "蔬菜"), after)
         assertEquals(ALL_PRODUCT_CATEGORIES, selectedProductCategory("蛋奶", after))
         assertEquals("冻货", selectedProductCategory("冻货", after))
+    }
+
+    @Test
+    fun server_catalog_order_hides_empty_categories_and_keeps_orphans() {
+        val catalog = listOf(
+            ProductCategoryDefinition("蔬菜", 10),
+            ProductCategoryDefinition("冻货", 60),
+            ProductCategoryDefinition("粮油", 70),
+            ProductCategoryDefinition("调料", 110),
+        )
+        assertEquals(
+            listOf(ALL_PRODUCT_CATEGORIES, "蔬菜", "粮油", "调料", "豆制品"),
+            productCategoryFilters(listOf("调料", "蔬菜", "豆制品", "粮油"), catalog),
+        )
+        assertEquals(
+            listOf("蔬菜", "冻货", "粮油", "调料", "老分类"),
+            adminProductCategoryOptions(catalog, listOf("蔬菜"), "老分类"),
+        )
+        assertEquals(
+            productCategoryFilters(listOf("粮油", "蔬菜")),
+            productCategoryFilters(listOf("粮油", "蔬菜"), emptyList()),
+        )
     }
 
     @Test

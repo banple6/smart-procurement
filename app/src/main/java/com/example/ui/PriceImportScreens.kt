@@ -78,7 +78,6 @@ import com.smartprocurement.internal.ui.designsystem.GovernmentTopBar
 import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbState
 import com.smartprocurement.internal.ui.thinkingorb.ThinkingOrbStatusPanel
 
-private val importCategories = listOf("蔬菜", "水果", "肉禽", "水产", "粮油", "蛋奶", "调料", "其他")
 private val importUnits = listOf("", "公斤", "斤", "箱", "袋", "个", "筐", "盒", "瓶", "份", "包")
 private val importSupplyStatuses = listOf("paused" to "暂停供应", "normal" to "正常供应", "tight" to "库存紧张")
 private val importMappingFields = listOf(
@@ -183,6 +182,8 @@ fun PriceImportsScreen(viewModel: SupplyViewModel) {
 fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
     val batch = viewModel.activePriceImport
     val products by viewModel.allProducts.collectAsState()
+    val categoryCatalog by viewModel.productCategoryCatalog.collectAsState()
+    val categoryOptions = remember(categoryCatalog, products) { viewModel.productCategoryOptions() }
     var filter by remember { mutableStateOf("全部") }
     var productPickerRow by remember { mutableStateOf<PriceImportRow?>(null) }
     var newProductEditorRow by remember { mutableStateOf<PriceImportRow?>(null) }
@@ -207,6 +208,7 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
             PriceImportReviewContent(
                 batch = batch,
                 products = products,
+                categoryOptions = categoryOptions,
                 viewModel = viewModel,
                 filter = filter,
                 onFilterChange = { filter = it },
@@ -252,6 +254,7 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
         PriceImportNewProductDialog(
             row = row,
             saving = viewModel.isPriceImportLoading,
+            categories = categoryOptions,
             onDismiss = { newProductEditorRow = null },
             onSave = { patch ->
                 viewModel.updatePriceImportNewProduct(row.id, patch)
@@ -280,6 +283,7 @@ fun PriceImportDetailScreen(batchId: String, viewModel: SupplyViewModel) {
 private fun PriceImportReviewContent(
     batch: PriceImportBatch,
     products: List<ProductEntity>,
+    categoryOptions: List<String>,
     viewModel: SupplyViewModel,
     filter: String,
     onFilterChange: (String) -> Unit,
@@ -327,7 +331,7 @@ private fun PriceImportReviewContent(
             }
         }
         if (batch.metrics.newProductRows > 0) {
-            item { PriceImportDefaultsEditor(batch, working, viewModel) }
+            item { PriceImportDefaultsEditor(batch, working, viewModel, categoryOptions) }
         }
         item {
             GovernmentSecondaryButton(
@@ -389,7 +393,12 @@ private fun PriceImportReviewContent(
 }
 
 @Composable
-private fun PriceImportDefaultsEditor(batch: PriceImportBatch, working: Boolean, viewModel: SupplyViewModel) {
+private fun PriceImportDefaultsEditor(
+    batch: PriceImportBatch,
+    working: Boolean,
+    viewModel: SupplyViewModel,
+    categories: List<String>,
+) {
     var category by remember(batch.id, batch.newProductDefaults.category) { mutableStateOf(batch.newProductDefaults.category) }
     var spec by remember(batch.id, batch.newProductDefaults.spec) { mutableStateOf(batch.newProductDefaults.spec) }
     var stock by remember(batch.id, batch.newProductDefaults.stockQuantity) { mutableStateOf(batch.newProductDefaults.stockQuantity) }
@@ -401,12 +410,12 @@ private fun PriceImportDefaultsEditor(batch: PriceImportBatch, working: Boolean,
             Text("只会补齐 Excel 未提供的字段。Excel 中明确填写的规格、单位和库存会优先保留。", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 20.sp)
             Text("分类", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                importCategories.take(4).forEach { item ->
+                categories.take(4).forEach { item ->
                     FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                importCategories.drop(4).forEach { item ->
+                categories.drop(4).forEach { item ->
                     FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
                 }
             }
@@ -656,7 +665,8 @@ private fun PriceImportNewProductDialog(
     row: PriceImportRow,
     saving: Boolean,
     onDismiss: () -> Unit,
-    onSave: (PriceImportNewProductPatch) -> Unit
+    onSave: (PriceImportNewProductPatch) -> Unit,
+    categories: List<String>,
 ) {
     var code by remember(row.id, row.proposedProductCode) { mutableStateOf(row.proposedProductCode) }
     var category by remember(row.id, row.proposedCategory) { mutableStateOf(row.proposedCategory.ifBlank { "其他" }) }
@@ -697,12 +707,12 @@ private fun PriceImportNewProductDialog(
                 item {
                     Text("分类", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                        importCategories.take(4).forEach { option ->
+                        categories.take(4).forEach { option ->
                             FilterChip(selected = category == option, onClick = { category = option }, label = { Text(option) })
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                        importCategories.drop(4).forEach { option ->
+                        categories.drop(4).forEach { option ->
                             FilterChip(selected = category == option, onClick = { category = option }, label = { Text(option) })
                         }
                     }

@@ -32,12 +32,12 @@ import com.smartprocurement.internal.ui.charts.AnalyticsLineChart
 import java.time.LocalDate
 
 
-private val analyticsCategories = listOf("", "蔬菜", "水果", "肉禽", "水产", "粮油", "蛋奶", "调料", "其他")
 private val analyticsTabs = listOf("overview" to "采购", "price" to "价格", "inventory" to "库存", "units" to "单位")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AnalyticsScreen(viewModel: SupplyViewModel, showBack: Boolean = true) {
+    val categoryCatalog by viewModel.productCategoryCatalog.collectAsState()
     val selectedTab = viewModel.analyticsSelectedTab
     var showTimeSheet by rememberSaveable { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
@@ -82,6 +82,7 @@ fun AnalyticsScreen(viewModel: SupplyViewModel, showBack: Boolean = true) {
                 category = viewModel.analyticsCategory,
                 inventoryRiskOnly = viewModel.analyticsInventoryRiskOnly
             ),
+            categories = remember(categoryCatalog, viewModel.analyticsOverview, viewModel.analyticsPrices, viewModel.analyticsInventory) { viewModel.analyticsCategoryOptions() },
             onDismiss = { showFilterSheet = false },
             onApply = {
                 showFilterSheet = false
@@ -281,6 +282,7 @@ private fun AnalyticsTimeSheet(
 private fun AnalyticsFilterSheet(
     tab: String,
     units: List<RemoteUnit>,
+    categories: List<String>,
     initial: AnalyticsFilterDraft,
     onDismiss: () -> Unit,
     onApply: (AnalyticsFilterDraft) -> Unit
@@ -307,7 +309,7 @@ private fun AnalyticsFilterSheet(
             if ("category" in fields) {
                 Text("食材分类", fontWeight = FontWeight.Bold)
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    analyticsCategories.forEach { value ->
+                    (listOf("") + categories).forEach { value ->
                         FilterChip(
                             selected = category == value,
                             onClick = { category = value },
