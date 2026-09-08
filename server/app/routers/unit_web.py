@@ -14,6 +14,7 @@ from ..services.dashboard_cache import invalidate_dashboard_cache
 from ..services.inventory import as_decimal, complete_product, decimal_text
 from ..services.procurement import cutoff_payload
 from ..services.unit_quota import finalize_order_quota, quota_payload
+from ..services.product_order_scopes import require_product_order_scope
 from ..web_session import CSRF_COOKIE, secure_cookie_enabled, web_absolute_seconds
 
 router = APIRouter(tags=["unit-web"])
@@ -123,10 +124,11 @@ def validate_quantity(product: dict, quantity_text: str) -> Decimal:
     return quantity
 
 
-def get_product_for_cart(conn, product_id: str) -> dict:
+def get_product_for_cart(conn, product_id: str, unit_id: str) -> dict:
     product = one(conn, "SELECT * FROM products WHERE id = ? AND is_deleted = 0", (product_id,))
     if not product:
         raise HTTPException(status_code=404, detail="食材不存在")
+    require_product_order_scope(conn, product, unit_id)
     return product
 
 
@@ -213,8 +215,8 @@ def unit_home_data(user=Depends(require_unit_web_session)):
 
 @router.get("/unit/products/data")
 def unit_products_data(q: str | None = None, category: str | None = None, status: str | None = None, user=Depends(require_unit_web_session)):
-    where = ["is_deleted = 0", "active = 1", "supply_status IN ('normal', 'tight')"]
-    params: list[str] = []
+    where = ["is_deleted = 0", "active = 1", "supply_status IN ('normal', 'tight')", "(order_scope_mode = 'all' OR EXISTS (SELECT 1 FROM product_order_scope_units scope WHERE scope.product_id = products.id AND scope.unit_id = ?))"]
+    params: list[str] = [user["unit_id"]]
     if q:
         where.append("(name LIKE ? OR product_code LIKE ?)")
         params.extend([f"%{q}%", f"%{q}%"])
@@ -247,7 +249,7 @@ def unit_current_quota(user=Depends(require_unit_web_session)):
 def add_cart_item(body: CartItemBody, request: Request, user=Depends(require_unit_web_session)):
     require_csrf(request)
     with transaction() as conn:
-        product = get_product_for_cart(conn, body.product_id)
+        product = get_product_for_cart(conn, body.product_id, user["unit_id"])
         quantity = validate_quantity(product, body.quantity)
         item_id = str(uuid4())
         conn.execute(
@@ -271,7 +273,7 @@ def update_cart_item(item_id: str, body: CartQuantityBody, request: Request, use
         item = one(conn, "SELECT * FROM web_cart_items WHERE id = ? AND user_id = ? AND unit_id = ?", (item_id, user["id"], user["unit_id"]))
         if not item:
             raise HTTPException(status_code=404, detail="清单食材不存在")
-        product = get_product_for_cart(conn, item["product_id"])
+        product = get_product_for_cart(conn, item["product_id"], user["unit_id"])
         quantity = validate_quantity(product, body.quantity)
         conn.execute("UPDATE web_cart_items SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (decimal_text(quantity), item_id))
         return cart_payload(conn, user)

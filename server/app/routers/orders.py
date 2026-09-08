@@ -317,7 +317,7 @@ def create_order_rows(conn, body: OrderCreate, user: dict, existing_order_id: st
     items_payload = []
     for item in body.items:
         quantity = as_decimal(item.quantity)
-        product = reserve_product(conn, item.product_id, quantity, order_id, user["id"])
+        product = reserve_product(conn, item.product_id, quantity, order_id, user["id"], unit["id"])
         subtotal = int((Decimal(product["price_cents"]) * quantity).to_integral_value())
         total += subtotal
         items_payload.append((product, quantity, subtotal))

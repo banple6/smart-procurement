@@ -1395,6 +1395,23 @@ def apply_product_categories_migration(conn: sqlite3.Connection):
         conn.execute("INSERT OR IGNORE INTO product_categories(id, name, sort_order, is_active) VALUES (?, ?, ?, 1)", (str(uuid4()), name, index * 10))
 
 
+def apply_product_order_scopes_migration(conn: sqlite3.Connection):
+    """Keep current catalog visibility separate from historical order snapshots."""
+    add_column(conn, "products", "order_scope_mode TEXT NOT NULL DEFAULT 'all' CHECK(order_scope_mode IN ('all', 'selected'))")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS product_order_scope_units (
+          product_id TEXT NOT NULL REFERENCES products(id),
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY(product_id, unit_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_product_order_scope_units_unit_product
+          ON product_order_scope_units(unit_id, product_id);
+        """
+    )
+
+
 def migrate() -> list[str]:
     Path(upload_dir()).mkdir(parents=True, exist_ok=True)
     Path(private_upload_dir()).mkdir(parents=True, exist_ok=True)
@@ -1432,6 +1449,7 @@ def migrate() -> list[str]:
             ("0025_announcements", apply_announcements_migration),
             ("0026_realtime_revisions", apply_realtime_revisions_migration),
             ("0027_product_categories", apply_product_categories_migration),
+            ("0028_product_order_scopes", apply_product_order_scopes_migration),
         ]
         for version, fn in migrations:
             existing = one(conn, "SELECT version FROM schema_migrations WHERE version = ?", (version,))
@@ -1475,6 +1493,7 @@ def migration_status() -> dict:
         "0025_announcements",
         "0026_realtime_revisions",
         "0027_product_categories",
+        "0028_product_order_scopes",
     ]
     pending = [version for version in known if version not in applied]
     return {"applied": applied, "pending": pending}

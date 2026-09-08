@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 from urllib.parse import unquote
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -200,6 +200,14 @@ class ProductStockPatch(BaseModel):
     stock_quantity: str
     detail: str = ""
     expected_version: Optional[int] = None
+
+
+class ProductOrderScopeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["all", "selected"]
+    unit_ids: list[str] = Field(default_factory=list, max_length=1000)
+    expected_version: Optional[int] = Field(default=None, ge=1)
 
 
 class ProductBatchDelete(BaseModel):

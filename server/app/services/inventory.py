@@ -4,6 +4,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from ..database import decimal_text, one
+from .product_order_scopes import require_product_order_scope
 
 
 def as_decimal(value) -> Decimal:
@@ -38,10 +39,12 @@ def log_inventory(conn, product_id: str, order_id: str | None, action: str, quan
     )
 
 
-def reserve_product(conn, product_id: str, quantity: Decimal, order_id: str | None, actor_id: str):
+def reserve_product(conn, product_id: str, quantity: Decimal, order_id: str | None, actor_id: str, unit_id: str | None = None):
     product = one(conn, "SELECT * FROM products WHERE id = ? AND is_deleted = 0", (product_id,))
     if not product or not product["active"] or product["supply_status"] not in ("normal", "tight"):
         raise HTTPException(status_code=409, detail="食材已暂停供应或下架")
+    if unit_id:
+        require_product_order_scope(conn, product, unit_id, mutation=True)
     if int(product["price_cents"]) <= 0:
         raise HTTPException(status_code=409, detail="价格未设置")
     validate_order_quantity(product, quantity)

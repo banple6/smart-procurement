@@ -15,6 +15,7 @@ from ..schemas import (
     ProductCreate,
     ProductDeleteAll,
     ProductPricePatch,
+    ProductOrderScopeUpdate,
     ProductStatusPatch,
     ProductStockPatch,
     ProductUpdate,
@@ -25,6 +26,7 @@ from ..services.images import save_upload
 from ..services.inventory import as_decimal, decimal_text, log_inventory
 from ..services.local_time import local_now
 from ..services.product_categories import ensure_product_category
+from ..services.product_order_scopes import ORDER_SCOPE_ALL, ORDER_SCOPE_MODES, ORDER_SCOPE_SELECTED, require_product_order_scope
 
 router = APIRouter(tags=["products"])
 
@@ -144,6 +146,27 @@ def ensure_can_supply(price_cents: int, supply_status: str, active: bool):
         raise HTTPException(status_code=400, detail="请先填写商品价格")
 
 
+def product_order_scope_out(conn, product: dict) -> dict:
+    unit_ids = [row["unit_id"] for row in all_rows(conn, "SELECT unit_id FROM product_order_scope_units WHERE product_id = ? ORDER BY unit_id", (product["id"],))]
+    return {
+        "product_id": product["id"],
+        "mode": product.get("order_scope_mode", ORDER_SCOPE_ALL),
+        "unit_ids": unit_ids,
+        "version": int(product.get("version") or 1),
+    }
+
+
+def validate_scope_unit_ids(conn, unit_ids: list[str]) -> list[str]:
+    unique_ids = list(dict.fromkeys(unit_id.strip() for unit_id in unit_ids if unit_id and unit_id.strip()))
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="指定单位时至少选择一个单位")
+    placeholders = ",".join("?" for _ in unique_ids)
+    rows = all_rows(conn, f"SELECT id FROM units WHERE active = 1 AND id IN ({placeholders})", unique_ids)
+    if len(rows) != len(unique_ids):
+        raise HTTPException(status_code=400, detail="所选单位不存在或已停用，请刷新后重试")
+    return unique_ids
+
+
 def parse_quantity(value: str, field_name: str) -> Decimal:
     try:
         return Decimal(str(value).strip())
@@ -199,6 +222,8 @@ def list_products(
     if user["role"] == "unit_user":
         where.append("active = 1")
         where.append("supply_status IN ('normal', 'tight')")
+        where.append("(order_scope_mode = 'all' OR EXISTS (SELECT 1 FROM product_order_scope_units scope WHERE scope.product_id = products.id AND scope.unit_id = ?))")
+        params.append(user["unit_id"])
     if category:
         where.append("category = ?")
         params.append(category)
@@ -266,9 +291,57 @@ def export_product_menu(admin=Depends(require_admin_user)):
 def product_detail(product_id: str, user=Depends(current_user)):
     with connect() as conn:
         product = one(conn, "SELECT * FROM products WHERE id = ? AND is_deleted = 0", (product_id,))
+        if product and user["role"] == "unit_user":
+            require_product_order_scope(conn, product, user["unit_id"])
     if not product:
         raise HTTPException(status_code=404, detail="食材不存在")
     return product_out(product)
+
+
+@router.get("/admin/products/{product_id}/order-scope")
+def get_product_order_scope(product_id: str, admin=Depends(require_admin_user)):
+    with connect() as conn:
+        product = one(conn, "SELECT * FROM products WHERE id = ? AND is_deleted = 0", (product_id,))
+        if not product:
+            raise HTTPException(status_code=404, detail="食材不存在")
+        return product_order_scope_out(conn, product)
+
+
+@router.put("/admin/products/{product_id}/order-scope")
+def update_product_order_scope(product_id: str, body: ProductOrderScopeUpdate, admin=Depends(require_admin_user)):
+    if body.mode not in ORDER_SCOPE_MODES:
+        raise HTTPException(status_code=400, detail="下单范围不正确")
+    with transaction() as conn:
+        product = one(conn, "SELECT * FROM products WHERE id = ? AND is_deleted = 0", (product_id,))
+        if not product:
+            raise HTTPException(status_code=404, detail="食材不存在")
+        ensure_expected_product_version(product, body.expected_version)
+        unit_ids = validate_scope_unit_ids(conn, body.unit_ids) if body.mode == ORDER_SCOPE_SELECTED else []
+        before = product_order_scope_out(conn, product)
+        unit_ids = sorted(unit_ids)
+        if before["mode"] == body.mode and before["unit_ids"] == unit_ids:
+            return before
+        update_current_product(conn, "order_scope_mode = ?", [body.mode], product_id, body.expected_version)
+        conn.execute("DELETE FROM product_order_scope_units WHERE product_id = ?", (product_id,))
+        if body.mode == ORDER_SCOPE_SELECTED:
+            conn.executemany(
+                "INSERT INTO product_order_scope_units(product_id, unit_id) VALUES (?, ?)",
+                [(product_id, unit_id) for unit_id in unit_ids],
+            )
+        updated = one(conn, "SELECT * FROM products WHERE id = ?", (product_id,))
+        after = product_order_scope_out(conn, updated)
+        write_audit(
+            conn,
+            admin["id"],
+            admin["role"],
+            "PRODUCT_ORDER_SCOPE_UPDATED",
+            "product",
+            product_id,
+            before_json=json.dumps(before, ensure_ascii=False, separators=(",", ":")),
+            after_json=json.dumps(after, ensure_ascii=False, separators=(",", ":")),
+        )
+        invalidate_dashboard_cache()
+        return after
 
 
 @router.post("/admin/products")
