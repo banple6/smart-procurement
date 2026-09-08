@@ -29,6 +29,26 @@ from ..services.product_categories import ensure_product_category
 router = APIRouter(tags=["products"])
 
 
+@router.get("/product-categories")
+def list_active_product_categories(user=Depends(current_user)):
+    """Authenticated read-only category catalog for Web and App consumers."""
+    with connect() as conn:
+        return {
+            "items": [
+                {"id": row["id"], "name": row["name"], "sort_order": int(row["sort_order"])}
+                for row in all_rows(
+                    conn,
+                    """
+                    SELECT id, name, sort_order
+                    FROM product_categories
+                    WHERE is_active = 1
+                    ORDER BY sort_order, name, id
+                    """,
+                )
+            ]
+        }
+
+
 def _archive_products(conn, product_ids: list[str], admin: dict, action: str) -> dict:
     unique_ids = list(dict.fromkeys(product_ids))
     placeholders = ",".join("?" for _ in unique_ids)

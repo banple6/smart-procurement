@@ -1,4 +1,29 @@
 from test_new_business_features import create_product, login, make_client
+from test_workflows import create_unit_user_product_order
+
+
+def test_authenticated_category_catalog_is_active_only_and_stably_sorted(tmp_path):
+    client = make_client(tmp_path)
+    admin_headers = login(client, "root_admin", "StrongPassword123")
+    catalog = client.get("/api/v1/admin/product-categories", headers=admin_headers).json()
+    frozen = next(item for item in catalog if item["name"] == "冻货")
+    vegetables = next(item for item in catalog if item["name"] == "蔬菜")
+    assert client.patch(f"/api/v1/admin/product-categories/{frozen['id']}", headers=admin_headers, json={"sort_order": 10}).status_code == 200
+    assert client.patch(f"/api/v1/admin/product-categories/{vegetables['id']}", headers=admin_headers, json={"sort_order": 10}).status_code == 200
+    unit_headers = create_unit_user_product_order(client)[1]
+
+    assert client.get("/api/v1/product-categories").status_code == 401
+    for headers in (admin_headers, unit_headers):
+        response = client.get("/api/v1/product-categories", headers=headers)
+        assert response.status_code == 200, response.text
+        items = response.json()["items"]
+        assert all(set(item) == {"id", "name", "sort_order"} for item in items)
+        assert "冻货" in [item["name"] for item in items]
+        assert [item["name"] for item in items].index("冻货") < [item["name"] for item in items].index("蔬菜")
+
+    other = client.post("/api/v1/admin/product-categories", headers=admin_headers, json={"name": "临时停用分类", "sort_order": 1}).json()
+    assert client.patch(f"/api/v1/admin/product-categories/{other['id']}", headers=admin_headers, json={"is_active": False}).status_code == 200
+    assert "临时停用分类" not in [item["name"] for item in client.get("/api/v1/product-categories", headers=admin_headers).json()["items"]]
 
 
 def test_category_catalog_crud_and_legacy_protection(tmp_path):
