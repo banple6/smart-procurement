@@ -800,27 +800,16 @@ private fun OrderActionButton(order: OrderEntity, viewModel: SupplyViewModel, mo
     var showConfirm by remember(order.orderId, label) { mutableStateOf(false) }
     var cancelReason by remember(order.orderId) { mutableStateOf("数量填写错误") }
     val targetStatus = when (label) {
-        "接单" -> "已接单"
-        "确认发货" -> "已发货"
+        "接单" -> "备货中"
         "完成订单" -> "已完成"
         "取消订单" -> "已取消"
-        "确认收货" -> "已完成"
         else -> label
     }
     val loading = viewModel.activeOrderActionId == order.orderId
     JrxpSecondaryButton(
         text = if (loading) "正在提交" else label,
         onClick = {
-            if (label == "确认发货") {
-                if (viewModel.canManageIngredients()) {
-                    viewModel.alertMessage = "请通过出库单确认发货。完成备货后先按单位生成出库单，再在出库单详情上传发货照片。"
-                    viewModel.navigateTo(Screen.Outbounds)
-                } else {
-                    viewModel.navigateTo(Screen.ShippingProof(order.orderId))
-                }
-            } else {
-                showConfirm = true
-            }
+            showConfirm = true
         },
         modifier = modifier,
         enabled = !loading

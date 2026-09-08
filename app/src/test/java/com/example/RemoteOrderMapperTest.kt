@@ -3,7 +3,6 @@ package com.smartprocurement.internal
 import com.smartprocurement.internal.data.RemoteOrderMapper
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -111,10 +110,35 @@ class RemoteOrderMapperTest {
     }
 
     @Test
-    fun preparing_admin_action_does_not_use_generic_shipped_status() {
-        assertNull(RemoteOrderMapper.apiStatusForNextUiAction("备货中", isAdmin = true))
-        assertEquals("accepted", RemoteOrderMapper.apiStatusForNextUiAction("待接单", isAdmin = true))
-        assertEquals("preparing", RemoteOrderMapper.apiStatusForNextUiAction("已接单", isAdmin = true))
-        assertEquals("completed", RemoteOrderMapper.apiStatusForNextUiAction("已发货", isAdmin = true))
+    fun unknown_status_is_read_only_safe_and_historical_item_snapshots_are_preserved() {
+        val mapped = RemoteOrderMapper.mapOrder(
+            JSONObject(
+                """
+                {
+                  "id":"legacy-order",
+                  "status":"awaiting_audit",
+                  "note":"第一行\n第二行",
+                  "total_cents":1000,
+                  "items":[{
+                    "product_id":"legacy-product",
+                    "product_name_snapshot":"旧名称",
+                    "category_snapshot":"蛋奶",
+                    "spec_snapshot":"旧规格",
+                    "unit_snapshot":"袋",
+                    "price_cents_snapshot":1000,
+                    "quantity":"1"
+                  }]
+                }
+                """.trimIndent()
+            )
+        )
+
+        assertEquals("未知状态：awaiting_audit", mapped.order.status)
+        assertEquals("第一行\n第二行", mapped.order.remarks)
+        assertEquals(1000, mapped.order.totalCents)
+        assertEquals("旧名称", mapped.items.single().productName)
+        assertEquals("旧规格", mapped.items.single().productSpec)
+        assertEquals("袋", mapped.items.single().productUnit)
+        assertEquals(10.0, mapped.items.single().price, 0.001)
     }
 }

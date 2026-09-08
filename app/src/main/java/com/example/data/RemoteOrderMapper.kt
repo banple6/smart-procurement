@@ -9,6 +9,12 @@ data class RemoteOrderBundle(
     val items: List<OrderItemEntity>
 )
 
+enum class OrderAction(val label: String) {
+    ACCEPT("接单"),
+    FAST_COMPLETE("完成订单"),
+    CANCEL("取消订单")
+}
+
 object RemoteOrderMapper {
     fun mapOrder(json: JSONObject): RemoteOrderBundle {
         val orderId = json.getString("id")
@@ -67,24 +73,29 @@ object RemoteOrderMapper {
         )
     }
 
-    fun apiStatusForNextUiAction(currentStatus: String, isAdmin: Boolean): String? {
-        if (!isAdmin) return null
-        return when (currentStatus) {
-            "待接单" -> "accepted"
-            "已接单" -> "preparing"
-            "已发货" -> "completed"
-            else -> null
+    fun actionForOrder(status: String, isAdmin: Boolean): OrderAction? {
+        return if (isAdmin) {
+            when (status) {
+                "待接单" -> OrderAction.ACCEPT
+                "已接单", "备货中" -> OrderAction.FAST_COMPLETE
+                else -> null
+            }
+        } else if (status == "待接单") {
+            OrderAction.CANCEL
+        } else {
+            null
         }
     }
 
     private fun String.toUiOrderStatus(): String = when (this) {
+        "pending" -> "待接单"
         "accepted" -> "已接单"
         "preparing" -> "备货中"
         "shipped" -> "已发货"
         "completed" -> "已完成"
         "cancelled" -> "已取消"
         "voided" -> "已作废"
-        else -> "待接单"
+        else -> "未知状态：${ifBlank { "未提供" }}"
     }
 
     private fun String.toUiTime(): String {

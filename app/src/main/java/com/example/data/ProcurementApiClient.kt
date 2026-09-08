@@ -1563,16 +1563,33 @@ class ProcurementApiClient(
         return RemoteOrderMapper.mapOrder(request(path, token = token))
     }
 
-    fun setAdminOrderStatus(token: String, order: OrderEntity, status: String): RemoteOrderBundle {
+    fun acceptOrder(token: String, order: OrderEntity): RemoteOrderBundle {
         val body = JSONObject()
-            .put("status", status)
-            .put("expected_status", order.status.toApiOrderStatus())
+            .put("status", "accepted")
+            .put("expected_status", "pending")
             .put("expected_version", order.version)
             .toString()
             .toRequestBody(JSON)
         return RemoteOrderMapper.mapOrder(
             request("admin/orders/${order.orderId}/status", token = token, method = "PATCH", body = body)
         )
+    }
+
+    fun completeOrderFast(token: String, order: OrderEntity): RemoteOrderBundle {
+        val requestId = IdempotencyKeys.newKey()
+        val body = JSONObject()
+            .put("expected_version", order.version)
+            .put("client_request_id", requestId)
+            .toString()
+            .toRequestBody(JSON)
+        val response = request(
+            "admin/orders/${order.orderId}/complete",
+            token = token,
+            method = "POST",
+            body = body,
+            extraHeaders = IdempotencyKeys.header(requestId)
+        )
+        return RemoteOrderMapper.mapOrder(response.getJSONObject("order"))
     }
 
     fun shipOrder(token: String, orderId: String, photoFiles: List<File>, note: String, clientRequestId: String): RemoteOrderBundle {
@@ -1599,12 +1616,6 @@ class ProcurementApiClient(
             .toRequestBody(JSON)
         return RemoteOrderMapper.mapOrder(
             request("orders/$orderId/cancel", token = token, method = "POST", body = body)
-        )
-    }
-
-    fun confirmReceipt(token: String, orderId: String): RemoteOrderBundle {
-        return RemoteOrderMapper.mapOrder(
-            request("orders/$orderId/confirm-receipt", token = token, method = "POST")
         )
     }
 
@@ -1946,23 +1957,26 @@ class ProcurementApiClient(
     }
 
     private fun String.toUiOrderStatus(): String = when (this) {
+        "pending" -> "待接单"
         "accepted" -> "已接单"
         "preparing" -> "备货中"
         "shipped" -> "已发货"
         "completed" -> "已完成"
         "cancelled" -> "已取消"
         "voided" -> "已作废"
-        else -> "待接单"
+        else -> "未知状态：${ifBlank { "未提供" }}"
     }
 
-    private fun String.toApiOrderStatus(): String = when (this) {
-        "已接单" -> "accepted"
-        "备货中" -> "preparing"
-        "已发货" -> "shipped"
-        "已完成" -> "completed"
-        "已取消" -> "cancelled"
-        "已作废" -> "voided"
-        else -> "pending"
+    private fun String.toApiOrderStatus(): String = when {
+        this == "待接单" -> "pending"
+        this == "已接单" -> "accepted"
+        this == "备货中" -> "preparing"
+        this == "已发货" -> "shipped"
+        this == "已完成" -> "completed"
+        this == "已取消" -> "cancelled"
+        this == "已作废" -> "voided"
+        this.startsWith("未知状态：") -> removePrefix("未知状态：")
+        else -> this
     }
 
     private fun encode(value: String): String = URLEncoder.encode(value, Charsets.UTF_8.name())

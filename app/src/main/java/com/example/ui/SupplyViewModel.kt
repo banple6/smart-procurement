@@ -67,6 +67,27 @@ private const val SAVED_EXTERNAL_ACTION_PAYLOAD_KEY = "external_action_payload"
 private const val CRITICAL_FOREGROUND_REFRESH_MILLIS = 10_000L
 private const val BACKGROUND_FOREGROUND_REFRESH_MILLIS = 60_000L
 
+internal enum class OrderMutationFailure {
+    STALE,
+    NETWORK_RESULT_UNKNOWN,
+    BUSINESS
+}
+
+internal fun classifyOrderMutationFailure(error: Throwable): OrderMutationFailure {
+    val apiError = error as? ApiRequestException
+    if (apiError?.statusCode == 409) {
+        val detail = apiError.message.orEmpty()
+        if (detail.contains("其他操作员更新") || detail.contains("订单状态已变化")) {
+            return OrderMutationFailure.STALE
+        }
+    }
+    return if (error is java.io.IOException || error.cause is java.io.IOException) {
+        OrderMutationFailure.NETWORK_RESULT_UNKNOWN
+    } else {
+        OrderMutationFailure.BUSINESS
+    }
+}
+
 private fun restoredExternalAction(savedStateHandle: SavedStateHandle): PendingExternalAction? {
     val typeName = savedStateHandle.get<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY) ?: return null
     val type = runCatching { ExternalActionType.valueOf(typeName) }.getOrNull() ?: return null
@@ -158,7 +179,6 @@ class SupplyViewModel(
     private val pushNotificationManager = PushNotificationManager(application)
     private var authToken by mutableStateOf("")
     private var pendingPushEvent: PushEvent? = null
-    private val adminUiEventQueue = AdminUiEventQueue()
     private var foregroundSyncJob: Job? = null
     private var isRefreshingOrders = false
     private val connectivityManager = application.getSystemService(ConnectivityManager::class.java)
@@ -190,7 +210,6 @@ class SupplyViewModel(
         persist = ::persistExternalAction
     )
 
-    val adminUiEvents = adminUiEventQueue.events
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -2549,20 +2568,7 @@ class SupplyViewModel(
     fun getOrderItemsFlow(orderId: String): kotlinx.coroutines.flow.Flow<List<OrderItemEntity>> = repository.getOrderItemsFlow(orderId)
 
     fun nextOrderActionLabel(order: OrderEntity): String? {
-        if (currentUser?.role == "admin") {
-            return when (order.status) {
-                "待接单" -> "接单"
-                "已接单" -> "确认发货"
-                "备货中" -> "确认发货"
-                "已发货" -> "完成订单"
-                else -> null
-            }
-        }
-        return when (order.status) {
-            "待接单" -> "取消订单"
-            "已发货" -> "确认收货"
-            else -> null
-        }
+        return RemoteOrderMapper.actionForOrder(order.status, currentUser?.role == "admin")?.label
     }
 
     fun performOrderAction(order: OrderEntity, cancelReason: String = "数量填写错误") {
@@ -2572,44 +2578,44 @@ class SupplyViewModel(
             alertMessage = "请重新登录后操作订单"
             return
         }
-        val isAdminAction = currentUser?.role == "admin"
-        val isAcceptAction = isAdminAction && order.status == "待接单"
+        val action = RemoteOrderMapper.actionForOrder(order.status, currentUser?.role == "admin")
+        if (action == null) {
+            alertMessage = "当前订单状态不可操作，请刷新后确认。"
+            return
+        }
         activeOrderActionId = order.orderId
         viewModelScope.launch {
-            val result = runCatching {
-                val bundle = withContext(Dispatchers.IO) {
-                    if (isAdminAction) {
-                        val nextStatus = RemoteOrderMapper.apiStatusForNextUiAction(order.status, isAdmin = true)
-                            ?: throw IllegalStateException("当前状态不可推进")
-                        apiClient.setAdminOrderStatus(authToken, order, nextStatus)
-                    } else {
-                        when (order.status) {
-                            "待接单" -> apiClient.cancelOrder(authToken, order.orderId, cancelReason)
-                            "已发货" -> apiClient.confirmReceipt(authToken, order.orderId)
-                            else -> throw IllegalStateException("当前状态不可操作")
+            val result = try {
+                runCatching {
+                    val bundle = withContext(Dispatchers.IO) {
+                        when (action) {
+                            OrderAction.ACCEPT -> apiClient.acceptOrder(authToken, order)
+                            OrderAction.FAST_COMPLETE -> apiClient.completeOrderFast(authToken, order)
+                            OrderAction.CANCEL -> apiClient.cancelOrder(authToken, order.orderId, cancelReason)
                         }
                     }
+                    repository.upsertOrder(bundle)
+                    if (action == OrderAction.FAST_COMPLETE) refreshProducts()
+                    bundle
                 }
-                repository.upsertOrder(bundle)
-                refreshProducts()
-                bundle
+            } finally {
+                activeOrderActionId = ""
             }
-            activeOrderActionId = ""
             result.onSuccess { bundle ->
-                snackbarMessage = "订单状态已更新"
-                val event = adminOrderActionSuccessEvent(
-                    isAdmin = isAdminAction,
-                    previousStatus = order.status,
-                    updatedStatus = bundle.order.status,
-                    orderId = order.orderId
-                )
-                if (event != null) {
-                    adminUiEventQueue.emit(event)
-                } else if (isAcceptAction) {
-                    alertMessage = "订单已提交接单，但服务端返回的状态不允许加入备货单，请刷新后检查订单状态。"
-                }
+                snackbarMessage = if (action == OrderAction.FAST_COMPLETE) "订单已完成" else "订单状态已更新"
+                refreshOrderDetail(bundle.order.orderId)
             }.onFailure {
-                alertMessage = it.toUserMessage("订单操作失败")
+                when (classifyOrderMutationFailure(it)) {
+                    OrderMutationFailure.STALE -> {
+                        refreshOrderDetail(order.orderId)
+                        alertMessage = "订单状态已更新，请重新确认。"
+                    }
+                    OrderMutationFailure.NETWORK_RESULT_UNKNOWN -> {
+                        refreshOrderDetail(order.orderId)
+                        alertMessage = "请求结果未知，已刷新订单状态，请确认后重试。"
+                    }
+                    OrderMutationFailure.BUSINESS -> alertMessage = it.toUserMessage("订单操作失败")
+                }
             }
         }
     }

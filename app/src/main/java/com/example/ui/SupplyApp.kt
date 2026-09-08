@@ -69,16 +69,6 @@ fun SupplyAppContent(viewModel: SupplyViewModel) {
         viewModel.snackbarMessage = null
     }
 
-    LaunchedEffect(viewModel) {
-        viewModel.adminUiEvents.collect { event ->
-            when (event) {
-                is AdminUiEvent.NavigateToBatchCreate -> {
-                    viewModel.navigateTo(Screen.DeliveryBatchCreate(event.orderId))
-                }
-            }
-        }
-    }
-
     // Handle Android system hardware back buttons
     BackHandler(enabled = viewModel.navigationStack.size > 1) {
         viewModel.navigateBack()
