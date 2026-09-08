@@ -648,6 +648,61 @@
     }));
   }
 
+  async function openProductOrderScopeDialog(productId) {
+    const [scope, units] = await Promise.all([
+      api(`/api/v1/admin/products/${productId}/order-scope`),
+      api("/api/v1/admin/units"),
+    ]);
+    const selected = new Set(scope.unit_ids || []);
+    const activeUnits = (units || []).filter((unit) => unit.active);
+    const dialog = openOrgDialog("下单范围", `
+      <form id="productOrderScopeForm">
+        <label class="form-field"><span>可下单范围</span><div class="option-row"><label><input type="radio" name="scopeMode" value="all" ${scope.mode === "all" ? "checked" : ""} /> 全部单位</label><label><input type="radio" name="scopeMode" value="selected" ${scope.mode === "selected" ? "checked" : ""} /> 指定单位</label></div></label>
+        <div id="productOrderScopeUnits">${activeUnits.length ? `<div class="page-toolbar"><button class="secondary-button" data-scope-select-all type="button">全选</button><button class="secondary-button" data-scope-clear type="button">清空</button></div>${table(["选择", "单位编码", "单位名称"], activeUnits.map((unit) => `<tr><td><input type="checkbox" data-scope-unit-id="${html(unit.id)}" ${selected.has(unit.id) ? "checked" : ""} aria-label="选择${html(unit.unit_code)} ${html(unit.unit_name)}" /></td><td>${html(unit.unit_code)}</td><td>${html(unit.unit_name)}</td></tr>`), "暂无可用单位")}` : "<p class=\"muted\">暂无可用单位。</p>"}</div>
+        <p class="error-banner" id="productOrderScopeError" hidden></p>
+        <div class="page-toolbar"><button class="table-action" data-close-org-dialog type="button">取消</button><button class="primary-link" type="submit">保存范围</button></div>
+      </form>
+    `);
+    const form = $("productOrderScopeForm");
+    const unitsPanel = $("productOrderScopeUnits");
+    const error = $("productOrderScopeError");
+    const selectedIds = () => Array.from(form.querySelectorAll("[data-scope-unit-id]:checked"), (input) => input.dataset.scopeUnitId);
+    const syncMode = () => { unitsPanel.hidden = form.scopeMode.value !== "selected"; };
+    form.querySelectorAll('input[name="scopeMode"]').forEach((input) => input.addEventListener("change", syncMode));
+    form.querySelector("[data-scope-select-all]")?.addEventListener("click", () => form.querySelectorAll("[data-scope-unit-id]").forEach((input) => { input.checked = true; }));
+    form.querySelector("[data-scope-clear]")?.addEventListener("click", () => form.querySelectorAll("[data-scope-unit-id]").forEach((input) => { input.checked = false; }));
+    form.querySelector("[data-close-org-dialog]")?.addEventListener("click", () => dialog.close());
+    syncMode();
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const mode = form.scopeMode.value;
+      const unitIds = selectedIds();
+      if (mode === "selected" && !unitIds.length) {
+        error.textContent = "指定单位时至少选择一个单位";
+        error.hidden = false;
+        return;
+      }
+      error.hidden = true;
+      const submit = form.querySelector('button[type="submit"]');
+      submit.disabled = true;
+      submit.textContent = "保存中";
+      try {
+        await api(`/api/v1/admin/products/${productId}/order-scope`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode, unit_ids: unitIds, expected_version: scope.version }),
+        });
+        dialog.close();
+        toast("下单范围已保存");
+      } catch (requestError) {
+        error.textContent = requestError.message || "保存下单范围失败";
+        error.hidden = false;
+        submit.disabled = false;
+        submit.textContent = "保存范围";
+      }
+    });
+  }
+
   function bindProductOptionButtons(root) {
     root.querySelectorAll("[data-option-input]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -1531,7 +1586,7 @@
     `;
     const productHeaders = state.productSelectionMode ? ["选择", "食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"] : ["食材", "分类", "规格", "单价", "总库存", "预占", "可用", "状态", "操作"];
     content().innerHTML += table(productHeaders, rows.map((item) => `
-      <tr>${state.productSelectionMode ? `<td><input class="row-check" type="checkbox" data-product-select="${item.id}" ${state.selectedProductIds.has(item.id) ? "checked" : ""} aria-label="选择${html(item.name)}" /></td>` : ""}<td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
+      <tr>${state.productSelectionMode ? `<td><input class="row-check" type="checkbox" data-product-select="${item.id}" ${state.selectedProductIds.has(item.id) ? "checked" : ""} aria-label="选择${html(item.name)}" /></td>` : ""}<td>${html(item.name)}</td><td>${html(item.category || "--")}</td><td>${html(item.spec || "--")}</td><td>${money(item.price_cents)}</td><td>${qty(item.stock_quantity)} ${html(item.unit)}</td><td>${qty(item.reserved_quantity)}</td><td>${qty(item.available_quantity)}</td><td>${supplyTag(item.supply_status, item.active)}</td><td><button class="table-action" data-order-scope="${item.id}">下单范围</button><button class="table-action" data-price="${item.id}" data-current="${item.price_cents}">改价</button><button class="table-action" data-stock="${item.id}" data-current="${item.stock_quantity}">调库存</button></td></tr>
     `), "暂无食材");
     $("exportProductMenu").addEventListener("click", () => downloadProductMenu($("exportProductMenu")));
     $("manageProductCategories").addEventListener("click", () => openProductCategoryDialog().catch((error) => toast(error.message || "分类管理加载失败")));
@@ -1642,6 +1697,9 @@
       const value = prompt("请输入新的总库存", button.dataset.current || "0");
       if (value === null) return;
       await mutate(`/api/v1/admin/products/${button.dataset.stock}/stock`, { stock_quantity: value, detail: "Web 后台调整库存" });
+    }));
+    document.querySelectorAll("[data-order-scope]").forEach((button) => button.addEventListener("click", () => {
+      openProductOrderScopeDialog(button.dataset.orderScope).catch((error) => toast(error.message || "下单范围加载失败"));
     }));
   }
 
