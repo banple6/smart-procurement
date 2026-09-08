@@ -463,6 +463,35 @@ data class PriceImportNewProductPatch(
     val active: Boolean = true
 )
 
+private const val UNKNOWN_SUPPLY_STATUS_PREFIX = "未知供应状态："
+
+internal fun String.toUiSupplyStatus(): String = when (this) {
+    "normal" -> "正常供应"
+    "tight" -> "库存紧张"
+    "paused" -> "暂停供应"
+    "off_shelf" -> "已下架"
+    else -> "$UNKNOWN_SUPPLY_STATUS_PREFIX$this"
+}
+
+internal fun String.toApiSupplyStatus(): String = when (this) {
+    "正常供应" -> "normal"
+    "库存紧张" -> "tight"
+    "暂停供应" -> "paused"
+    "已下架" -> "off_shelf"
+    else -> removePrefix(UNKNOWN_SUPPLY_STATUS_PREFIX)
+}
+
+internal fun stockQuantityForMutation(currentStock: String, mode: String, quantity: String): String {
+    val current = currentStock.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val amount = quantity.toBigDecimalOrNull() ?: BigDecimal.ZERO
+    val next = when (mode) {
+        "increase" -> current + amount
+        "decrease" -> current - amount
+        else -> amount
+    }
+    return next.stripTrailingZeros().toPlainString()
+}
+
 data class PriceImportMetrics(
     val parsedRows: Int = 0,
     val existingProductRows: Int = 0,
@@ -622,7 +651,7 @@ class ProcurementApiClient(
             .put("shelf_life", form.shelfLife)
             .put("storage_method", form.storageMethod)
             .put("description", form.remark)
-            .put("supply_status", form.status.toApiStatus())
+            .put("supply_status", form.status.toApiSupplyStatus())
             .put("active", form.isAvailable)
             .apply { if (form.id.isNotBlank()) put("expected_version", form.version) }
         val path = if (form.id.isBlank()) "admin/products" else "admin/products/${form.id}"
@@ -665,13 +694,7 @@ class ProcurementApiClient(
     }
 
     fun adjustProductInventory(token: String, product: ProductEntity, mode: String, quantity: String, reason: String): InventoryAdjustRemoteResult {
-        val currentStock = product.stockQuantity.toBigDecimalOrNull() ?: BigDecimal.ZERO
-        val delta = quantity.toBigDecimalOrNull() ?: BigDecimal.ZERO
-        val nextStock = when (mode) {
-            "increase" -> currentStock + delta
-            "decrease" -> (currentStock - delta).max(BigDecimal.ZERO)
-            else -> delta
-        }.stripTrailingZeros().toPlainString()
+        val nextStock = stockQuantityForMutation(product.stockQuantity, mode, quantity)
         val body = JSONObject()
             .put("stock_quantity", nextStock)
             .put("detail", reason)
@@ -1851,7 +1874,7 @@ class ProcurementApiClient(
             availableQuantity = QuantityFormatter.format(json.optString("available_quantity", "0")),
             storageMethod = json.optString("storage_method"),
             shelfLife = json.optString("shelf_life"),
-            status = status.toUiStatus(active),
+            status = status.toUiSupplyStatus(),
             isAvailable = active,
             remark = json.optString("description"),
             isDeleted = json.optBoolean("is_deleted", false),
@@ -1920,20 +1943,6 @@ class ProcurementApiClient(
     private fun String.toAbsoluteImageUrl(): String {
         if (isBlank() || startsWith("http")) return this
         return BuildConfig.API_BASE_URL.substringBefore("/api/v1/").trimEnd('/') + this
-    }
-
-    private fun String.toUiStatus(active: Boolean): String = when {
-        !active || this == "off_shelf" -> "已下架"
-        this == "tight" -> "库存紧张"
-        this == "paused" -> "暂停供应"
-        else -> "正常供应"
-    }
-
-    private fun String.toApiStatus(): String = when (this) {
-        "库存紧张" -> "tight"
-        "暂停供应" -> "paused"
-        "已下架" -> "off_shelf"
-        else -> "normal"
     }
 
     private fun String.toUiOrderStatus(): String = when (this) {

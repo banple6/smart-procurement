@@ -5,6 +5,8 @@ import com.smartprocurement.internal.data.CartReconciler
 import com.smartprocurement.internal.data.ProcurementApiClient
 import com.smartprocurement.internal.data.ProductEntity
 import com.smartprocurement.internal.data.ProductCategoryDefinition
+import com.smartprocurement.internal.data.stockQuantityForMutation
+import com.smartprocurement.internal.data.toApiSupplyStatus
 import com.smartprocurement.internal.domain.product.ALL_PRODUCT_CATEGORIES
 import com.smartprocurement.internal.domain.product.adminProductCategoryOptions
 import com.smartprocurement.internal.domain.product.matchesProductCategory
@@ -86,6 +88,26 @@ class DynamicProductCategoryCompatibilityTest {
     }
 
     @Test
+    fun preserves_supply_status_and_active_as_independent_server_facts() {
+        val client = ProcurementApiClient("http://127.0.0.1/api/v1/")
+        val pausedOffShelf = client.parseProduct(productJson("暂停食材", "肉禽", status = "paused", active = false))
+        val futureStatus = client.parseProduct(productJson("未知食材", "冻货", status = "seasonal_hold"))
+
+        assertEquals("暂停供应", pausedOffShelf.status)
+        assertFalse(pausedOffShelf.isAvailable)
+        assertEquals("未知供应状态：seasonal_hold", futureStatus.status)
+        assertEquals("seasonal_hold", futureStatus.status.toApiSupplyStatus())
+    }
+
+    @Test
+    fun inventory_mutation_keeps_the_backend_set_stock_contract() {
+        assertEquals("15", stockQuantityForMutation("20", "decrease", "5"))
+        assertEquals("-1", stockQuantityForMutation("20", "decrease", "21"))
+        assertEquals("25", stockQuantityForMutation("20", "increase", "5"))
+        assertEquals("5.5", stockQuantityForMutation("20", "set", "5.5"))
+    }
+
+    @Test
     fun order_payload_remains_product_id_and_quantity_only() {
         val source = File("src/main/java/com/example/data/ProcurementApiClient.kt").readText()
         val method = source.substring(source.indexOf("fun createOrder("), source.indexOf("fun currentUnitQuota("))
@@ -94,12 +116,14 @@ class DynamicProductCategoryCompatibilityTest {
         assertFalse(method.contains("put(\"category\""))
     }
 
-    private fun productJson(name: String, category: String) = JSONObject()
+    private fun productJson(name: String, category: String, status: String = "normal", active: Boolean = true) = JSONObject()
         .put("id", "product-$category")
         .put("name", name)
         .put("spec", "散装")
         .put("unit", "斤")
         .put("category", category)
+        .put("supply_status", status)
+        .put("active", active)
 
     private fun product(name: String, category: String) = ProductEntity(
         id = "product-$category",

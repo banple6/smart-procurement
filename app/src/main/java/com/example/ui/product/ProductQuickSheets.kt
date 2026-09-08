@@ -60,9 +60,9 @@ fun AdminProductActionRow(
             Text("调库存", fontSize = 13.sp)
         }
         OutlinedButton(onClick = onToggle, enabled = !loading, modifier = Modifier.weight(1f).height(48.dp)) {
-            Icon(if (product.isAvailable && product.status != "已下架") Icons.Default.Close else Icons.Default.Add, contentDescription = null)
+            Icon(if (product.isAvailable) Icons.Default.Close else Icons.Default.Add, contentDescription = null)
             Spacer(Modifier.width(4.dp))
-            Text(if (product.isAvailable && product.status != "已下架") "下架" else "重新上架", fontSize = 13.sp)
+            Text(if (product.isAvailable) "下架" else "重新上架", fontSize = 13.sp)
         }
     }
 }
@@ -179,7 +179,7 @@ fun ProductPublishConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
-    val publish = !product.isAvailable || product.status == "已下架"
+    val publish = !product.isAvailable
     AlertDialog(
         onDismissRequest = { if (!loading) onDismiss() },
         title = { Text(if (publish) "确认重新上架“${product.name}”吗？" else "确认下架“${product.name}”吗？") },

@@ -47,5 +47,5 @@ object CartReconciler {
     }
 
     private fun isOrderableCatalogProduct(product: ProductEntity): Boolean =
-        !product.isDeleted && product.isAvailable && product.status !in setOf("已下架", "暂停供应")
+        !product.isDeleted && product.isAvailable && product.status in setOf("正常供应", "库存紧张")
 }

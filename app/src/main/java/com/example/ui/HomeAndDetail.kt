@@ -857,7 +857,8 @@ fun IngredientFormScreen(productId: String?, viewModel: SupplyViewModel) {
             }
             item {
                 PlainSection("供应状态") {
-                    SegmentedOptionRow(ProductOptions.supplyStatuses, form.status) { form = form.copy(status = it) }
+                    val statusOptions = ProductOptions.supplyStatuses + listOf(form.status).filter { it.isNotBlank() && it !in ProductOptions.supplyStatuses }
+                    SegmentedOptionRow(statusOptions, form.status) { form = form.copy(status = it) }
                     SwitchRow("是否上架", form.isAvailable) { form = form.copy(isAvailable = it) }
                 }
             }
