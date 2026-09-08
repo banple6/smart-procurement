@@ -117,6 +117,15 @@ internal fun classifyQuotaMutationFailure(error: Throwable): QuotaMutationFailur
     }
 }
 
+internal fun authorizationFailureMessage(error: Throwable?): String? {
+    val apiError = error as? ApiRequestException ?: return null
+    return when (apiError.statusCode) {
+        401 -> "登录已过期，请重新登录"
+        403 -> apiError.message.orEmpty().ifBlank { "当前账号无权执行此操作" }
+        else -> null
+    }
+}
+
 private fun restoredExternalAction(savedStateHandle: SavedStateHandle): PendingExternalAction? {
     val typeName = savedStateHandle.get<String>(SAVED_EXTERNAL_ACTION_TYPE_KEY) ?: return null
     val type = runCatching { ExternalActionType.valueOf(typeName) }.getOrNull() ?: return null
@@ -342,6 +351,7 @@ class SupplyViewModel(
     var userRole by mutableStateOf("")
     var unitId by mutableStateOf("")
     var mustChangePassword by mutableStateOf(false)
+    private var sessionCapabilities by mutableStateOf(SessionCapabilities())
     var lastSyncText by mutableStateOf("")
     var unitQuota by mutableStateOf(UnitQuota())
         private set
@@ -520,6 +530,10 @@ class SupplyViewModel(
 
     // --- Navigation Methods ---
     fun navigateTo(screen: Screen) {
+        if (!canOpenScreen(userRole, screen, sessionCapabilities)) {
+            snackbarMessage = "当前账号无权访问该功能"
+            return
+        }
         // Prevent duplicates on top of stack
         if (navigationStack.lastOrNull() != screen) {
             navigationStack.add(screen)
@@ -707,8 +721,7 @@ class SupplyViewModel(
                 PushRegistrationWorker.cancel(getApplication())
                 onAppPaused()
                 authToken = ""
-                currentUser = null
-                mustChangePassword = false
+                clearAuthenticatedUser()
                 alertMessage = "密码已修改，请使用新密码重新登录"
                 popToRootAndNavigate(Screen.Login)
             }.onFailure {
@@ -731,16 +744,7 @@ class SupplyViewModel(
             OrderSyncWorker.cancel(getApplication())
             PushRegistrationWorker.cancel(getApplication())
             onAppPaused()
-            currentUser = null
-            userName = "未登录"
-            userId = ""
-            userDept = ""
-            currentUnitName = ""
-            currentUnitCode = ""
-            defaultDeliveryPoint = ""
-            userRole = ""
-            unitId = ""
-            mustChangePassword = false
+            clearAuthenticatedUser()
             authToken = ""
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
@@ -779,6 +783,15 @@ class SupplyViewModel(
         userRole = user.role
         unitId = user.unitId
         mustChangePassword = user.mustChangePassword
+        sessionCapabilities = SessionCapabilities.from(
+            role = user.role,
+            canManageAccounts = user.canManageAccounts,
+            canIssueManagerInvites = user.canIssueManagerInvites,
+            canViewSystemStatus = user.canViewSystemStatus,
+            canViewDetailedMetrics = user.canViewDetailedMetrics,
+            canManageBackups = user.canManageBackups,
+            canRestoreBackups = user.canRestoreBackups
+        )
     }
 
     fun refreshProducts() {
@@ -2104,7 +2117,7 @@ class SupplyViewModel(
     }
 
     fun refreshSystemOverview() {
-        if (authToken.isBlank() || !canManageIngredients()) return
+        if (authToken.isBlank() || !canViewSystemStatus()) return
         viewModelScope.launch {
             runCatching { withContext(Dispatchers.IO) { apiClient.systemOverview(authToken) } }
                 .onSuccess { systemOverview = it }
@@ -2405,9 +2418,11 @@ class SupplyViewModel(
         }
     }
 
-    fun canManageIngredients(): Boolean = currentUser?.role == "admin"
-    fun canDeleteIngredients(): Boolean = currentUser?.role == "admin"
-    fun canRestoreIngredients(): Boolean = currentUser?.role == "admin"
+    fun canManageIngredients(): Boolean = sessionCapabilities.isAdmin
+    fun canDeleteIngredients(): Boolean = sessionCapabilities.isAdmin
+    fun canRestoreIngredients(): Boolean = sessionCapabilities.isAdmin
+    fun canManageAccounts(): Boolean = sessionCapabilities.canManageAccounts
+    fun canViewSystemStatus(): Boolean = sessionCapabilities.canViewSystemStatus
 
     fun formStateFor(productId: String?): IngredientFormState {
         val product = productId?.let { allProducts.value.find { product -> product.id == it } }
@@ -2857,7 +2872,9 @@ class SupplyViewModel(
 
     private fun Throwable?.toUserMessage(fallback: String): String {
         val message = this?.message.orEmpty()
+        val authorizationMessage = authorizationFailureMessage(this)
         val userMessage = when {
+            authorizationMessage != null -> authorizationMessage
             message.contains("登录已过期") -> "登录已过期，请重新登录"
             message.contains("账号已停用") -> "账号已停用，请联系管理员"
             message.contains("所属单位已停用") -> "所属单位已停用，请联系管理员"
@@ -2895,19 +2912,24 @@ class SupplyViewModel(
             repository.clearSensitiveCache()
             onAppPaused()
             authToken = ""
-            currentUser = null
-            userName = "未登录"
-            userId = ""
-            userDept = ""
-            currentUnitName = ""
-            currentUnitCode = ""
-            defaultDeliveryPoint = ""
-            userRole = ""
-            unitId = ""
-            mustChangePassword = false
+            clearAuthenticatedUser()
             currentTab = "home"
             popToRootAndNavigate(Screen.Login)
         }
+    }
+
+    private fun clearAuthenticatedUser() {
+        currentUser = null
+        userName = "未登录"
+        userId = ""
+        userDept = ""
+        currentUnitName = ""
+        currentUnitCode = ""
+        defaultDeliveryPoint = ""
+        userRole = ""
+        unitId = ""
+        mustChangePassword = false
+        sessionCapabilities = SessionCapabilities()
     }
 
     override fun onCleared() {

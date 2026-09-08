@@ -25,7 +25,13 @@ data class RemoteUser(
     val unitCode: String = "",
     val unitName: String = "",
     val defaultDeliveryPoint: String = "",
-    val mustChangePassword: Boolean = false
+    val mustChangePassword: Boolean = false,
+    val canManageAccounts: Boolean = false,
+    val canIssueManagerInvites: Boolean = false,
+    val canViewSystemStatus: Boolean = false,
+    val canViewDetailedMetrics: Boolean = false,
+    val canManageBackups: Boolean = false,
+    val canRestoreBackups: Boolean = false
 )
 
 data class RemoteLogin(
@@ -1921,7 +1927,7 @@ class ProcurementApiClient(
         )
     }
 
-    private fun parseUser(json: JSONObject): RemoteUser = RemoteUser(
+    internal fun parseUser(json: JSONObject): RemoteUser = RemoteUser(
         id = json.getString("id"),
         username = json.getString("username"),
         displayName = json.getString("display_name"),
@@ -1930,7 +1936,13 @@ class ProcurementApiClient(
         unitCode = json.optString("unit_code"),
         unitName = json.optString("unit_name"),
         defaultDeliveryPoint = json.optString("default_delivery_point"),
-        mustChangePassword = json.optBoolean("must_change_password", false)
+        mustChangePassword = json.optBoolean("must_change_password", false),
+        canManageAccounts = json.optBoolean("can_manage_accounts", false),
+        canIssueManagerInvites = json.optBoolean("can_issue_manager_invites", false),
+        canViewSystemStatus = json.optBoolean("can_view_system_status", false),
+        canViewDetailedMetrics = json.optBoolean("can_view_detailed_metrics", false),
+        canManageBackups = json.optBoolean("can_manage_backups", false),
+        canRestoreBackups = json.optBoolean("can_restore_backups", false)
     )
 
     internal fun parseProduct(json: JSONObject): ProductEntity {

@@ -187,15 +187,21 @@ fun ProfileScreen(viewModel: SupplyViewModel) {
             ) {
                 Column {
                     if (viewModel.canManageIngredients()) {
-                        ProfileMenuItem(icon = Icons.Default.Home, title = "子单位管理") { viewModel.navigateTo(Screen.UnitManagement) }
+                        if (viewModel.canManageAccounts()) {
+                            ProfileMenuItem(icon = Icons.Default.Home, title = "子单位管理") { viewModel.navigateTo(Screen.UnitManagement) }
+                        }
                         ProfileMenuItem(icon = Icons.Default.AccountBalanceWallet, title = "单位采购额度") { viewModel.navigateTo(Screen.UnitQuotaManagement) }
-                        ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
+                        if (viewModel.canManageAccounts()) {
+                            ProfileMenuItem(icon = Icons.Default.Person, title = "账号管理") { viewModel.navigateTo(Screen.AccountManagement) }
+                        }
                         ProfileMenuItem(icon = Icons.Default.Menu, title = "采购台账") { viewModel.navigateTo(Screen.Ledger) }
                         ProfileMenuItem(icon = Icons.Default.List, title = "库存记录") { viewModel.navigateTo(Screen.InventoryRecords) }
                         ProfileMenuItem(icon = Icons.Default.Description, title = "Excel 智能导入") { viewModel.navigateTo(Screen.PriceImports) }
                         ProfileMenuItem(icon = Icons.Default.LocalShipping, title = "备货单") { viewModel.navigateTo(Screen.DeliveryBatches) }
                         ProfileMenuItem(icon = Icons.Default.LocalShipping, title = "出库单") { viewModel.navigateTo(Screen.Outbounds) }
-                        ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
+                        if (viewModel.canViewSystemStatus()) {
+                            ProfileMenuItem(icon = Icons.Default.Menu, title = "系统状态") { viewModel.navigateTo(Screen.SystemStatus) }
+                        }
                         ProfileMenuItem(
                             icon = Icons.Default.Notifications,
                             title = "订单通知",
