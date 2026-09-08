@@ -1,6 +1,10 @@
 package com.smartprocurement.internal
 
 import com.smartprocurement.internal.data.ProcurementApiClient
+import com.smartprocurement.internal.data.ApiRequestException
+import com.smartprocurement.internal.ui.OutboundMutationFailure
+import com.smartprocurement.internal.ui.classifyOutboundMutationFailure
+import com.smartprocurement.internal.ui.outboundStatusLabel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -30,7 +34,7 @@ class OutboundOrderParserTest {
         )
 
         assertEquals("outbound-a", outbound.id)
-        assertEquals("待发货", outboundStatus(outbound.status))
+        assertEquals("待完成", outboundStatusLabel(outbound.status))
         assertEquals("第一食堂", outbound.unitName)
         assertEquals(1200L, outbound.totalCents)
         assertEquals("10", outbound.lines.single().quantity)
@@ -38,8 +42,25 @@ class OutboundOrderParserTest {
         assertEquals("备货中", outbound.orders.single().status)
     }
 
-    private fun outboundStatus(value: String) = when (value) {
-        "pending" -> "待发货"
-        else -> value
+    @Test
+    fun `terminal and unknown outbound statuses remain safe and readable`() {
+        assertEquals("已完成", outboundStatusLabel("shipped"))
+        assertEquals("未知状态：future_status", outboundStatusLabel("future_status"))
+    }
+
+    @Test
+    fun `direct completion conflicts preserve business detail and classify stale writes`() {
+        assertEquals(
+            OutboundMutationFailure.STALE,
+            classifyOutboundMutationFailure(ApiRequestException(409, message = "出库单已被其他管理员修改，请刷新后重试"))
+        )
+        assertEquals(
+            OutboundMutationFailure.BUSINESS,
+            classifyOutboundMutationFailure(ApiRequestException(409, message = "当前出库单不能完成"))
+        )
+        assertEquals(
+            OutboundMutationFailure.NETWORK_RESULT_UNKNOWN,
+            classifyOutboundMutationFailure(java.io.IOException("timeout"))
+        )
     }
 }

@@ -95,7 +95,7 @@ fun OutboundsScreen(viewModel: SupplyViewModel, requestWorkbookDocument: Workboo
             }
         } else if (viewModel.outboundOrders.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("暂无出库单。完成备货后，可在备货单详情中按单位生成出库单。", modifier = Modifier.padding(24.dp))
+                Text("暂无出库单。出库凭证由服务端订单完成流程生成。", modifier = Modifier.padding(24.dp))
             }
         } else {
             LazyColumn(
@@ -139,6 +139,8 @@ fun OutboundDetailScreen(
     requestWorkbookDocument: WorkbookDocumentRequest
 ) {
     val outbound = viewModel.activeOutboundOrder?.takeIf { it.id == outboundId }
+    var showCompleteConfirm by rememberSaveable(outboundId) { mutableStateOf(false) }
+    val completing = viewModel.activeOutboundShippingId == outboundId
     LaunchedEffect(outboundId) { viewModel.refreshOutboundOrder(outboundId) }
     Scaffold(
         topBar = {
@@ -173,7 +175,7 @@ fun OutboundDetailScreen(
                             DetailLine("来源备货单", outbound.batchNo)
                             DetailLine("整单金额", Money.formatCents(outbound.totalCents))
                             DetailLine("生成时间", outbound.createdAt)
-                            if (outbound.shippedAt.isNotBlank()) DetailLine("发货时间", outbound.shippedAt)
+                            if (outbound.shippedAt.isNotBlank()) DetailLine("完成时间", outbound.shippedAt)
                             OutlinedButton(
                                 onClick = {
                                     requestWorkbookDocument(
@@ -187,9 +189,10 @@ fun OutboundDetailScreen(
                             ) { Text(if (viewModel.isDocumentExportBusy(ExternalActionType.OUTBOUND_EXPORT)) "正在保存…" else "导出出库单") }
                             if (outbound.status == "pending") {
                                 Button(
-                                    onClick = { viewModel.navigateTo(Screen.OutboundShippingProof(outbound.id)) },
+                                    onClick = { showCompleteConfirm = true },
+                                    enabled = !completing,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                                ) { Text("拍照并确认发货") }
+                                ) { Text(if (completing) "正在完成…" else "完成出库单") }
                             }
                         }
                     }
@@ -227,6 +230,20 @@ fun OutboundDetailScreen(
                 }
             }
         }
+    }
+    if (showCompleteConfirm && outbound != null) {
+        AlertDialog(
+            onDismissRequest = { showCompleteConfirm = false },
+            title = { Text("完成出库单") },
+            text = { Text("完成后将由服务器更新该出库单及其关联订单，且无需上传照片。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCompleteConfirm = false
+                    viewModel.completeLegacyOutbound(outbound)
+                }) { Text("确认完成") }
+            },
+            dismissButton = { TextButton(onClick = { showCompleteConfirm = false }) { Text("取消") } }
+        )
     }
 }
 
@@ -316,9 +333,9 @@ private fun DetailLine(label: String, value: String) {
     }
 }
 
-private fun outboundStatusLabel(status: String): String = when (status) {
-    "pending" -> "待发货"
-    "shipped" -> "已发货"
+internal fun outboundStatusLabel(status: String): String = when (status) {
+    "pending" -> "待完成"
+    "shipped" -> "已完成"
     "archived" -> "已归档"
-    else -> status
+    else -> "未知状态：${status.ifBlank { "(空)" }}"
 }

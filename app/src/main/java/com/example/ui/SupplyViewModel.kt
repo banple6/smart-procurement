@@ -88,6 +88,23 @@ internal fun classifyOrderMutationFailure(error: Throwable): OrderMutationFailur
     }
 }
 
+internal enum class OutboundMutationFailure { STALE, NETWORK_RESULT_UNKNOWN, BUSINESS }
+
+internal fun classifyOutboundMutationFailure(error: Throwable): OutboundMutationFailure {
+    val apiError = error as? ApiRequestException
+    if (apiError?.statusCode == 409) {
+        val detail = apiError.message.orEmpty()
+        if (detail.contains("其他管理员修改") || detail.contains("订单状态已变化")) {
+            return OutboundMutationFailure.STALE
+        }
+    }
+    return if (error is java.io.IOException || error.cause is java.io.IOException) {
+        OutboundMutationFailure.NETWORK_RESULT_UNKNOWN
+    } else {
+        OutboundMutationFailure.BUSINESS
+    }
+}
+
 internal enum class QuotaMutationFailure { STALE, NETWORK_RESULT_UNKNOWN, BUSINESS }
 
 internal fun classifyQuotaMutationFailure(error: Throwable): QuotaMutationFailure {
@@ -1887,22 +1904,6 @@ class SupplyViewModel(
         }
     }
 
-    fun generateOutboundOrders(batchId: String) {
-        if (authToken.isBlank() || !canManageIngredients() || isOutboundLoading) return
-        if (!requireNetworkForWrite()) return
-        isOutboundLoading = true
-        viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { apiClient.generateOutboundOrders(authToken, batchId) } }
-                .onSuccess { generated ->
-                    outboundOrders = generated + outboundOrders.filterNot { current -> generated.any { it.id == current.id } }
-                    snackbarMessage = "已生成 ${generated.size} 张出库单"
-                    navigateTo(Screen.Outbounds)
-                }
-                .onFailure { alertMessage = it.toUserMessage("生成出库单失败") }
-            isOutboundLoading = false
-        }
-    }
-
     fun refreshOutboundOrders() {
         if (authToken.isBlank() || !canManageIngredients() || isOutboundLoading) return
         isOutboundLoading = true
@@ -1936,6 +1937,73 @@ class SupplyViewModel(
     fun exportOutboundOrder(outboundId: String, uri: Uri) = saveWorkbook(
         uri, ExternalActionType.OUTBOUND_EXPORT, "出库单已保存", "出库单保存失败，请重试"
     ) { token -> apiClient.exportOutboundOrder(token, outboundId) }
+
+    fun completeLegacyOutbound(outbound: OutboundOrder) {
+        if (activeOutboundShippingId == outbound.id) return
+        if (!requireNetworkForWrite()) return
+        if (authToken.isBlank()) {
+            alertMessage = "请重新登录后操作出库单"
+            return
+        }
+        if (outbound.status != "pending") {
+            alertMessage = "当前出库单不可完成，请刷新后确认。"
+            return
+        }
+        activeOutboundShippingId = outbound.id
+        viewModelScope.launch {
+            val result = try {
+                runCatching {
+                    withContext(Dispatchers.IO) { apiClient.completeOutboundOrder(authToken, outbound) }
+                }
+            } finally {
+                activeOutboundShippingId = ""
+            }
+            result.onSuccess { completed ->
+                activeOutboundOrder = completed
+                outboundOrders = listOf(completed) + outboundOrders.filterNot { it.id == completed.id }
+                refreshOrders()
+                refreshProducts()
+                reconcileOutboundCompletion(completed.id)
+                snackbarMessage = "出库单已完成，关联订单已更新"
+            }.onFailure { error ->
+                when (classifyOutboundMutationFailure(error)) {
+                    OutboundMutationFailure.STALE -> {
+                        refreshOutboundAfterAmbiguousResult(outbound.id)
+                        alertMessage = "出库单状态已更新，请重新确认。"
+                    }
+                    OutboundMutationFailure.NETWORK_RESULT_UNKNOWN -> {
+                        refreshOutboundAfterAmbiguousResult(outbound.id)
+                        alertMessage = "请求结果未知，已刷新出库单状态，请确认后重试。"
+                    }
+                    OutboundMutationFailure.BUSINESS -> alertMessage = error.toUserMessage("出库单完成失败")
+                }
+            }
+        }
+    }
+
+    private fun reconcileOutboundCompletion(outboundId: String) {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    apiClient.outboundOrderDetail(authToken, outboundId) to apiClient.outboundOrders(authToken)
+                }
+            }.onSuccess { (detail, list) ->
+                activeOutboundOrder = detail
+                outboundOrders = list
+            }.onFailure { snackbarMessage = it.toUserMessage("出库单状态同步失败") }
+        }
+    }
+
+    private fun refreshOutboundAfterAmbiguousResult(outboundId: String) {
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { apiClient.outboundOrderDetail(authToken, outboundId) } }
+                .onSuccess { current ->
+                    activeOutboundOrder = current
+                    outboundOrders = listOf(current) + outboundOrders.filterNot { it.id == current.id }
+                }
+                .onFailure { snackbarMessage = it.toUserMessage("出库单状态加载失败") }
+        }
+    }
 
     fun submitOutboundShippingProof(outboundId: String, photoFiles: List<File>, note: String, onSuccess: () -> Unit) {
         if (activeOutboundShippingId == outboundId) return

@@ -1331,12 +1331,6 @@ class ProcurementApiClient(
     fun exportDeliveryBatchOutbound(token: String, batchId: String): ByteArray =
         executeBytes("admin/batches/$batchId/outbound.xlsx", token)
 
-    fun generateOutboundOrders(token: String, batchId: String): List<OutboundOrder> {
-        val items = request("admin/outbounds/from-batch/$batchId", token = token, method = "POST")
-            .optJSONArray("items") ?: JSONArray()
-        return List(items.length()) { index -> parseOutboundOrder(items.getJSONObject(index)) }
-    }
-
     fun outboundOrders(token: String): List<OutboundOrder> {
         val items = request("admin/outbounds", token = token).optJSONArray("items") ?: JSONArray()
         return List(items.length()) { index -> parseOutboundOrder(items.getJSONObject(index)) }
@@ -1347,6 +1341,24 @@ class ProcurementApiClient(
 
     fun exportOutboundOrder(token: String, outboundId: String): ByteArray =
         executeBytes("admin/outbounds/$outboundId/export.xlsx", token)
+
+    fun completeOutboundOrder(token: String, outbound: OutboundOrder): OutboundOrder {
+        val requestId = IdempotencyKeys.newKey()
+        val body = JSONObject()
+            .put("expected_version", outbound.version)
+            .put("client_request_id", requestId)
+            .toString()
+            .toRequestBody(JSON)
+        return parseOutboundOrder(
+            request(
+                "admin/outbounds/${outbound.id}/complete",
+                token = token,
+                method = "POST",
+                body = body,
+                extraHeaders = IdempotencyKeys.header(requestId)
+            )
+        )
+    }
 
     fun shipOutboundOrder(
         token: String,

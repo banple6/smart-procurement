@@ -18,11 +18,12 @@ class WorkflowTutorialPolicyTest {
         assertTrue(extraScreens.contains("workflow_unit_tutorial"))
         assertTrue(extraScreens.contains("if (isAdmin) null else R.drawable.workflow_unit_tutorial"))
 
-        listOf("完善单位", "创建账号", "维护食材", "处理订单", "出库发货", "检查系统").forEach {
+        listOf("完善单位", "创建账号", "维护食材", "处理订单", "出库凭证", "检查系统").forEach {
             assertTrue("missing admin workflow step: $it", extraScreens.contains(it))
         }
         assertTrue(extraScreens.contains("生成备货单并完成备货"))
-        assertTrue(extraScreens.contains("按单位生成出库单"))
+        assertTrue(extraScreens.contains("订单完成后由服务端生成出库凭证"))
+        assertTrue(extraScreens.contains("无需上传照片"))
         listOf("账号登录", "浏览食材", "加入清单", "提交订单", "确认收货", "异常说明").forEach {
             assertTrue("missing unit workflow step: $it", extraScreens.contains(it))
         }

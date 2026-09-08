@@ -259,12 +259,6 @@ fun DeliveryBatchDetailScreen(
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                             ) { Text("完成备货") }
-                        } else if (batch.status == "closed") {
-                            Button(
-                                onClick = { viewModel.generateOutboundOrders(batchId) },
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                                enabled = !viewModel.isOutboundLoading
-                            ) { Text(if (viewModel.isOutboundLoading) "正在生成出库单" else "按单位生成出库单") }
                         }
                     }
                 }
@@ -298,7 +292,7 @@ fun DeliveryBatchDetailScreen(
         AlertDialog(
             onDismissRequest = { showCloseConfirm = false },
             title = { Text("确认完成备货？") },
-            text = { Text("完成后不能再调整备货单中的订单，可在 Web 管理端按单位生成出库单；此操作不会自动发货。") },
+            text = { Text("完成后不能再调整备货单中的订单；后续订单完成由服务端统一处理。") },
             dismissButton = { TextButton(onClick = { showCloseConfirm = false }) { Text("取消") } },
             confirmButton = {
                 TextButton(onClick = {
